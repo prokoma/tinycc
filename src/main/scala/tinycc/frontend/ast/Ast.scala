@@ -42,10 +42,6 @@ class AstIdentifier(val value: Symbol, val loc: SourceLocation) extends AstNode 
   override def accept[R](vis: AstVisitor[R]): R = vis.visitIdentifier(this)
 }
 
-object AstIdentifier {
-  def apply(tok: Identifier, loc: SourceLocation) = new AstIdentifier(Symbol(tok.value), loc)
-}
-
 class AstSequence(val body: Seq[AstNode], val loc: SourceLocation) extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitSequence(this)
 }
@@ -64,11 +60,11 @@ class AstVarDecl(val name: Symbol, val varTy: AstType, val value: Option[AstNode
   override def accept[R](vis: AstVisitor[R]): R = vis.visitVarDecl(this)
 }
 
-class AstFunDecl(val name: Symbol, val returnTy: AstType, val args: Seq[(AstType, AstIdentifier)], val body: Option[AstNode], val loc: SourceLocation) extends AstDecl {
+class AstFunDecl(val name: Symbol, val returnTy: AstType, val args: Seq[(AstType, Symbol)], val body: Option[AstNode], val loc: SourceLocation) extends AstDecl {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitFunDecl(this)
 }
 
-class AstStructDecl(val name: Symbol, val fields: Seq[(AstIdentifier, AstType)], val loc: SourceLocation) extends AstDecl {
+class AstStructDecl(val name: Symbol, val fields: Seq[(AstType, Symbol)], val loc: SourceLocation) extends AstDecl {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitStructDecl(this)
 }
 
@@ -92,7 +88,7 @@ class AstDoWhile(val guard: AstNode, val body: AstNode, val loc: SourceLocation)
   override def accept[R](vis: AstVisitor[R]): R = vis.visitDoWhile(this)
 }
 
-class AstFor(val init: AstNode, val guard: AstNode, val increment: AstNode, val body: AstNode, val loc: SourceLocation) extends AstNode {
+class AstFor(val init: Option[AstNode], val guard: Option[AstNode], val increment: Option[AstNode], val body: AstNode, val loc: SourceLocation) extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitFor(this)
 }
 
@@ -112,10 +108,6 @@ class AstBinaryOp(val op: Symbol, val left: AstNode, val right: AstNode, val loc
   override def accept[R](vis: AstVisitor[R]): R = vis.visitBinaryOp(this)
 }
 
-object AstBinaryOp  {
-  def apply(tok: Operator, left: AstNode, right: AstNode, loc: SourceLocation): AstBinaryOp = new AstBinaryOp(tok.value, left, right, loc)
-}
-
 class AstAssignment(val lvalue: AstNode, val value: AstNode, val loc: SourceLocation) extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitAssignment(this)
 }
@@ -124,16 +116,8 @@ class AstUnaryOp(val op: Symbol, val expr: AstNode, val loc: SourceLocation) ext
   override def accept[R](vis: AstVisitor[R]): R = vis.visitUnaryOp(this)
 }
 
-object AstUnaryOp  {
-  def apply(tok: Operator, expr: AstNode, loc: SourceLocation): AstUnaryOp = new AstUnaryOp(tok.value, expr, loc)
-}
-
 class AstUnaryPostOp(val op: Symbol, val expr: AstNode, val loc: SourceLocation) extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitUnaryPostOp(this)
-}
-
-object AstUnaryPostOp  {
-  def apply(tok: Operator, expr: AstNode, loc: SourceLocation): AstUnaryPostOp = new AstUnaryPostOp(tok.value, expr, loc)
 }
 
 class AstAddress(val expr: AstNode, val loc: SourceLocation) extends AstNode {
