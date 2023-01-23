@@ -1,41 +1,19 @@
 package tinycc.frontend.ast
 
-import tinycc.frontend.{DoubleLiteral, Identifier, IntLiteral, Operator, StringLiteral}
-
 class AstInteger(val value: Long, val loc: SourceLocation) extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitInteger(this)
-}
-
-object AstInteger {
-  def apply(tok: IntLiteral, loc: SourceLocation) = new AstInteger(tok.value, loc)
 }
 
 class AstDouble(val value: Double, val loc: SourceLocation) extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitDouble(this)
 }
 
-object AstDouble {
-  def apply(tok: DoubleLiteral, loc: SourceLocation) = new AstDouble(tok.value, loc)
-}
-
 class AstChar(val value: Char, val loc: SourceLocation) extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitChar(this)
 }
 
-object AstChar {
-  def apply(tok: StringLiteral, loc: SourceLocation): AstChar = {
-    assert(tok.quote == '\'')
-    assert(tok.value.length == 1)
-    new AstChar(tok.value(0), loc)
-  }
-}
-
 class AstString(val value: String, val loc: SourceLocation) extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitString(this)
-}
-
-object AstString {
-  def apply(tok: StringLiteral, loc: SourceLocation) = new AstString(tok.value, loc)
 }
 
 class AstIdentifier(val value: Symbol, val loc: SourceLocation) extends AstNode {
@@ -76,7 +54,7 @@ class AstIf(val guard: AstNode, val trueCase: AstNode, val falseCase: Option[Ast
   override def accept[R](vis: AstVisitor[R]): R = vis.visitIf(this)
 }
 
-class AstSwitch(val guard: AstNode, val cases: Seq[(Int, AstNode)], val defaultCase: Option[AstNode], val loc: SourceLocation) extends AstNode {
+class AstSwitch(val guard: AstNode, val cases: Seq[(Long, AstNode)], val defaultCase: Option[AstNode], val loc: SourceLocation) extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitSwitch(this)
 }
 

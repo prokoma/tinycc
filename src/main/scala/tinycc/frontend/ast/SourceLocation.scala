@@ -1,6 +1,6 @@
 package tinycc.frontend.ast
 
-case class SourceLocation(line: Int, col: Int) extends Ordered[SourceLocation] {
+case class SourceLocation(line: Int, col: Int, offset: Int) extends Ordered[SourceLocation] {
   override def toString: String = s"$line:$col"
 
   override def compare(that: SourceLocation): Int = {

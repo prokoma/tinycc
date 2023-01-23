@@ -1,17 +1,11 @@
 package tinycc.frontend
 
-import tinycc.frontend.ast._
-import tinycc.util.parsing.combinator.Parsers
 import tinycc.frontend.Symbols._
+import tinycc.frontend.ast._
 
 import scala.language.implicitConversions
 
-class Parser extends Parsers {
-
-  def elem[T](fn: PartialFunction[Token[_], T], msgFn: Token[_] => String): Parser[T] = ???
-
-  lazy val loc: Parser[SourceLocation] = ???
-
+class Parser extends MyParsers[Token[_]] {
   def tokenToString(tok: Token[_]): String = tok.toString
 
   implicit def symbolToken(symbol: Symbol): Parser[Symbol] = elem({ case t: Token[Symbol] if t.value == symbol => t.value }, tok => s"expected $symbol, got ${tokenToString(tok)}")
@@ -54,7 +48,7 @@ class Parser extends Parsers {
   }
 
   /** CASE_STMT := case integer_literal ':' CASE_BODY */
-  lazy val CASE_STMT: Parser[(Int, AstNode)] = (kwCase ~> integer) ~ (colon ~> CASE_BODY) ^^ {
+  lazy val CASE_STMT: Parser[(Long, AstNode)] = (kwCase ~> integer) ~ (colon ~> CASE_BODY) ^^ {
     case value ~ body => (value, body)
   }
 
@@ -110,14 +104,17 @@ class Parser extends Parsers {
       case loc ~ returnTy ~ name ~ argTys => new AstFunPtrDecl(name, returnTy, argTys, loc)
     }
 
-  /** F := integer | double | char | string | identifier | '(' EXPR ')' | E_CAST */
+  /** F := integer | double | char | string | identifier | '(' EXPR ')' | E_CAST | scan '(' ')' | print '(' EXPR ')' */
   lazy val F: Parser[AstNode] = (
     (loc ~ integer ^^ { case loc ~ value => new AstInteger(value, loc) })
       | (loc ~ double ^^ { case loc ~ value => new AstDouble(value, loc) })
       | (loc ~ char ^^ { case loc ~ value => new AstChar(value, loc) })
       | (loc ~ string ^^ { case loc ~ value => new AstString(value, loc) })
       | (loc ~ identifier ^^ { case loc ~ value => new AstIdentifier(value, loc) })
-      | (parOpen ~> EXPR <~ parClose) | E_CAST
+      | (parOpen ~> EXPR <~ parClose)
+      | E_CAST
+      | (loc <~ (kwScan ~ parOpen ~ parClose) ^^ { case loc => new AstRead(loc) })
+      | (loc ~ (kwScan ~> parOpen ~> EXPR) <~ parClose ^^ { case loc ~ expr => new AstWrite(expr, loc) })
     )
 
   /** E_CAST := cast '<' TYPE '>' '(' EXPR ')' */
@@ -157,7 +154,7 @@ class Parser extends Parsers {
   lazy val E4: Parser[AstNode] = E3 ~ rep(loc ~ (lt | lte | gt | gte) ~ E3 ^^ buildBinaryOp) ^^ applyPostModifiers
 
   /** E5 := E4 { ('==' | '!=') E4 } */
-  lazy val E5: Parser[AstNode] = E4 ~ rep(loc ~ (eq | nEq) ~ E4 ^^ buildBinaryOp) ^^ applyPostModifiers
+  lazy val E5: Parser[AstNode] = E4 ~ rep(loc ~ (Symbols.eq | nEq) ~ E4 ^^ buildBinaryOp) ^^ applyPostModifiers
 
   /** E6 := E5 { '&' E5 } */
   lazy val E6: Parser[AstNode] = E5 ~ rep(loc ~ bitAnd ~ E5 ^^ buildBinaryOp) ^^ applyPostModifiers
@@ -169,7 +166,7 @@ class Parser extends Parsers {
   lazy val E8: Parser[AstNode] = E7 ~ rep(loc ~ and ~ E7 ^^ buildBinaryOp) ^^ applyPostModifiers
 
   /** E9 := E8 { '||' E8 } */
-  lazy val E9: Parser[AstNode] = E8 ~ rep(loc ~ or ~ E8 ^^ buildBinaryOp) ^^ applyPostModifiers
+  lazy val E9: Parser[AstNode] = E8 ~ rep(loc ~ Symbols.or ~ E8 ^^ buildBinaryOp) ^^ applyPostModifiers
 
   /** EXPR := E9 [ '=' EXPR ] */
   lazy val EXPR: Parser[AstNode] = E9 ~ opt((loc <~ assign) ~ EXPR) ^^ {
@@ -181,7 +178,9 @@ class Parser extends Parsers {
   lazy val EXPRS: Parser[AstSequence] = loc ~ rep1sep(EXPR, comma) ^^ { case loc ~ exprs => new AstSequence(exprs, loc) }
 
   /** VAR_DECL := TYPE identifier [ '[' E9 ']' ] [ '=' EXPR ] */
-  lazy val VAR_DECL: Parser[AstVarDecl] = TYPE ~ identifier ~ opt(squareOpen ~> E9 <~ squareClose) ~ opt(assign ~> EXPR)
+  lazy val VAR_DECL: Parser[AstVarDecl] = loc ~ TYPE ~ identifier ~ opt((squareOpen ~> E9) <~ squareClose) ~ opt(assign ~> EXPR) ^^ {
+    case loc ~ varTy ~ name ~ arrayLen ~ value => new AstVarDecl(name, varTy, value, loc) // TODO: array length
+  }
 
   /** VAR_DECLS := VAR_DECL { ',' VAR_DECL } */
   lazy val VAR_DECLS: Parser[AstSequence] = loc ~ rep1sep(VAR_DECL, comma) ^^ { case loc ~ decls => new AstSequence(decls, loc) }

@@ -1,18 +1,12 @@
 package tinycc
 package frontend
 
-import tinycc.util.parsing.combinator.Lexical
-
 import scala.language.implicitConversions
 
 object Lexer extends Lexical {
-  type Token = tinycc.frontend.Token
-
-  override def errorToken(msg: String): Token = ErrorToken(msg)
+  def errorToken(msg: String): Token[_] = ErrorToken(msg)
 
   // whitespace
-
-  lazy val nl: Parser[Any] = opt('\r') ~ '\n'
 
   lazy val whitespace: Parser[Any] = rep[Any](
     whitespaceChar
@@ -20,7 +14,8 @@ object Lexer extends Lexical {
  //     | ("/*" ~ (blockCommentEnd | failure("unclosed comment")))
   )
 
-  lazy val whitespaceChar: Parser[Char] = elem("whitespace", ch => ch == '\r' || ch == '\n' || ch == '\t' || ch == ' ')
+  lazy val whitespaceChar: Parser[Char] =
+    elem(List('\r', '\n', '\t', ' '), c => s"expected whitespace, got '$c'")
 
   def blockCommentEnd: Parser[Any] =
     rep(chrExcept('*')) ~ '*' ~ (elem('/') | blockCommentEnd)
@@ -34,19 +29,68 @@ object Lexer extends Lexical {
 
   // Operator
 
-  lazy val operator: Parser[Token] = (
-    "/=" | "/"
-      | "++" | "+=" | "+"
-      | "--" | "-=" | "->" | "-"
-      | "*=" | "*"
-      | "!=" | "!"
-      | "==" | "="
-      | "<<" | "<=" | "<"
-      | ">>" | ">=" | ">"
-      | "||" | "|"
-      | "&&" | "&"
-      | "%" | "." | "," | ";" | ":" | "?" | "[" | "]" | "(" | ")" | "{" | "}" | "~" | "`"
-    ) ^^ { s => Operator(s) }
+  lazy val operator: Parser[Special] = elem(List(
+    Symbols.inc,
+    Symbols.dec,
+    Symbols.add,
+    Symbols.sub,
+    Symbols.mul,
+    Symbols.div,
+    Symbols.mod,
+    Symbols.shiftLeft,
+    Symbols.shiftRight,
+    Symbols.eq,
+    Symbols.nEq,
+    Symbols.lt,
+    Symbols.gt,
+    Symbols.lte,
+    Symbols.gte,
+    Symbols.bitAnd,
+    Symbols.bitOr,
+    Symbols.and,
+    Symbols.or,
+    Symbols.not,
+    Symbols.neg,
+    Symbols.xor,
+    Symbols.dot,
+    Symbols.semicolon,
+    Symbols.colon,
+    Symbols.arrowR,
+    Symbols.comma,
+    Symbols.parOpen,
+    Symbols.parClose,
+    Symbols.squareOpen,
+    Symbols.squareClose,
+    Symbols.curlyOpen,
+    Symbols.curlyClose,
+    Symbols.assign,
+    Symbols.backtick,
+  ), _ => "expected operator") ^^ Special
+
+  lazy val keyword: Parser[Special] = elem(List(
+    Symbols.kwBreak,
+    Symbols.kwCase,
+    Symbols.kwCast,
+    Symbols.kwChar,
+    Symbols.kwContinue,
+    Symbols.kwDefault,
+    Symbols.kwDefine,
+    Symbols.kwDefmacro,
+    Symbols.kwDo,
+    Symbols.kwDouble,
+    Symbols.kwElse,
+    Symbols.kwFor,
+    Symbols.kwIf,
+    Symbols.kwInt,
+    Symbols.kwReturn,
+    Symbols.kwStruct,
+    Symbols.kwSwitch,
+    Symbols.kwTypedef,
+    Symbols.kwVoid,
+    Symbols.kwWhile,
+    Symbols.kwScan,
+    Symbols.kwPrint,
+  ), _ => "expected keyword") ^^ Special
 
   lazy val letter: Parser[Char] =
     elem("letter", ch => (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'))
