@@ -2,13 +2,27 @@ package tinycc.frontend
 
 import tinycc.frontend.Symbols._
 import tinycc.frontend.ast._
+import tinycc.util.parsing.combinator.Parsers
 
 import scala.language.implicitConversions
 
-class Parser extends MyParsers[Token[_]] {
-  def tokenToString(tok: Token[_]): String = tok.toString
+object TinyCParser extends Parsers {
+  type Elem = Token
+  type Input = ScannerAdapter
 
-  implicit def symbolToken(symbol: Symbol): Parser[Symbol] = elem({ case t: Token[Symbol] if t.value == symbol => t.value }, tok => s"expected $symbol, got ${tokenToString(tok)}")
+  def unexpectedEndOfInput(in: Input): Reject = Reject("unexpected end of input", in)
+
+  lazy val loc: Parser[SourceLocation] = in => Accept(in.loc, in)
+
+  def elem[R](fn: PartialFunction[Elem, R], msgFn: Elem => String): Parser[R] =
+    in => in.headOption match {
+      case None => unexpectedEndOfInput(in)
+      case Some(tok) => fn.andThen(Accept(_, in.tail)).applyOrElse(tok, (tok: Elem) => Reject(msgFn(tok), in))
+    }
+
+  def tokenToString(tok: Token): String = tok.toString
+
+  implicit def symbolParser(symbol: Symbol): Parser[Symbol] = elem({ case t: Special if t.value == symbol => t.value }, tok => s"expected $symbol, got ${tokenToString(tok)}")
 
   lazy val identifier: Parser[Symbol] = elem({ case Identifier(value) => value }, tok => s"expected identifier, got ${tokenToString(tok)}")
   lazy val integer: Parser[Long] = elem({ case IntLiteral(value) => value }, tok => s"expected int literal, got ${tokenToString(tok)}")
@@ -85,22 +99,22 @@ class Parser extends MyParsers[Token[_]] {
   /** TYPE := (int | double | char | identifier) { * }
    * |= void * { * } */
   lazy val TYPE: Parser[AstType] = (
-    (loc ~ (kwInt | kwDouble | kwChar | identifier) ^^ { case loc ~ name => new AstNamedType(name, loc) })
+    (loc ~ (kwInt | kwDouble | kwChar | isNamedType(identifier)) ^^ { case loc ~ name => new AstNamedType(name, loc) })
       | (loc ~ kwVoid ~ loc <~ mul ^^ { case loc1 ~ name ~ loc2 => new AstPointerType(new AstNamedType(name, loc1), loc2) })
     ) ~ rep(loc <~ mul ^^ buildPointerType) ^^ applyPostModifiers
 
   /** TYPE_FUN_RET := TYPE | void */
-  lazy val TYPE_FUN_RET: Parser[AstType] = TYPE | kwVoid
+  lazy val TYPE_FUN_RET: Parser[AstType] = TYPE | (loc ~ kwVoid ^^ { case loc ~ name => new AstNamedType(name, loc) })
 
   /** STRUCT_DECL := struct identifier [ '{' { TYPE identifier ';' } '}' ] ';' */
   lazy val STRUCT_DECL: Parser[AstStructDecl] =
-    loc ~ (kwStruct ~> identifier) ~ opt((curlyOpen ~> rep(TYPE ~ identifier <~ semicolon ^^ { case fieldTy ~ name => (fieldTy, name) })) <~ curlyClose) <~ semicolon ^^ {
+    loc ~ (kwStruct ~> declareNamedType(identifier)) ~ opt((curlyOpen ~> rep(TYPE ~ identifier <~ semicolon ^^ { case fieldTy ~ name => (fieldTy, name) })) <~ curlyClose) <~ semicolon ^^ {
       case loc ~ name ~ fields => new AstStructDecl(name, fields.getOrElse(Nil), loc)
     }
 
   /** FUNPTR_DECL := typedef TYPE_FUN_RET '(' '*' identifier ')' '(' [ TYPE { ',' TYPE } ] ')' ';' */
   lazy val FUNPTR_DECL: Parser[AstFunPtrDecl] =
-    loc ~ (kwTypedef ~> TYPE_FUN_RET) ~ (parOpen ~> mul ~> identifier) ~ (parClose ~> parOpen ~> repsep(TYPE, comma)) <~ (parClose ~ semicolon) ^^ {
+    loc ~ (kwTypedef ~> TYPE_FUN_RET) ~ (parOpen ~> mul ~> declareNamedType(identifier)) ~ (parClose ~> parOpen ~> repsep(TYPE, comma)) <~ (parClose ~ semicolon) ^^ {
       case loc ~ returnTy ~ name ~ argTys => new AstFunPtrDecl(name, returnTy, argTys, loc)
     }
 
@@ -114,7 +128,7 @@ class Parser extends MyParsers[Token[_]] {
       | (parOpen ~> EXPR <~ parClose)
       | E_CAST
       | (loc <~ (kwScan ~ parOpen ~ parClose) ^^ { case loc => new AstRead(loc) })
-      | (loc ~ (kwScan ~> parOpen ~> EXPR) <~ parClose ^^ { case loc ~ expr => new AstWrite(expr, loc) })
+      | (loc ~ (kwPrint ~> parOpen ~> EXPR) <~ parClose ^^ { case loc ~ expr => new AstWrite(expr, loc) })
     )
 
   /** E_CAST := cast '<' TYPE '>' '(' EXPR ')' */
@@ -132,7 +146,7 @@ class Parser extends MyParsers[Token[_]] {
   /** E_MEMBER := ('.' | '->') identifier */
   lazy val E_MEMBER: Parser[AstNode => AstNode] = loc ~ (dot | arrowR) ~ identifier ^^ {
     case loc ~ op ~ identifier if op == dot => base => new AstMember(base, identifier, loc)
-    case loc ~ op ~ identifier if op == arrowR => base => new AstMemberPtr(base, identifier, loc)
+    case loc ~ op ~ identifier => base => new AstMemberPtr(base, identifier, loc)
   }
 
   /** E_POST := '++' | '--' */
@@ -205,4 +219,37 @@ class Parser extends MyParsers[Token[_]] {
   private def applyPostModifiers[T <: AstNode](a: T ~ List[T => T]): T = a match {
     case expr ~ mods => mods.foldLeft(expr)((expr, fn) => fn(expr))
   }
+
+  private def declareNamedType(ty: Parser[Symbol]): Parser[Symbol] =
+    in => ty(in) match {
+      case Accept(value, reminding) => Accept(value, reminding.withDeclaredType(value))
+      case r: Reject => r
+    }
+
+  private def isNamedType(ty: Parser[Symbol]): Parser[Symbol] =
+    in => ty(in) match {
+      case Accept(value, reminding) if in.declaredNamedTypes.contains(value) => Accept(value, reminding)
+      case Accept(value, _) => Reject(s"expected named type, got $value", in)
+      case r: Reject => r
+    }
+
+  case class ScannerAdapter(inner: Reader[Elem], declaredNamedTypes: Set[Symbol] = Set.empty) extends Reader[Elem] {
+    override def headOption: Option[Elem] = inner.headOption
+
+    override def tail: ScannerAdapter = ScannerAdapter(inner.tail, declaredNamedTypes)
+
+    override def loc: SourceLocation = inner.loc
+
+    def withDeclaredType(ty: Symbol): ScannerAdapter = ScannerAdapter(this, declaredNamedTypes + ty)
+  }
+
+  def parseProgram(in: Reader[Elem]): AstBlock =
+    PROGRAM(ScannerAdapter(in)) match {
+      case Accept(value, reminding) if reminding.isEmpty => value
+      case Accept(_, reminding) => throw new RuntimeException(s"expected end of input at ${reminding.loc} ${reminding.headOption}")
+      case Reject(message, reminding, _) => throw new RuntimeException(s"$message at ${reminding.loc}")
+    }
+
+  def parseProgram(s: String): AstBlock =
+    parseProgram(Lexer.TokenReader(CharReader(s)))
 }

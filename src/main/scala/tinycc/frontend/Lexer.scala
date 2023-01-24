@@ -1,35 +1,37 @@
 package tinycc
 package frontend
 
+import tinycc.frontend.ast.SourceLocation
+
 import scala.language.implicitConversions
 
 object Lexer extends Lexical {
-  def errorToken(msg: String): Token[_] = ErrorToken(msg)
+  implicit def charParser(c: Char): Parser[Char] = elem(c)
 
-  // whitespace
+  implicit def stringParser(s: String): Parser[String] = elem(s)
 
-  lazy val whitespace: Parser[Any] = rep[Any](
+  //  def errorToken(msg: String): Token[_] = ErrorToken(msg)
+
+  lazy val WHITESPACE: Parser[Any] = rep[Any](
     whitespaceChar
- //     | ("//" ~ rep(not(nl) ~> elem))
- //     | ("/*" ~ (blockCommentEnd | failure("unclosed comment")))
+      | ("//" ~ rep(not(NL) ~> elem))
+      | ("/*" ~ (blockCommentEnd | failure("unclosed comment")))
   )
 
   lazy val whitespaceChar: Parser[Char] =
-    elem(List('\r', '\n', '\t', ' '), c => s"expected whitespace, got '$c'")
+    oneOfChar(Seq('\r', '\n', '\t', ' '), c => s"expected whitespace, got '$c'")
 
   def blockCommentEnd: Parser[Any] =
-    rep(chrExcept('*')) ~ '*' ~ (elem('/') | blockCommentEnd)
+    rep(elem({ case c if c != '*' => () }, _ => "")) ~ '*' ~ (elem('/') | blockCommentEnd)
 
   // Token
 
-  lazy val token: Parser[Token] = (
-    operator | identifier | numericLiteral | stringSingleQuoted | stringDoubleQuoted
-      | (eof ^^ { _ => EOF })
-    )
+  lazy val TOKEN: Parser[Token] =
+    OPERATOR | KEYWORD | IDENTIFIER | NUMERIC_LITERAL | STRING_SINGLE_QUOTED | STRING_DOUBLE_QUOTED
 
   // Operator
 
-  lazy val operator: Parser[Special] = elem(List(
+  lazy val OPERATOR: Parser[Special] = oneOfSymbol(Seq(
     Symbols.inc,
     Symbols.dec,
     Symbols.add,
@@ -65,9 +67,9 @@ object Lexer extends Lexical {
     Symbols.curlyClose,
     Symbols.assign,
     Symbols.backtick,
-  ), _ => "expected operator") ^^ Special
+  ), (_: CharReader) => "expected operator") ^^ Special
 
-  lazy val keyword: Parser[Special] = elem(List(
+  lazy val KEYWORD: Parser[Special] = oneOfSymbol(Seq(
     Symbols.kwBreak,
     Symbols.kwCase,
     Symbols.kwCast,
@@ -90,13 +92,11 @@ object Lexer extends Lexical {
     Symbols.kwWhile,
     Symbols.kwScan,
     Symbols.kwPrint,
-  ), _ => "expected keyword") ^^ Special
+  ), (_: CharReader) => "expected keyword") ^^ Special
 
-  lazy val letter: Parser[Char] =
-    elem("letter", ch => (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'))
+  lazy val letter: Parser[Char] = elem({ case c if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') => c }, c => s"expected letter, got $c")
 
-  lazy val digit: Parser[Char] =
-    elem("digit", ch => ch >= '0' && ch <= '9')
+  lazy val digit: Parser[Char] = elem({ case c if c >= '0' && c <= '9' => c }, c => s"expected digit, got $c")
 
   // Identifier
 
@@ -106,30 +106,61 @@ object Lexer extends Lexical {
   lazy val identifierMid: Parser[Char] =
     identifierStart | digit
 
-  lazy val identifier: Parser[Token] =
-    (identifierStart ~ rep(identifierMid)) ^^ { case head ~ tail => Identifier((head :: tail).mkString) }
+  lazy val IDENTIFIER: Parser[Identifier] =
+    (identifierStart ~ rep(identifierMid)) ^^ { case head ~ tail => Identifier(Symbol((head :: tail).mkString)) } |
+      failure("expected identifier")
+
 
   // IntLiteral or DoubleLiteral
 
-  lazy val numericLiteral: Parser[Token] =
-    rep1(digit) ^^ { digits => IntLiteral(digits.mkString.toLong) }
+  lazy val NUMERIC_LITERAL: Parser[Token] =
+    rep1(digit) ~ opt('.' ~ rep(digit) ^^ { case dot ~ digits => dot + digits.mkString }) ^^ {
+      case intPart ~ None => IntLiteral(intPart.mkString.toLong)
+      case intPart ~ Some(fracPart) => DoubleLiteral((intPart.mkString + fracPart).toDouble)
+    }
 
   // StringLiteral
 
-  lazy val charOrEscapeSequence: Parser[Char] =
+  private def charInString(quote: Char): Parser[Char] =
     ('\\' ~> (
-      elem('\'') | elem('\"') | elem('\\')
+      oneOfChar(Seq('\'', '\"', '\\'), (_: Char) => "")
         | ('r' ^^ { _ => '\r' })
         | ('n' ^^ { _ => '\n' })
         | ('r' ^^ { _ => '\r' })
         | ('t' ^^ { _ => '\t' })
         | failure("invalid escape sequence")
-      )) | elem
+      )) | elem({ case c if c != quote => c }, _ => "unexpected quote")
 
   private def stringQuotedHelper(quote: Char): Parser[StringLiteral] =
-    (quote ~> rep(elem.filter(_ != quote)) <~ quote) ^^ { c => StringLiteral(c.mkString, quote) }
+    (quote ~> rep(charInString(quote)) <~ quote) ^^ { c => StringLiteral(c.mkString, quote) }
 
-  lazy val stringSingleQuoted: Parser[StringLiteral] = stringQuotedHelper('\'')
+  lazy val STRING_SINGLE_QUOTED: Parser[StringLiteral] = stringQuotedHelper('\'')
 
-  lazy val stringDoubleQuoted: Parser[StringLiteral] = stringQuotedHelper('\"')
+  lazy val STRING_DOUBLE_QUOTED: Parser[StringLiteral] = stringQuotedHelper('\"')
+
+  case class TokenReader(in: CharReader) extends Reader[Token] {
+    def this(in: String) = this(CharReader(in))
+
+    private val (afterWs, tokOption, afterTok) = parse(WHITESPACE, in) match {
+      case Accept(_, afterWs) if afterWs.isEmpty => (afterWs, None, afterWs)
+      case Accept(_, afterWs) =>
+        parse(TOKEN, afterWs) match {
+          case Accept(tok, afterTok) => (afterWs, Some(tok), afterTok)
+          case Reject(msg, _, _) =>
+            throw new RuntimeException(s"token lexing failed: $msg")
+          //            (afterWs, errorToken(msg), afterWs.drop(afterWs.length))
+        }
+      case Reject(msg, _, _) =>
+        throw new RuntimeException(s"whitespace lexing failed: $msg")
+      //        (in, errorToken(msg), in.drop(in.length))
+    }
+
+    override def headOption: Option[Token] = tokOption
+
+    override def tail: TokenReader = TokenReader(afterTok)
+
+    override def loc: SourceLocation = afterWs.loc
+
+    override def isEmpty: Boolean = in.isEmpty || afterWs.isEmpty
+  }
 }
