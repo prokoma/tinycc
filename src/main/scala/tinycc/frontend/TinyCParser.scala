@@ -128,7 +128,7 @@ object TinyCParser extends Parsers {
       | (loc ~ identifier ^^ { case loc ~ value => new AstIdentifier(value, loc) })
       | (parOpen ~> EXPR <~ parClose)
       | E_CAST
-      | (loc <~ (kwScan ~ parOpen ~ parClose) ^^ { case loc => new AstRead(loc) })
+      | (loc <~ (kwScan ~ parOpen ~ parClose) ^^ (loc => new AstRead(loc)))
       | (loc ~ (kwPrint ~> parOpen ~> EXPR) <~ parClose ^^ { case loc ~ expr => new AstWrite(expr, loc) })
     )
 
@@ -147,7 +147,7 @@ object TinyCParser extends Parsers {
   /** E_MEMBER := ('.' | '->') identifier */
   lazy val E_MEMBER: Parser[AstNode => AstNode] = loc ~ (dot | arrowR) ~ identifier ^^ {
     case loc ~ op ~ identifier if op == dot => base => new AstMember(base, identifier, loc)
-    case loc ~ op ~ identifier => base => new AstMemberPtr(base, identifier, loc)
+    case loc ~ _ ~ identifier => base => new AstMemberPtr(base, identifier, loc)
   }
 
   /** E_POST := '++' | '--' */
