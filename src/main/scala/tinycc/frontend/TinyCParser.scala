@@ -2,7 +2,8 @@ package tinycc.frontend
 
 import tinycc.frontend.Symbols._
 import tinycc.frontend.ast._
-import tinycc.util.parsing.combinator.Parsers
+import tinycc.util.parsing.SourceLocation
+import tinycc.util.parsing.combinator.{CharReader, Parsers, Reader}
 
 import scala.language.implicitConversions
 

@@ -1,4 +1,4 @@
-package tinycc.frontend.ast
+package tinycc.util.parsing
 
 /** line and col start at 1 */
 case class SourceLocation(line: Int, col: Int, offset: Int) extends Ordered[SourceLocation] {

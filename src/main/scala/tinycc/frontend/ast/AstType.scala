@@ -1,5 +1,7 @@
 package tinycc.frontend.ast
 
+import tinycc.util.parsing.SourceLocation
+
 sealed trait AstType extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitType(this)
 }

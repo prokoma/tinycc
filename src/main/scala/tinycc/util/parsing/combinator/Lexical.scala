@@ -1,71 +1,101 @@
 package tinycc.util.parsing.combinator
 
-abstract class Lexical extends Parsers with Debugging {
-  type Input = CharInput
+import tinycc.util.parsing.SourceLocation
 
-  type Token
+case class CharReader(string: String, loc: SourceLocation = SourceLocation(1, 1, 0)) extends Reader[Char] {
+  override def headOption: Option[Char] = if (isEmpty) None else Some(string(loc.offset))
 
-  implicit def elem(c: Char): Parser[Char] = elem(s"'$c'", _ == c) label s"'$c'"
-
-  lazy val elem: Parser[Char] = elem("a char", _ => true)
-
-  def elem(msg: String, p: Char => Boolean): Parser[Char] = Parser { in =>
-    if (p(in.charAt(0))) Accept(in.charAt(0), in.drop(1)) else Reject(s"expected $msg, got '${in.charAt(0)}'", in)
-  } label msg
-
-  implicit def lit(s: String): Parser[String] =
-    Parser { in =>
-      var i = 0
-      while (i < in.length && i < s.length && in.charAt(i) == s.charAt(i)) {
-        i += 1
-      }
-      if (i == s.length) {
-        Accept(s, in.drop(i))
-      } else {
-        val found = if (i == in.length) {
-          "end of input"
-        } else {
-          "'" + in.subSequence(0, math.min(in.length, s.length)).content.trim + "'"
-        }
-        Reject("expected '" + s + "', got " + found, in)
-      }
-    } label s"'$s'"
-
-  def chrExcept(cs: Char*): Parser[Char] = elem("", ch => !cs.contains(ch))
-
-  lazy val eof: Parser[Any] = Parser { in =>
-    if (in.isEmpty) Accept((), in) else Reject(s"expected end of input, got '${in.charAt(0)}'", in)
+  override def tail: CharReader = {
+    if (isEmpty)
+      throw new UnsupportedOperationException("tail of empty string")
+    if (string(loc.offset) == '\r' && loc.offset + 1 < string.length && string(loc.offset + 1) == '\n')
+      CharReader(string, SourceLocation(loc.line + 1, 1, loc.offset + 2))
+    else if (string(loc.offset) == '\n')
+      CharReader(string, SourceLocation(loc.line + 1, 1, loc.offset + 1))
+    else
+      CharReader(string, SourceLocation(loc.line, loc.col + 1, loc.offset + 1))
   }
 
-  def whitespace: Parser[Any]
+  def take(n: Int): String = string.substring(loc.offset, Math.min(string.length, loc.offset + n))
 
-  def token: Parser[Token]
+  def drop(n: Int): CharReader = 0.until(n).foldLeft(this)((r, _) => r.tail)
 
-  def errorToken(msg: String): Token
+  override def isEmpty: Boolean = loc.offset >= string.length
+}
 
-  //  def cursor: Parser[Position] = Parser { in => Accept(in.pos, in) } label "cursor"
+trait Lexical extends Parsers {
+  override type Input = CharReader
 
-  class TokenInput(in: CharInput) extends Iterable[Token] with FiniteInput {
-    def this(in: String) = this(new CharInput(in))
+  def unexpectedEndOfInput(in: Input): Reject = Reject("unexpected end of input", in)
 
-    private val (afterWs, tok, afterTok) = parse(whitespace, in) match {
-      case Accept(_, afterWs) =>
-        parse(token, afterWs) match {
-          case Accept(tok, afterTok) => (afterWs, tok, afterTok)
-          case Reject(msg, _, _) => (afterWs, errorToken(msg), afterWs.drop(afterWs.length))
-        }
-      case Reject(msg, _, _) => (in, errorToken(msg), in.drop(in.length))
+  def elem[R](fn: PartialFunction[Char, R], msgFn: Char => String): Parser[R] =
+    in => in.headOption match {
+      case None => unexpectedEndOfInput(in)
+      case Some(tok) => fn.andThen(Accept(_, in.tail)).applyOrElse(tok, (tok: Char) => Reject(msgFn(tok), in))
     }
 
-    override def head: Token = tok
-
-    override def tail = new TokenInput(afterTok)
-
-    def pos: Position = afterWs.pos
-
-    override def isEmpty: Boolean = in.isEmpty || afterWs.isEmpty
-
-    override def iterator: Iterator[Token] = Iterator.unfold(this)(ti =>
-      if (ti.isEmpty) None else Some((ti.head, ti.tail)))
+  lazy val elem: Parser[Char] = in => in.headOption match {
+    case None => unexpectedEndOfInput(in)
+    case Some(tok) => Accept(tok, in.tail)
   }
+  //
+  //
+  //
+  //  lazy val EOF: Parser[Unit] = in => if (in.isEmpty) Accept((), in) else Reject("expected end of input", in)
+  //
+  //  lazy val loc: Parser[SourceLocation] = in => Accept(in.pos, in)
+
+  def elem(compare: Char): Parser[Char] =
+    elem({ case c if compare == c => c }, c => s"expected $compare, got $c")
+
+  def elem(s: String): Parser[String] =
+    in => in.take(s.length) match {
+      case r if r == s => Accept(s, in.drop(s.length))
+      case "" => unexpectedEndOfInput(in)
+      case r => Reject(s"expected $s, got $r", in)
+    }
+
+  def elem(s: Symbol): Parser[Symbol] =
+    in => in.take(s.name.length) match {
+      case r if r == s.name => Accept(s, in.drop(s.name.length))
+      case "" => unexpectedEndOfInput(in)
+      case r => Reject(s"expected $s, got $r", in)
+    }
+  //
+  //  def elem(allowed: Seq[String], msgFn: Char => String): Parser[String] = {
+  //    val sorted = allowed.sortBy(- _.length)
+  //    in => {
+  //      for(s <- sorted) {
+  //        if (s.nonEmpty && in.isEmpty)
+  //          return unexpectedEndOfInput(in)
+  //        if(in.take(s.length) == s)
+  //          return Accept(s, in.drop(s.length))
+  //      }
+  //      return Reject(s"expected one of $allowed", in)
+  //    }
+
+  def oneOfChar(allowed: Seq[Char], msgFn: Char => String): Parser[Char] =
+    elem({ case c if allowed.contains(c) => c }, msgFn)
+
+  def oneOfSymbol(allowed: Seq[Symbol], msgFn: CharReader => String): Parser[Symbol] = {
+    val sorted = allowed.sortBy(-_.name.length)
+
+    def parser(in: Input): Result[Symbol] = {
+      for (s <- sorted) {
+        if (in.take(s.name.length) == s.name)
+          return Accept(s, in.drop(s.name.length))
+        if (in.isEmpty)
+          return unexpectedEndOfInput(in)
+      }
+      Reject(msgFn(in), in)
+    }
+
+    parser
+  }
+
+  lazy val NL: Parser[String] = in =>
+    if (in.isEmpty) Accept("", in)
+    else if (in.take(1) == "\n") Accept("\n", in.tail)
+    else if (in.take(2) == "\r\n") Accept("\r\n", in.drop(2))
+    else Reject("expected end of line", in)
 }

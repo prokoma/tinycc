@@ -1,5 +1,7 @@
 package tinycc.frontend.ast
 
+import tinycc.util.parsing.SourceLocation
+
 class AstInteger(val value: Long, val loc: SourceLocation) extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitInteger(this)
 }

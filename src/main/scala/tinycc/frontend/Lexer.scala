@@ -1,7 +1,8 @@
 package tinycc
 package frontend
 
-import tinycc.frontend.ast.SourceLocation
+import tinycc.util.parsing.SourceLocation
+import tinycc.util.parsing.combinator.{CharReader, Lexical, Reader}
 
 import scala.language.implicitConversions
 
