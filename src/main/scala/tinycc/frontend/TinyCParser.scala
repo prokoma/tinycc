@@ -156,7 +156,7 @@ object TinyCParser extends Parsers {
   lazy val E_POST: Parser[AstNode => AstUnaryPostOp] = loc ~ (inc | dec) ^^ { case loc ~ op => expr => new AstUnaryPostOp(op, expr, loc) }
 
   /** E_UNARY_PRE := { '+' | '-' | '!' | '~' | '++' | '--' | '*' | '&' } E_CALL_INDEX_MEMBER_POST */
-  lazy val E_UNARY_PRE: Parser[AstNode] = rep(loc ~ (add | sub | Symbols.not | neg | inc | dec | mul | bitAnd) ^^ buildUnaryOp) ~ E_CALL_INDEX_MEMBER_POST ^^ applyPreModifiers
+  lazy val E_UNARY_PRE: Parser[AstNode] = rep(loc ~ (add | sub | Symbols.not | neg | inc | dec | mul | bitAnd) ^^ buildUnaryOpLike) ~ E_CALL_INDEX_MEMBER_POST ^^ applyPreModifiers
 
   /** E1 := E_UNARY_PRE { ('*' | '/' | '%' ) E_UNARY_PRE } */
   lazy val E1: Parser[AstNode] = E_UNARY_PRE ~ rep(loc ~ (mul | div | mod) ~ E_UNARY_PRE ^^ buildBinaryOp) ^^ applyPostModifiers
@@ -207,7 +207,9 @@ object TinyCParser extends Parsers {
 
   private def buildPointerType(loc: SourceLocation): AstType => AstPointerType = base => new AstPointerType(base, loc)
 
-  private def buildUnaryOp(a: SourceLocation ~ Symbol): AstNode => AstUnaryOp = a match {
+  private def buildUnaryOpLike(a: SourceLocation ~ Symbol): AstNode => AstNode = a match {
+    case loc ~ Symbols.bitAnd => expr: AstNode => new AstAddress(expr, loc)
+    case loc ~ Symbols.mul => expr: AstNode => new AstDeref(expr, loc)
     case loc ~ op => expr: AstNode => new AstUnaryOp(op, expr, loc)
   }
 

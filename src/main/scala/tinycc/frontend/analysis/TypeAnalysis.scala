@@ -67,6 +67,12 @@ class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       Right(typeMap)
   }
 
+//  private def checkAssignableFrom(ty: Ty, other: Ty): Boolean = {
+//    if(!ty.isAssignableFrom(other)) {
+//      errors += new TypeAnalysisException(s"expected $")
+//    }
+//  }
+
   // At the end of each visit method, typeMap(node) must be set.
   private class Visitor_ extends AstVisitor[Unit] {
     private def visitAndGetTy(node: AstNode): Ty = {
@@ -331,11 +337,58 @@ class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
 
     override def visitBinaryOp(node: AstBinaryOp): Unit = super.visitBinaryOp(node)
 
-    override def visitAssignment(node: AstAssignment): Unit = super.visitAssignment(node)
+    override def visitAssignment(node: AstAssignment): Unit = {
+      checkLvalue(node.lvalue, "on left side of assignment")
+      val lvalueTy = visitAndGetTy(node.lvalue)
+      val valueTy = visitAndGetTy(node.value)
+      if(!lvalueTy.isAssignableFrom(valueTy))
+        errors += new TypeAnalysisException(s"cannot assign $valueTy to l-value of type $lvalueTy", node.loc)
+      typeMap(node) = lvalueTy
+    }
 
-    override def visitUnaryOp(node: AstUnaryOp): Unit = super.visitUnaryOp(node)
+    override def visitUnaryOp(node: AstUnaryOp): Unit = {
+      val exprTy = visitAndGetTy(node.expr)
 
-    override def visitUnaryPostOp(node: AstUnaryPostOp): Unit = super.visitUnaryPostOp(node)
+      node.op match {
+        case Symbols.add | Symbols.sub | Symbols.neg =>
+          if(!IntTy.isAssignableFrom(exprTy)) {
+            errors += new TypeAnalysisException(s"wrong type argument to unary plus (expected int-like type)", node.loc)
+            typeMap(node) = IntTy
+          } else
+            typeMap(node) = exprTy
+
+        case Symbols.not =>
+          if(!IntTy.isAssignableFrom(exprTy) && !exprTy.isInstanceOf[PtrTy])
+            errors += new TypeAnalysisException(s"wrong type argument to unary not (expected int-like or pointer type)", node.loc)
+          typeMap(node) = IntTy
+
+        case Symbols.inc | Symbols.dec =>
+          checkLvalue(node.expr, s"in unary ${node.op.name}")
+          if (!IntTy.isAssignableFrom(exprTy) && !exprTy.isInstanceOf[PtrTy]) {
+            errors += new TypeAnalysisException(s"wrong type argument to unary not (expected int-like or pointer type)", node.loc)
+            typeMap(node) = IntTy
+          } else
+            typeMap(node) = exprTy
+
+        case op => new UnsupportedOperationException(s"Type checking for unary prefix $op is not defined.")
+      }
+    }
+
+    override def visitUnaryPostOp(node: AstUnaryPostOp): Unit = {
+      val exprTy = visitAndGetTy(node.expr)
+
+      node.op match {
+        case Symbols.inc | Symbols.dec =>
+          checkLvalue(node.expr, s"in unary ${node.op.name}")
+          if (!IntTy.isAssignableFrom(exprTy) && !exprTy.isInstanceOf[PtrTy]) {
+            errors += new TypeAnalysisException(s"wrong type argument to unary not (expected int-like or pointer type)", node.loc)
+            typeMap(node) = IntTy
+          } else
+            typeMap(node) = exprTy
+
+        case op => new UnsupportedOperationException(s"Type checking for unary postfix $op is not defined.")
+      }
+    }
 
     override def visitAddress(node: AstAddress): Unit = super.visitAddress(node)
 
@@ -351,7 +404,12 @@ class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
 
     override def visitCast(node: AstCast): Unit = super.visitCast(node)
 
-    override def visitWrite(node: AstWrite): Unit = super.visitWrite(node)
+    override def visitWrite(node: AstWrite): Unit = {
+      val exprTy = visitAndGetTy(node.expr)
+      if(!CharTy.isAssignableFrom(exprTy))
+        errors += new TypeAnalysisException(s"expected $CharTy (or compatible type), got $exprTy", node.expr.loc)
+      typeMap(node) = VoidTy
+    }
 
     override def visitRead(node: AstRead): Unit = {
       typeMap(node) = CharTy
