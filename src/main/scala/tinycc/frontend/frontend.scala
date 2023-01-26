@@ -1,17 +1,32 @@
 package tinycc
 
-import tinycc.frontend.analysis.IdentifierDecl
-import tinycc.frontend.ast.{AstIdentifier, AstNode}
+import tinycc.frontend.Types.Ty
+import tinycc.frontend.analysis.{FunDecl, IdentifierDecl, VarDecl}
+import tinycc.frontend.ast.{AstFunDecl, AstIdentifier, AstIdentifierOrDecl, AstNode, AstVarDecl}
 
 package object frontend {
-//  type TypeMap = collection.Map[AstNode, Ty]
-  type Declarations = collection.Map[AstIdentifier, IdentifierDecl]
+  type TypeMap = collection.Map[AstNode, Ty]
+  type Declarations = collection.Map[AstIdentifierOrDecl, IdentifierDecl]
 
-  implicit class ASTTypeMapExt(that: AstNode) {
-//    def ty(implicit typeMap: TypeMap): Ty = typeMap(that)
+  implicit class AstTypeAccess(that: AstNode) {
+    def ty(implicit typeMap: TypeMap): Ty = typeMap(that)
   }
 
-  implicit class ASTDeclarationsExt(that: AstIdentifier) {
+  implicit class AstIdentifierDeclAccess(that: AstIdentifier) {
     def decl(implicit declarations: Declarations): IdentifierDecl = declarations(that)
+
+    def declOption(implicit declarations: Declarations): Option[IdentifierDecl] = declarations.get(that)
+  }
+
+  implicit class AstPrevVarDeclAccess(that: AstVarDecl) {
+    def prevDecl(implicit declarations: Declarations): Option[VarDecl] = declarations.get(that).map(_.asInstanceOf[VarDecl])
+
+    def prevDecls(implicit declarations: Declarations): Seq[VarDecl] = Seq.unfold(prevDecl)(_.map(d => (d, d.prevDecl)))
+  }
+
+  implicit class AstPrevFunDeclAccess(that: AstFunDecl) {
+    def prevDecl(implicit declarations: Declarations): Option[FunDecl] = declarations.get(that).map(_.asInstanceOf[FunDecl])
+
+    def prevDecls(implicit declarations: Declarations): Seq[FunDecl] = Seq.unfold(prevDecl)(_.map(d => (d, d.prevDecl)))
   }
 }

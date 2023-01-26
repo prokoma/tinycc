@@ -45,7 +45,7 @@ object TinyCParser extends Parsers {
   lazy val FUN_ARG: Parser[(AstType, Symbol)] = TYPE ~ identifier ^^ { case argTy ~ name => (argTy, name) }
 
   /** STATEMENT := BLOCK_STMT | IF_STMT | SWITCH_STMT | WHILE_STMT | DO_WHILE_STMT | FOR_STMT | BREAK_STMT | CONTINUE_STMT | RETURN_STMT | EXPR_STMT */
-  lazy val STATEMENT: Parser[AstNode] = BLOCK_STMT | IF_STMT | SWITCH_STMT | WHILE_STMT | DO_WHILE_STMT | FOR_STMT | BREAK_STMT | CONTINUE_STMT | RETURN_STMT | EXPR_STMT
+  lazy val STATEMENT: Parser[AstNode] = BLOCK_STMT | IF_STMT | SWITCH_STMT | WHILE_STMT | DO_WHILE_STMT | FOR_STMT | BREAK_STMT | CONTINUE_STMT | RETURN_STMT | WRITE_STMT | EXPR_STMT
 
   /** BLOCK_STMT := '{' { STATEMENT } '}' */
   lazy val BLOCK_STMT: Parser[AstBlock] = loc ~ (curlyOpen ~> rep(STATEMENT)) <~ curlyClose ^^ {
@@ -94,6 +94,9 @@ object TinyCParser extends Parsers {
   /** RETURN_STMT := return [ EXPR ] ';' */
   lazy val RETURN_STMT: Parser[AstReturn] = loc ~ (kwReturn ~> opt(EXPR)) <~ semicolon ^^ { case loc ~ expr => new AstReturn(expr, loc) }
 
+  /** WRITE_STMT := print '(' EXPR ')' ';' */
+  lazy val WRITE_STMT: Parser[AstWrite] = loc ~ (kwPrint ~> parOpen ~> EXPR) <~ (parClose ~ semicolon) ^^ { case loc ~ expr => new AstWrite(expr, loc) }
+
   /** EXPR_STMT := EXPRS_OR_VAR_DECLS ';' */
   lazy val EXPR_STMT: Parser[AstNode] = EXPRS_OR_VAR_DECLS <~ semicolon
 
@@ -110,7 +113,7 @@ object TinyCParser extends Parsers {
   /** STRUCT_DECL := struct identifier [ '{' { TYPE identifier ';' } '}' ] ';' */
   lazy val STRUCT_DECL: Parser[AstStructDecl] =
     loc ~ (kwStruct ~> declareNamedType(identifier)) ~ opt((curlyOpen ~> rep(TYPE ~ identifier <~ semicolon ^^ { case fieldTy ~ name => (fieldTy, name) })) <~ curlyClose) <~ semicolon ^^ {
-      case loc ~ name ~ fields => new AstStructDecl(name, fields.getOrElse(Nil), loc)
+      case loc ~ name ~ fields => new AstStructDecl(name, fields, loc)
     }
 
   /** FUNPTR_DECL := typedef TYPE_FUN_RET '(' '*' identifier ')' '(' [ TYPE { ',' TYPE } ] ')' ';' */
@@ -119,7 +122,7 @@ object TinyCParser extends Parsers {
       case loc ~ returnTy ~ name ~ argTys => new AstFunPtrDecl(name, returnTy, argTys, loc)
     }
 
-  /** F := integer | double | char | string | identifier | '(' EXPR ')' | E_CAST | scan '(' ')' | print '(' EXPR ')' */
+  /** F := integer | double | char | string | identifier | '(' EXPR ')' | E_CAST | scan '(' ')' */
   lazy val F: Parser[AstNode] = (
     (loc ~ integer ^^ { case loc ~ value => new AstInteger(value, loc) })
       | (loc ~ double ^^ { case loc ~ value => new AstDouble(value, loc) })
@@ -129,7 +132,6 @@ object TinyCParser extends Parsers {
       | (parOpen ~> EXPR <~ parClose)
       | E_CAST
       | (loc <~ (kwScan ~ parOpen ~ parClose) ^^ (loc => new AstRead(loc)))
-      | (loc ~ (kwPrint ~> parOpen ~> EXPR) <~ parClose ^^ { case loc ~ expr => new AstWrite(expr, loc) })
     )
 
   /** E_CAST := cast '<' TYPE '>' '(' EXPR ')' */

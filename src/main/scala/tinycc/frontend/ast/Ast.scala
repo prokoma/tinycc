@@ -18,7 +18,11 @@ class AstString(val value: String, val loc: SourceLocation) extends AstNode {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitString(this)
 }
 
-class AstIdentifier(val value: Symbol, val loc: SourceLocation) extends AstNode {
+trait AstIdentifierOrDecl {
+  def symbol: Symbol
+}
+
+class AstIdentifier(val symbol: Symbol, val loc: SourceLocation) extends AstNode with AstIdentifierOrDecl {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitIdentifier(this)
 }
 
@@ -30,25 +34,32 @@ class AstBlock(val body: Seq[AstNode], val loc: SourceLocation) extends AstNode 
   override def accept[R](vis: AstVisitor[R]): R = vis.visitBlock(this)
 }
 
-trait AstDecl extends AstNode {
-  def name: Symbol
+// TODO: maybe remove this trait when we have AstIdentifierOrDecl
+trait AstDecl extends AstNode with AstIdentifierOrDecl {
+  def symbol: Symbol
 
   override def accept[R](vis: AstVisitor[R]): R = vis.visitDecl(this)
 }
 
-class AstVarDecl(val name: Symbol, val varTy: AstType, val value: Option[AstNode], val loc: SourceLocation) extends AstDecl {
+class AstVarDecl(val symbol: Symbol, val varTy: AstType, val value: Option[AstNode], val loc: SourceLocation) extends AstDecl {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitVarDecl(this)
 }
 
-class AstFunDecl(val name: Symbol, val returnTy: AstType, val args: Seq[(AstType, Symbol)], val body: Option[AstNode], val loc: SourceLocation) extends AstDecl {
+class AstFunDecl(val symbol: Symbol, val returnTy: AstType, val args: Seq[(AstType, Symbol)], val body: Option[AstNode], val loc: SourceLocation) extends AstDecl {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitFunDecl(this)
+
+  def isForwardDecl: Boolean = body.isEmpty
 }
 
-class AstStructDecl(val name: Symbol, val fields: Seq[(AstType, Symbol)], val loc: SourceLocation) extends AstDecl {
+// TODO: AstNamedTypeDecl
+
+class AstStructDecl(val symbol: Symbol, val fields: Option[Seq[(AstType, Symbol)]], val loc: SourceLocation) extends AstDecl {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitStructDecl(this)
+
+  def hasFields: Boolean = fields.isDefined
 }
 
-class AstFunPtrDecl(val name: Symbol, val returnTy: AstType, val argTys: Seq[AstType], val loc: SourceLocation) extends AstDecl {
+class AstFunPtrDecl(val symbol: Symbol, val returnTy: AstType, val argTys: Seq[AstType], val loc: SourceLocation) extends AstDecl {
   override def accept[R](vis: AstVisitor[R]): R = vis.visitFunPtrDecl(this)
 }
 

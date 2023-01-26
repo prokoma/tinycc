@@ -7,83 +7,66 @@ import tinycc.util.parsing.SourceLocation
 import scala.collection.mutable
 
 class SemanticAnalysisException(message: String, loc: SourceLocation) extends RuntimeException(message) {
-//  override def format(reporter: Reporter): String = reporter.formatError("semantic analysis", message, loc)
+  //  override def format(reporter: Reporter): String = reporter.formatError("semantic analysis", message, loc)
 }
 
-object SemanticAnalysisException {
-  def errorUndeclaredIdentifier(id: AstIdentifier, loc: SourceLocation): SemanticAnalysisException =
-    new SemanticAnalysisException(s"Use of undeclared identifier '${id.value}'.", loc)
+class LexicalStack {
+  private var frames: List[mutable.Map[Symbol, IdentifierDecl]] = Nil
 
-  def errorVarRedefinition(id: Symbol, prevDecl: IdentifierDecl, loc: SourceLocation): SemanticAnalysisException =
-    new SemanticAnalysisException(s"Redefinition of variable '$id' (previously declared at ${prevDecl.loc})'", loc)
-
-  def errorArgRedefinition(name: Symbol, funDecl: AstFunDecl, loc: SourceLocation): SemanticAnalysisException =
-    new SemanticAnalysisException(s"Redefinition of argument '$name'", loc)
-
-  def errorAssignToFun(id: AstIdentifier, loc: SourceLocation): SemanticAnalysisException =
-    new SemanticAnalysisException(s"Cannot assign to a function (use & to get function address).", loc)
-
-  def errorCaseRedefinition(value: Long, node: AstSwitch, loc: SourceLocation): SemanticAnalysisException =
-    new SemanticAnalysisException(s"Redefinition of case value $value", loc)
-}
-
-/**
- * 1. Link {AstIdentifier}s with their {IdentifierDecls}
- * 2. Check for duplicate member names in struct
- * 3. Check for duplicate argument names
- * 4. Check for variable redefinition
- * */
-class SemanticAnalysis(program: AstBlock) {
-
-  import SemanticAnalysisException._;
-
-  implicit private val declarations: mutable.Map[AstIdentifier, IdentifierDecl] = mutable.Map.empty
-
-  private var lexicalStack: List[mutable.Map[Symbol, IdentifierDecl]] = Nil
-
-  private def withLexicalFrame[R](thunk: => R): R = {
-    lexicalStack ::= mutable.Map.empty
+  def withFrame[R](thunk: => R): R = {
+    frames ::= mutable.Map.empty
     try
       thunk
     finally
-      lexicalStack = lexicalStack.tail
+      frames = frames.tail
   }
 
-  private def lookupDecl(idName: Symbol): Option[IdentifierDecl] =
-    lexicalStack.collectFirst(Function.unlift(_.get(idName)))
+  def isGlobalFrame: Boolean = frames.sizeIs == 1
 
-  lazy val result: Declarations = {
-    withLexicalFrame({
-      program.accept(new Visitor_())
-    })
-    declarations
+  def lookupDecl(identifier: Symbol): Option[IdentifierDecl] =
+    frames.collectFirst(Function.unlift(_.get(identifier)))
+
+  def lookupDeclInCurrentFrame(identifier: Symbol): Option[IdentifierDecl] =
+    frames.headOption.flatMap(_.get(identifier))
+
+  def putDecl(identifier: Symbol, decl: IdentifierDecl): Unit =
+    frames.head(identifier) = decl
+}
+
+class SemanticAnalysis(program: AstBlock) {
+
+  implicit private val declarations: mutable.Map[AstIdentifierOrDecl, IdentifierDecl] = mutable.Map.empty
+
+  private val lexicalStack: LexicalStack = new LexicalStack
+
+  private val errors: mutable.Buffer[SemanticAnalysisException] = mutable.Buffer.empty
+
+  lazy val result: Either[Seq[SemanticAnalysisException], Declarations] = {
+    program.accept(new Visitor_) // First frame is created by visitBlock.
+    if (errors.nonEmpty)
+      Left(errors.toSeq)
+    else
+      Right(declarations)
   }
 
   private class Visitor_ extends AstVisitor[Unit] {
     override def visit(node: AstNode): Unit = {}
 
     override def visitIdentifier(node: AstIdentifier): Unit = {
-      declarations(node) = lookupDecl(node.value).getOrElse(throw errorUndeclaredIdentifier(node))
+      lexicalStack.lookupDecl(node.symbol) match {
+        case Some(decl) =>
+          declarations(node) = decl
+        case None =>
+          errors += new SemanticAnalysisException(s"identifier '${node.symbol.name}' undeclared", node.loc)
+      }
     }
-
-    override def visitType(node: AstType): Unit = super.visitType(node)
-
-    override def visitPointerType(node: AstPointerType): Unit = {
-      node.base.accept(this)
-    }
-
-    override def visitArrayType(node: AstArrayType): Unit = {
-      node.base.accept(this)
-    }
-
-    override def visitNamedType(node: AstNamedType): Unit = super.visitNamedType(node) // TODO: check if type is declared
 
     override def visitSequence(node: AstSequence): Unit = {
       node.body.foreach(_.accept(this))
     }
 
     override def visitBlock(node: AstBlock): Unit = {
-      withLexicalFrame({
+      lexicalStack.withFrame({
         node.body.foreach(_.accept(this))
       })
     }
@@ -93,30 +76,51 @@ class SemanticAnalysis(program: AstBlock) {
     override def visitVarDecl(node: AstVarDecl): Unit = {
       node.value.foreach(_.accept(this))
 
-      lexicalStack.head.get(node.name).foreach(prevDecl =>
-        throw errorVarRedefinition(node.name, prevDecl, node.loc))
-      lexicalStack.head(node.name) = VarDecl(node)
+      lexicalStack.lookupDeclInCurrentFrame(node.symbol) match {
+        case Some(prevDecl: VarDecl) if lexicalStack.isGlobalFrame =>
+          // Ok, forward declarations of variables are allowed.
+          declarations(node) = prevDecl
+          lexicalStack.putDecl(node.symbol, VarDecl(node, Some(prevDecl)))
+
+        case Some(prevDecl: VarDecl) =>
+          errors += new SemanticAnalysisException(s"local variable '${node.symbol.name}' redeclared", node.loc)
+          errors += new SemanticAnalysisException(s"previous declaration of '${node.symbol.name}' here", prevDecl.loc)
+
+        case Some(prevDecl) =>
+          errors += new SemanticAnalysisException(s"'${node.symbol.name}' redeclared as different kind of symbol", node.loc)
+          errors += new SemanticAnalysisException(s"previous declaration of '${node.symbol.name}' here", prevDecl.loc)
+        case None =>
+          lexicalStack.putDecl(node.symbol, VarDecl(node))
+      }
     }
 
     override def visitFunDecl(node: AstFunDecl): Unit = {
-      if(!lexicalStack.head.contains(node.name))
-        lexicalStack.head(node.name) = FunDecl(node)
+      lexicalStack.lookupDeclInCurrentFrame(node.symbol) match {
+        case Some(prevDecl: FunDecl) =>
+          // Ok, forward declarations of functions are allowed.
+          declarations(node) = prevDecl
+          lexicalStack.putDecl(node.symbol, FunDecl(node, Some(prevDecl)))
 
-      withLexicalFrame({
-        val argNames = mutable.Set.empty[Symbol]
+        case Some(prevDecl) =>
+          errors += new SemanticAnalysisException(s"'${node.symbol.name}' redeclared as different kind of symbol", node.loc)
+          errors += new SemanticAnalysisException(s"previous declaration of '${node.symbol.name}' here", prevDecl.loc)
+        case None =>
+          lexicalStack.putDecl(node.symbol, FunDecl(node))
+      }
+
+      lexicalStack.withFrame({
         node.args.zipWithIndex.foreach({ case ((_, argName), idx) =>
-          if(argNames.contains(argName))
-            throw errorArgRedefinition(argName, node, node.loc)
-          argNames += argName
-          lexicalStack.head(argName) = FunArgDecl(node, idx, node.loc)
+          lexicalStack.lookupDeclInCurrentFrame(argName) match {
+            case Some(_) =>
+              errors += new SemanticAnalysisException(s"duplicate argument '${argName.name}'", node.loc)
+
+            case None =>
+              lexicalStack.putDecl(argName, FunArgDecl(node, idx))
+          }
         })
         node.body.foreach(_.accept(this))
       })
     }
-
-    override def visitStructDecl(node: AstStructDecl): Unit = super.visitStructDecl(node) // TODO: where should named types be handled?
-
-    override def visitFunPtrDecl(node: AstFunPtrDecl): Unit = super.visitFunPtrDecl(node)
 
     override def visitIf(node: AstIf): Unit = {
       node.guard.accept(this)
@@ -127,9 +131,8 @@ class SemanticAnalysis(program: AstBlock) {
     override def visitSwitch(node: AstSwitch): Unit = {
       val caseValues = mutable.Set.empty[Long]
       node.cases.foreach({ case (value, body) =>
-        if(caseValues.contains(value))
-          throw errorCaseRedefinition(value, node, body.loc)
-        caseValues += value
+        if (!caseValues.add(value))
+          errors += new SemanticAnalysisException(s"duplicate case value '$value'", body.loc)
         body.accept(this)
       })
       node.defaultCase.foreach(_.accept(this))
@@ -146,7 +149,7 @@ class SemanticAnalysis(program: AstBlock) {
     }
 
     override def visitFor(node: AstFor): Unit = {
-      withLexicalFrame({
+      lexicalStack.withFrame({
         node.init.foreach(_.accept(this))
         node.guard.foreach(_.accept(this))
         node.increment.foreach(_.accept(this))
@@ -165,6 +168,16 @@ class SemanticAnalysis(program: AstBlock) {
 
     override def visitAssignment(node: AstAssignment): Unit = {
       node.lvalue.accept(this)
+
+      node.lvalue match {
+        case id: AstIdentifier => id.declOption match {
+          case Some(_: FunDecl) =>
+            errors += new SemanticAnalysisException(s"assignment to function '${id.symbol.name}'", node.loc)
+          case _ =>
+          // Undeclared identifier is already handled by visitIdentifier.
+        }
+      }
+
       node.value.accept(this)
     }
 
@@ -217,12 +230,25 @@ sealed trait IdentifierDecl {
   def loc: SourceLocation
 }
 
-case class FunDecl(node: AstFunDecl) extends IdentifierDecl {
+case class FunArgDecl(node: AstFunDecl, index: Int) extends IdentifierDecl {
   override def loc: SourceLocation = node.loc
 }
 
-case class FunArgDecl(fun: AstFunDecl, index: Int, loc: SourceLocation) extends IdentifierDecl
+//trait ForwardDeclarable[T <: ForwardDeclarable[T]] extends IdentifierDecl with Iterable[T] {
+//  def prevDecl: Option[T]
+//
+//  def iterator: Iterator[T] =
+//    Iterator.unfold[T, Option[T]](Some(this.asInstanceOf[T]))(_.map(decl => (decl, decl.prevDecl)))
+//}
+
+case class FunDecl(node: AstFunDecl) extends IdentifierDecl {
+  def prevDecl(implicit declarations: Declarations): Option[FunDecl] = node.prevDecl
+
+  override def loc: SourceLocation = node.loc
+}
 
 case class VarDecl(node: AstVarDecl) extends IdentifierDecl {
+  def prevDecl(implicit declarations: Declarations): Option[VarDecl] = node.prevDecl
+
   override def loc: SourceLocation = node.loc
 }
