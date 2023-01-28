@@ -67,11 +67,11 @@ class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       Right(typeMap)
   }
 
-//  private def checkAssignableFrom(ty: Ty, other: Ty): Boolean = {
-//    if(!ty.isAssignableFrom(other)) {
-//      errors += new TypeAnalysisException(s"expected $")
-//    }
-//  }
+  //  private def checkAssignableFrom(ty: Ty, other: Ty): Boolean = {
+  //    if(!ty.isAssignableFrom(other)) {
+  //      errors += new TypeAnalysisException(s"expected $")
+  //    }
+  //  }
 
   // At the end of each visit method, typeMap(node) must be set.
   private class Visitor_ extends AstVisitor[Unit] {
@@ -114,7 +114,7 @@ class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
 
     override def visitIdentifier(node: AstIdentifier): Unit = {
       typeMap(node) = node.decl match {
-        case FunDecl(node) => node.ty
+        case FunDecl(node) => PtrTy(node.ty)
         case FunArgDecl(node, index) => node.ty.asInstanceOf[FunTy].argTys(index)
         case VarDecl(node) => node.ty
       }
@@ -161,7 +161,7 @@ class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       // Check if the variable is compatible with its previous declaration.
       node.prevDecl match {
         case Some(VarDecl(prevNode)) if prevNode.varTy.ty != varTy =>
-          errors += new TypeAnalysisException(s"incompatible declaration of variable '${node.symbol.name}' ($varTy), previously declared as ${varTy.ty}", node.loc)
+          errors += new TypeAnalysisException(s"incompatible declaration of variable '${node.symbol.name}' ($varTy), previously declared as ${prevNode.varTy.ty}", node.loc)
           errors += new TypeAnalysisException(s"previous declaration of '${node.symbol.name}'", prevNode.loc)
 
         case _ =>
@@ -246,7 +246,7 @@ class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
         case Some((_, prevDeclLoc)) =>
           errors += new TypeAnalysisException(s"redefinition of 'struct ${node.symbol.name}' as another kind of type", node.loc)
           errors += new TypeAnalysisException(s"previous declaration of '${node.symbol.name}'", prevDeclLoc)
-          typeMap(node) = StructTy(fields)
+          typeMap(node) = StructTy(Some(node.symbol), fields)
 
         case None =>
           val ty = StructTy()
@@ -335,13 +335,16 @@ class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       typeMap(node) = VoidTy
     }
 
-    override def visitBinaryOp(node: AstBinaryOp): Unit = super.visitBinaryOp(node)
+    override def visitBinaryOp(node: AstBinaryOp): Unit = {
+      // TODO
+      ???
+    }
 
     override def visitAssignment(node: AstAssignment): Unit = {
       checkLvalue(node.lvalue, "on left side of assignment")
       val lvalueTy = visitAndGetTy(node.lvalue)
       val valueTy = visitAndGetTy(node.value)
-      if(!lvalueTy.isAssignableFrom(valueTy))
+      if (!lvalueTy.isAssignableFrom(valueTy))
         errors += new TypeAnalysisException(s"cannot assign $valueTy to l-value of type $lvalueTy", node.loc)
       typeMap(node) = lvalueTy
     }
@@ -351,21 +354,21 @@ class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
 
       node.op match {
         case Symbols.add | Symbols.sub | Symbols.neg =>
-          if(!IntTy.isAssignableFrom(exprTy)) {
-            errors += new TypeAnalysisException(s"wrong type argument to unary plus (expected int-like type)", node.loc)
+          if (!IntTy.isAssignableFrom(exprTy)) {
+            errors += new TypeAnalysisException(s"wrong type argument to unary plus (expected int-like type), got $exprTy", node.loc)
             typeMap(node) = IntTy
           } else
             typeMap(node) = exprTy
 
         case Symbols.not =>
-          if(!IntTy.isAssignableFrom(exprTy) && !exprTy.isInstanceOf[PtrTy])
-            errors += new TypeAnalysisException(s"wrong type argument to unary not (expected int-like or pointer type)", node.loc)
+          if (!IntTy.isAssignableFrom(exprTy) && !exprTy.isInstanceOf[PtrTy])
+            errors += new TypeAnalysisException(s"wrong type argument to unary not (expected int-like or pointer type), got $exprTy", node.loc)
           typeMap(node) = IntTy
 
         case Symbols.inc | Symbols.dec =>
           checkLvalue(node.expr, s"in unary ${node.op.name}")
           if (!IntTy.isAssignableFrom(exprTy) && !exprTy.isInstanceOf[PtrTy]) {
-            errors += new TypeAnalysisException(s"wrong type argument to unary not (expected int-like or pointer type)", node.loc)
+            errors += new TypeAnalysisException(s"wrong type argument to unary not (expected int-like or pointer type), got $exprTy", node.loc)
             typeMap(node) = IntTy
           } else
             typeMap(node) = exprTy
@@ -390,23 +393,115 @@ class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       }
     }
 
-    override def visitAddress(node: AstAddress): Unit = super.visitAddress(node)
+    override def visitAddress(node: AstAddress): Unit = {
+      checkLvalue(node.expr)
+      typeMap(node) = visitAndGetTy(node.expr) match {
+        case exprTy@PtrTy(_: FunTy) => exprTy
+        case exprTy => PtrTy(exprTy)
+      }
+    }
 
-    override def visitDeref(node: AstDeref): Unit = super.visitDeref(node)
+    override def visitDeref(node: AstDeref): Unit = {
+      typeMap(node) = visitAndGetTy(node.expr) match {
+        case exprTy@PtrTy(_: FunTy) => exprTy
+        case PtrTy(baseTy) => baseTy
+        case exprTy =>
+          errors += new TypeAnalysisException(s"cannot dereference non-pointer type ($exprTy)", node.loc)
+          exprTy
+      }
+    }
 
-    override def visitIndex(node: AstIndex): Unit = super.visitIndex(node)
+    override def visitIndex(node: AstIndex): Unit = {
+      val baseTy = visitAndGetTy(node.base)
+      val indexTy = visitAndGetTy(node.index)
+      if (!IntTy.isAssignableFrom(indexTy))
+        errors += new TypeAnalysisException(s"expected $IntTy (or compatible type), got $indexTy", node.index.loc)
+      typeMap(node) = baseTy match {
+        case PtrTy(_: FunTy) =>
+          errors += new TypeAnalysisException(s"cannot index into pointer to function", node.loc)
+          baseTy
 
-    override def visitMember(node: AstMember): Unit = super.visitMember(node)
+        case PtrTy(targetTy) =>
+          targetTy
 
-    override def visitMemberPtr(node: AstMemberPtr): Unit = super.visitMemberPtr(node)
+        case _ =>
+          errors += new TypeAnalysisException(s"expected array or pointer, got $baseTy", node.loc)
+          baseTy
+      }
+    }
 
-    override def visitCall(node: AstCall): Unit = super.visitCall(node)
+    override def visitMember(node: AstMember): Unit = {
+      typeMap(node) = visitAndGetTy(node.base) match {
+        case baseTy: StructTy if !baseTy.isComplete =>
+          errors += new TypeAnalysisException(s"cannot access fields in an incomplete struct", node.loc)
+          VoidTy
+        case baseTy@StructTy(_, Some(fields)) =>
+          val fieldTy = fields.collectFirst({ case (ty, name) if name == node.member => ty })
+          fieldTy match {
+            case Some(value) => value
+            case None =>
+              errors += new TypeAnalysisException(s"unknown member ${node.member.name} in $baseTy", node.loc)
+              VoidTy
+          }
 
-    override def visitCast(node: AstCast): Unit = super.visitCast(node)
+        case baseTy =>
+          errors += new TypeAnalysisException(s"expected struct type, got $baseTy", node.loc)
+          VoidTy
+      }
+    }
+
+    override def visitMemberPtr(node: AstMemberPtr): Unit = {
+      typeMap(node) = visitAndGetTy(node.base) match {
+        case PtrTy(baseTy: StructTy) if !baseTy.isComplete =>
+          errors += new TypeAnalysisException(s"cannot access fields in an incomplete struct $baseTy", node.loc)
+          VoidTy
+        case PtrTy(baseTy@StructTy(_, Some(fields))) =>
+          val fieldTy = fields.collectFirst({ case (ty, name) if name == node.member => ty })
+          fieldTy match {
+            case Some(value) => value
+            case None =>
+              errors += new TypeAnalysisException(s"unknown member ${node.member.name} in $baseTy", node.loc)
+              VoidTy
+          }
+
+        case baseTy =>
+          errors += new TypeAnalysisException(s"expected pointer to struct type, got $baseTy", node.loc)
+          VoidTy
+      }
+    }
+
+    override def visitCall(node: AstCall): Unit = {
+      val exprTy = visitAndGetTy(node.expr)
+      val argExprTys = node.args.map(visitAndGetTy)
+
+      typeMap(node) = exprTy match {
+        case PtrTy(FunTy(returnTy, argTys)) =>
+          if (argTys.size == argExprTys.size) {
+            argExprTys.zip(argTys).zipWithIndex.foreach({ case ((argExprTy, argTy), i) =>
+              if(!argTy.isAssignableFrom(argExprTy))
+                errors += new TypeAnalysisException(s"expected $argTy (or compatible type), $argExprTy given (arg #$i)", node.loc)
+            })
+          } else
+            errors += new TypeAnalysisException(s"expected ${argTys.size} arguments, ${argExprTys.size} given", node.loc)
+          returnTy
+
+        case _ =>
+          errors += new TypeAnalysisException(s"expected function pointer, got $exprTy", node.loc)
+          VoidTy
+      }
+    }
+
+    override def visitCast(node: AstCast): Unit = {
+      val newTy = visitAndGetTy(node.newTy)
+      val exprTy = visitAndGetTy(node.expr)
+      if (newTy.getCastModeFrom(exprTy).isEmpty)
+        errors += new TypeAnalysisException(s"cannot cast $exprTy to $newTy", node.loc)
+      typeMap(node) = newTy
+    }
 
     override def visitWrite(node: AstWrite): Unit = {
       val exprTy = visitAndGetTy(node.expr)
-      if(!CharTy.isAssignableFrom(exprTy))
+      if (!CharTy.isAssignableFrom(exprTy))
         errors += new TypeAnalysisException(s"expected $CharTy (or compatible type), got $exprTy", node.expr.loc)
       typeMap(node) = VoidTy
     }

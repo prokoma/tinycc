@@ -47,6 +47,8 @@ object Types {
   case object CharTy extends PODTy {
     override def sizeCells: Int = ???
 
+    override def toString: String = "char"
+
     override def getCastModeFrom(other: Ty): Option[CastMode] = ???
   }
 
@@ -65,6 +67,8 @@ object Types {
   case object DoubleTy extends PODTy {
     override def sizeCells: Int = ???
 
+    override def toString: String = "double"
+
     override def getCastModeFrom(other: Ty): Option[CastMode] = ???
   }
 
@@ -75,7 +79,7 @@ object Types {
   }
 
   case class PtrTy(baseTy: Ty) extends IndexableTyBase {
-    override def toString: String = s"*$baseTy"
+    override def toString: String = s"*$baseTy" // TODO: correctly print function ptr
 
     override def getCastModeFrom(other: Ty): Option[CastMode] = other match {
       case _ if other == this => Some(CastModes.Direct)
@@ -115,12 +119,18 @@ object Types {
     override def isComplete: Boolean = true
   }
 
-  case class StructTy(var fields: Option[IndexedSeq[(Ty, Symbol)]] = None) extends Ty {
+  case class StructTy(symbol: Option[Symbol] = None, var fields: Option[IndexedSeq[(Ty, Symbol)]] = None) extends Ty {
     override def sizeCells: Int = ???
 
-    override def getCastModeFrom(other: Ty): Option[CastMode] = ???
+    override def toString: String = {
+      val s = symbol.map(" " + _).getOrElse("")
+      val f = fields.map(" {" + _.map({ case (ty, name) =>
+        s" $ty $name;"
+      }).mkString + " }").getOrElse("")
+      s"struct$s$f;"
+    }
 
-    def isForwardDecl: Boolean = fields.isEmpty
+    override def getCastModeFrom(other: Ty): Option[CastMode] = ???
 
     override def isComplete: Boolean = fields.isDefined
   }
