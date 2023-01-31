@@ -168,10 +168,10 @@ object TinyCParser extends Parsers {
   lazy val E3: Parser[AstNode] = E2 ~ rep(loc ~ (shiftLeft | shiftRight) ~ E2 ^^ buildBinaryOp) ^^ applyPostModifiers
 
   /** E4 := E3 { ('<' | '<=' | '>' | '>=') E3 } */
-  lazy val E4: Parser[AstNode] = E3 ~ rep(loc ~ (lt | lte | gt | gte) ~ E3 ^^ buildBinaryOp) ^^ applyPostModifiers
+  lazy val E4: Parser[AstNode] = E3 ~ rep(loc ~ (lt | le | gt | ge) ~ E3 ^^ buildBinaryOp) ^^ applyPostModifiers
 
   /** E5 := E4 { ('==' | '!=') E4 } */
-  lazy val E5: Parser[AstNode] = E4 ~ rep(loc ~ (Symbols.eq | nEq) ~ E4 ^^ buildBinaryOp) ^^ applyPostModifiers
+  lazy val E5: Parser[AstNode] = E4 ~ rep(loc ~ (Symbols.eq | ne) ~ E4 ^^ buildBinaryOp) ^^ applyPostModifiers
 
   /** E6 := E5 { '&' E5 } */
   lazy val E6: Parser[AstNode] = E5 ~ rep(loc ~ bitAnd ~ E5 ^^ buildBinaryOp) ^^ applyPostModifiers

@@ -1,5 +1,7 @@
 package tinycc.frontend
 
+import tinycc.frontend.Types.IntegerTy
+
 object Types {
 
   sealed trait CastMode
@@ -29,6 +31,8 @@ object Types {
     def isComplete: Boolean
   }
 
+  sealed trait ScalarTy extends Ty
+
   sealed trait PODTy extends Ty {
     override def isComplete: Boolean = true
   }
@@ -44,7 +48,20 @@ object Types {
     }
   }
 
-  case object CharTy extends PODTy {
+  /** This type should be returned if type analysis fails for the node. */
+  case object ErrorTy extends Ty {
+    override def sizeCells: Int = ???
+
+    override def getCastModeFrom(other: Ty): Option[CastMode] = ???
+
+    override def isComplete: Boolean = ???
+  }
+
+  sealed trait ArithmeticTy extends PODTy with ScalarTy
+
+  sealed trait IntegerTy extends ArithmeticTy
+
+  case object CharTy extends ArithmeticTy with IntegerTy {
     override def sizeCells: Int = ???
 
     override def toString: String = "char"
@@ -52,7 +69,7 @@ object Types {
     override def getCastModeFrom(other: Ty): Option[CastMode] = ???
   }
 
-  case object IntTy extends PODTy {
+  case object IntTy extends ArithmeticTy with IntegerTy  {
     val sizeCells: Int = 1
 
     override def toString: String = "int"
@@ -64,12 +81,18 @@ object Types {
     }
   }
 
-  case object DoubleTy extends PODTy {
+  case object DoubleTy extends ArithmeticTy {
     override def sizeCells: Int = ???
 
     override def toString: String = "double"
 
     override def getCastModeFrom(other: Ty): Option[CastMode] = ???
+  }
+
+  implicit def arithmeticTyOrdering[T <: ArithmeticTy]: Ordering[T] = new Ordering[T] {
+    private val typesByRank = Seq(CharTy, IntTy, DoubleTy)
+
+    override def compare(x: T, y: T): Int = typesByRank.indexOf(x).compare(typesByRank.indexOf(y))
   }
 
   sealed trait IndexableTyBase extends Ty {
@@ -78,7 +101,7 @@ object Types {
     def baseTy: Ty
   }
 
-  case class PtrTy(baseTy: Ty) extends IndexableTyBase {
+  case class PtrTy(baseTy: Ty) extends IndexableTyBase with ScalarTy {
     override def toString: String = s"*$baseTy" // TODO: correctly print function ptr
 
     override def getCastModeFrom(other: Ty): Option[CastMode] = other match {

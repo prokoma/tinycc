@@ -42,14 +42,14 @@ class SemanticAnalysis(program: AstBlock) {
   private val errors: mutable.Buffer[SemanticAnalysisException] = mutable.Buffer.empty
 
   lazy val result: Either[Seq[SemanticAnalysisException], Declarations] = {
-    program.accept(new Visitor_) // First frame is created by visitBlock.
+    program.accept(new _Visitor) // First frame is created by visitBlock.
     if (errors.nonEmpty)
       Left(errors.toSeq)
     else
       Right(declarations)
   }
 
-  private class Visitor_ extends AstVisitor[Unit] {
+  private class _Visitor extends AstVisitor[Unit] {
     override def visit(node: AstNode): Unit = {}
 
     override def visitIdentifier(node: AstIdentifier): Unit = {
