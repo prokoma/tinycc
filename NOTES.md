@@ -66,6 +66,13 @@ int foo(double x){ return x; } // definition
   - we need to be sure that the loaded value is unchanged at the root of the tile (emission point)
 - preserve basic blocks
 
+- Tree, TreeRegex
+- constructors which take children and return all permutations
+- TreeRegex has fixed structure and number of nodes
+- node, map (^^), or (|) operators - take list of trees and return list of trees
+- Result - Accept[T](value: T, nodes: List[Tree], leaves: List[Tree]), Reject
+  - leaves for convenience
+
 ### Algorithms
 
 - maximal munch (top-down greedy)

@@ -2,148 +2,147 @@ package tinycc.frontend.ast
 
 import tinycc.util.parsing.SourceLocation
 
-class AstInteger(val value: Long, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitInteger(this)
+sealed trait AstNode {
+  def loc: SourceLocation
+
+  def children: Seq[AstNode] = Seq.empty
 }
 
-class AstDouble(val value: Double, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitDouble(this)
+sealed trait AstType extends AstNode
+
+class AstPointerType(val base: AstType, val loc: SourceLocation) extends AstType {
+  override def children: Seq[AstNode] = Seq(base)
 }
 
-class AstChar(val value: Char, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitChar(this)
+class AstArrayType(val base: AstType, val loc: SourceLocation) extends AstType {
+  override def children: Seq[AstNode] = Seq(base)
 }
 
-class AstString(val value: String, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitString(this)
-}
+class AstNamedType(val symbol: Symbol, val loc: SourceLocation) extends AstType
 
-trait AstIdentifierOrDecl {
+class AstInteger(val value: Long, val loc: SourceLocation) extends AstNode
+
+class AstDouble(val value: Double, val loc: SourceLocation) extends AstNode
+
+class AstChar(val value: Char, val loc: SourceLocation) extends AstNode
+
+class AstString(val value: String, val loc: SourceLocation) extends AstNode
+
+sealed trait AstIdentifierOrDecl extends AstNode {
   def symbol: Symbol
 }
 
-class AstIdentifier(val symbol: Symbol, val loc: SourceLocation) extends AstNode with AstIdentifierOrDecl {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitIdentifier(this)
-}
+class AstIdentifier(val symbol: Symbol, val loc: SourceLocation) extends AstNode with AstIdentifierOrDecl
 
 class AstSequence(val body: Seq[AstNode], val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitSequence(this)
+  override def children: Seq[AstNode] = body
 }
 
 class AstBlock(val body: Seq[AstNode], val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitBlock(this)
+  override def children: Seq[AstNode] = body
 }
 
-// TODO: maybe remove this trait when we have AstIdentifierOrDecl
-trait AstDecl extends AstNode with AstIdentifierOrDecl {
+sealed trait AstDecl extends AstNode with AstIdentifierOrDecl {
   def symbol: Symbol
-
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitDecl(this)
 }
 
 class AstVarDecl(val symbol: Symbol, val varTy: AstType, val value: Option[AstNode], val loc: SourceLocation) extends AstDecl {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitVarDecl(this)
+  override def children: Seq[AstNode] = Seq(varTy) ++ value
 }
 
 class AstFunDecl(val symbol: Symbol, val returnTy: AstType, val args: Seq[(AstType, Symbol)], val body: Option[AstNode], val loc: SourceLocation) extends AstDecl {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitFunDecl(this)
+  override def children: Seq[AstNode] = Seq(returnTy) ++ args.map(_._1) ++ body
 
-  def isForwardDecl: Boolean = body.isEmpty
+  def hasBody: Boolean = body.isDefined
 }
 
-// TODO: AstNamedTypeDecl
+sealed trait AstNamedTypeDecl extends AstDecl
 
-class AstStructDecl(val symbol: Symbol, val fields: Option[Seq[(AstType, Symbol)]], val loc: SourceLocation) extends AstDecl {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitStructDecl(this)
+class AstStructDecl(val symbol: Symbol, val fields: Option[Seq[(AstType, Symbol)]], val loc: SourceLocation) extends AstNamedTypeDecl {
+  override def children: Seq[AstNode] = Seq.from(fields.flatMap(_.map(_._1))
 
   def hasFields: Boolean = fields.isDefined
 }
 
-class AstFunPtrDecl(val symbol: Symbol, val returnTy: AstType, val argTys: Seq[AstType], val loc: SourceLocation) extends AstDecl {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitFunPtrDecl(this)
+class AstFunPtrDecl(val symbol: Symbol, val returnTy: AstType, val argTys: Seq[AstType], val loc: SourceLocation) extends AstNamedTypeDecl {
+  override def children: Seq[AstNode] = Seq(returnTy) ++ argTys
 }
 
 class AstIf(val guard: AstNode, val trueCase: AstNode, val falseCase: Option[AstNode], val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitIf(this)
+  override def children: Seq[AstNode] = Seq(guard, trueCase) ++ falseCase
 }
 
 class AstSwitch(val guard: AstNode, val cases: Seq[(Long, AstNode)], val defaultCase: Option[AstNode], val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitSwitch(this)
+  override def children: Seq[AstNode] = Seq(guard) ++ cases.map(_._2) ++ defaultCase
 }
 
 class AstWhile(val guard: AstNode, val body: AstNode, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitWhile(this)
+  override def children: Seq[AstNode] = Seq(guard, body)
 }
 
 class AstDoWhile(val guard: AstNode, val body: AstNode, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitDoWhile(this)
+  override def children: Seq[AstNode] = Seq(guard, body)
 }
 
 class AstFor(val init: Option[AstNode], val guard: Option[AstNode], val increment: Option[AstNode], val body: AstNode, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitFor(this)
+  override def children: Seq[AstNode] = Seq.from(init ++ guard ++ increment ++ Seq(body))
 }
 
-class AstBreak(val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitBreak(this)
-}
+class AstBreak(val loc: SourceLocation) extends AstNode
 
-class AstContinue(val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitContinue(this)
-}
+class AstContinue(val loc: SourceLocation) extends AstNode
 
 class AstReturn(val expr: Option[AstNode], val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitReturn(this)
+  override def children: Seq[AstNode] = Seq.from(expr)
 }
 
 class AstBinaryOp(val op: Symbol, val left: AstNode, val right: AstNode, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitBinaryOp(this)
+  override def children: Seq[AstNode] = Seq(left, right)
 }
 
 class AstAssignment(val lvalue: AstNode, val value: AstNode, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitAssignment(this)
+  override def children: Seq[AstNode] = Seq(lvalue, value)
 }
 
 class AstUnaryOp(val op: Symbol, val expr: AstNode, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitUnaryOp(this)
+  override def children: Seq[AstNode] = Seq(expr)
 }
 
 class AstUnaryPostOp(val op: Symbol, val expr: AstNode, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitUnaryPostOp(this)
+  override def children: Seq[AstNode] = Seq(expr)
 }
 
 class AstAddress(val expr: AstNode, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitAddress(this)
+  override def children: Seq[AstNode] = Seq(expr)
 }
 
 class AstDeref(val expr: AstNode, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitDeref(this)
+  override def children: Seq[AstNode] = Seq(expr)
 }
 
 class AstIndex(val base: AstNode, val index: AstNode, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitIndex(this)
+  override def children: Seq[AstNode] = Seq(base, index)
 }
 
 class AstMember(val base: AstNode, val member: Symbol, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitMember(this)
+  override def children: Seq[AstNode] = Seq(base)
 }
 
 class AstMemberPtr(val base: AstNode, val member: Symbol, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitMemberPtr(this)
+  override def children: Seq[AstNode] = Seq(base)
 }
 
 class AstCall(val expr: AstNode, val args: Seq[AstNode], val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitCall(this)
+  override def children: Seq[AstNode] = Seq(expr) ++ args
 }
 
 class AstCast(val expr: AstNode, val newTy: AstType, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitCast(this)
+  override def children: Seq[AstNode] = Seq(expr, newTy)
 }
 
 class AstWrite(val expr: AstNode, val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitWrite(this)
+  override def children: Seq[AstNode] = Seq(expr)
 }
 
-class AstRead(val loc: SourceLocation) extends AstNode {
-  override def accept[R](vis: AstVisitor[R]): R = vis.visitRead(this)
-}
+class AstRead(val loc: SourceLocation) extends AstNode
 

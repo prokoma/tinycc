@@ -1,223 +1,251 @@
 package tinycc.common.ir
 
-sealed trait IrOpcode
+sealed trait IrOpcode extends Product with Serializable
 
-// Prefixes:
-// - I: integer (signed or unsigned)
-// - U: unsigned integer
-// - S: signed integer
-// - F: double
+object IrOpcode {
+  // Prefixes:
+  // - I: integer (signed or unsigned)
+  // - U: unsigned integer
+  // - S: signed integer
+  // - F: double
 
-sealed trait IrBinaryOp extends IrOpcode
+  sealed trait BinaryArithOp extends IrOpcode
 
-case object IAdd extends IrBinaryOp {
-  override def toString: String = "add"
-}
+  case object IAdd extends BinaryArithOp {
+    override def toString: String = "add"
+  }
 
-case object ISub extends IrBinaryOp {
-  override def toString: String = "sub"
-}
+  case object ISub extends BinaryArithOp {
+    override def toString: String = "sub"
+  }
 
-case object IAnd extends IrBinaryOp {
-  override def toString: String = "iand"
-}
+  case object IAnd extends BinaryArithOp {
+    override def toString: String = "iand"
+  }
 
-case object IOr extends IrBinaryOp {
-  override def toString: String = "ior"
-}
+  case object IOr extends BinaryArithOp {
+    override def toString: String = "ior"
+  }
 
-case object IXor extends IrBinaryOp {
-  override def toString: String = "ixor"
-}
+  case object IXor extends BinaryArithOp {
+    override def toString: String = "ixor"
+  }
 
-case object IShl extends IrBinaryOp {
-  override def toString: String = "ishl"
-}
+  case object IShl extends BinaryArithOp {
+    override def toString: String = "ishl"
+  }
 
-case object IShr extends IrBinaryOp {
-  override def toString: String = "ishr"
-}
+  case object IShr extends BinaryArithOp {
+    override def toString: String = "ishr"
+  }
 
-case object UMul extends IrBinaryOp {
-  override def toString: String = "umul"
-}
+  case object UMul extends BinaryArithOp {
+    override def toString: String = "umul"
+  }
 
-case object UDiv extends IrBinaryOp {
-  override def toString: String = "udiv"
-}
+  case object UDiv extends BinaryArithOp {
+    override def toString: String = "udiv"
+  }
 
-case object SMul extends IrBinaryOp {
-  override def toString: String = "smul"
-}
+  case object SMul extends BinaryArithOp {
+    override def toString: String = "smul"
+  }
 
-case object SDiv extends IrBinaryOp {
-  override def toString: String = "sdiv"
-}
+  case object SDiv extends BinaryArithOp {
+    override def toString: String = "sdiv"
+  }
 
-case object FAdd extends IrBinaryOp {
-  override def toString: String = "fadd"
-}
+  case object FAdd extends BinaryArithOp {
+    override def toString: String = "fadd"
+  }
 
-case object FSub extends IrBinaryOp {
-  override def toString: String = "fsub"
-}
+  case object FSub extends BinaryArithOp {
+    override def toString: String = "fsub"
+  }
 
-case object FMul extends IrBinaryOp {
-  override def toString: String = "fmul"
-}
+  case object FMul extends BinaryArithOp {
+    override def toString: String = "fmul"
+  }
 
-case object FDiv extends IrBinaryOp {
-  override def toString: String = "fdiv"
-}
+  case object FDiv extends BinaryArithOp {
+    override def toString: String = "fdiv"
+  }
 
-sealed trait IrBinaryPred extends IrOpcode
+  sealed trait CmpOp extends IrOpcode
 
-case object CmpIEq extends IrBinaryPred {
-  override def toString: String = "cmp.ieq"
-}
+  sealed trait ICmpOp extends CmpOp
 
-case object CmpINe extends IrBinaryPred {
-  override def toString: String = "cmp.ine"
-}
+  case object CmpIEq extends ICmpOp {
+    override def toString: String = "cmpieq"
+  }
 
-case object CmpULt extends IrBinaryPred {
-  override def toString: String = "cmp.ult"
-}
+  case object CmpINe extends ICmpOp {
+    override def toString: String = "cmpine"
+  }
 
-case object CmpULe extends IrBinaryPred {
-  override def toString: String = "cmp.ule"
-}
+  case object CmpULt extends ICmpOp {
+    override def toString: String = "cmpult"
+  }
 
-case object CmpUGt extends IrBinaryPred {
-  override def toString: String = "cmp.ugt"
-}
+  case object CmpULe extends ICmpOp {
+    override def toString: String = "cmpule"
+  }
 
-case object CmpUGe extends IrBinaryPred {
-  override def toString: String = "cmp.uge"
-}
+  case object CmpUGt extends ICmpOp {
+    override def toString: String = "cmpugt"
+  }
 
-case object CmpSLt extends IrBinaryPred {
-  override def toString: String = "cmp.slt"
-}
+  case object CmpUGe extends ICmpOp {
+    override def toString: String = "cmpuge"
+  }
 
-case object CmpSLe extends IrBinaryPred {
-  override def toString: String = "cmp.sle"
-}
+  case object CmpSLt extends ICmpOp {
+    override def toString: String = "cmpslt"
+  }
 
-case object CmpSGt extends IrBinaryPred {
-  override def toString: String = "cmp.sgt"
-}
+  case object CmpSLe extends ICmpOp {
+    override def toString: String = "cmpsle"
+  }
 
-case object CmpSGe extends IrBinaryPred {
-  override def toString: String = "cmp.sge"
-}
+  case object CmpSGt extends ICmpOp {
+    override def toString: String = "cmpsgt"
+  }
 
-case object CmpFEq extends IrBinaryPred {
-  override def toString: String = "cmp.feq"
-}
+  case object CmpSGe extends ICmpOp {
+    override def toString: String = "cmpsge"
+  }
 
-case object CmpFNe extends IrBinaryPred {
-  override def toString: String = "cmp.fne"
-}
+  sealed trait FCmpOp extends CmpOp
 
-case object CmpFLt extends IrBinaryPred {
-  override def toString: String = "cmp.flt"
-}
+  case object CmpFEq extends FCmpOp {
+    override def toString: String = "cmpfeq"
+  }
 
-case object CmpFLe extends IrBinaryPred {
-  override def toString: String = "cmp.fle"
-}
+  case object CmpFNe extends FCmpOp {
+    override def toString: String = "cmpfne"
+  }
 
-case object CmpFGt extends IrBinaryPred {
-  override def toString: String = "cmp.fgt"
-}
+  case object CmpFLt extends FCmpOp {
+    override def toString: String = "cmpflt"
+  }
 
-case object CmpFGe extends IrBinaryPred {
-  override def toString: String = "cmp.fge"
-}
+  case object CmpFLe extends FCmpOp {
+    override def toString: String = "cmpfle"
+  }
 
-sealed trait IrUnaryOp extends IrOpcode
+  case object CmpFGt extends FCmpOp {
+    override def toString: String = "cmpfgt"
+  }
 
-case object INeg extends IrUnaryOp {
-  override def toString: String = "ineg"
-}
+  case object CmpFGe extends FCmpOp {
+    override def toString: String = "cmpfge"
+  }
 
-case object AllocA extends IrOpcode {
-  override def toString: String = "alloca"
-}
+  sealed trait UnaryOp extends IrOpcode
 
-case object AllocG extends IrOpcode {
-  override def toString: String = "allocg"
-}
+  case object INeg extends UnaryOp {
+    override def toString: String = "ineg"
+  }
 
-case object Load extends IrOpcode {
-  override def toString: String = "load"
-}
+  case object AllocL extends IrOpcode {
+    override def toString: String = "allocl"
+  }
 
-case object Store extends IrOpcode {
-  override def toString: String = "store"
-}
+  case object AllocG extends IrOpcode {
+    override def toString: String = "allocg"
+  }
 
-case object Imm extends IrOpcode {
-  override def toString: String = "imm"
-}
+  case object Load extends IrOpcode {
+    override def toString: String = "load"
+  }
 
-case object GetElementPtr extends IrOpcode {
-  override def toString: String = "getelementptr"
-}
+  case object Store extends IrOpcode {
+    override def toString: String = "store"
+  }
 
-case object GetFunPtr extends IrOpcode {
-  override def toString: String = "getfunptr"
-}
+  sealed trait Imm extends IrOpcode
 
-case object GetArgPtr extends IrOpcode {
-  override def toString: String = "getargptr"
-}
+  case object IImm extends Imm {
+    override def toString: String = "iimm"
+  }
 
-case object Call extends IrOpcode {
-  override def toString: String = "call"
-}
+  case object FImm extends Imm {
+    override def toString: String = "fimm"
+  }
 
-case object CallPtr extends IrOpcode {
-  override def toString: String = "callptr"
-}
+  case object GetElementPtr extends IrOpcode {
+    override def toString: String = "getelementptr"
+  }
 
-case object PutChar extends IrOpcode {
-  override def toString: String = "putchar"
-}
+  case object GetFunPtr extends IrOpcode {
+    override def toString: String = "getfunptr"
+  }
 
-case object PutNum extends IrOpcode {
-  override def toString: String = "putnum"
-}
+  case object GetArgPtr extends IrOpcode {
+    override def toString: String = "getargptr"
+  }
 
-case object GetChar extends IrOpcode {
-  override def toString: String = "getchar"
-}
+  case object Call extends IrOpcode {
+    override def toString: String = "call"
+  }
 
-sealed trait IrTerminatorOp extends IrOpcode {
-  override def toString: String = "ineg"
-}
+  case object CallPtr extends IrOpcode {
+    override def toString: String = "callptr"
+  }
 
-case object Ret extends IrTerminatorOp {
-  override def toString: String = "ret"
-}
+  case object PutChar extends IrOpcode {
+    override def toString: String = "putchar"
+  }
 
-case object RetVoid extends IrTerminatorOp {
-  override def toString: String = "retvoid"
-}
+  case object PutNum extends IrOpcode {
+    override def toString: String = "putnum"
+  }
 
-case object Halt extends IrTerminatorOp {
-  override def toString: String = "halt"
-}
+  case object GetChar extends IrOpcode {
+    override def toString: String = "getchar"
+  }
 
-case object Br extends IrTerminatorOp {
-  override def toString: String = "br"
-}
+  case object Phi extends IrOpcode {
+    override def toString: String = "phi"
+  }
 
-case object CondBr extends IrTerminatorOp {
-  override def toString: String = "condbr"
-}
+  sealed trait IrTerminatorOp extends IrOpcode
 
-case object Phi extends IrOpcode {
-  override def toString: String = "phi"
+  case object Ret extends IrTerminatorOp {
+    override def toString: String = "ret"
+  }
+
+  case object RetVoid extends IrTerminatorOp {
+    override def toString: String = "retvoid"
+  }
+
+  case object Halt extends IrTerminatorOp {
+    override def toString: String = "halt"
+  }
+
+  case object Br extends IrTerminatorOp {
+    override def toString: String = "br"
+  }
+
+  case object CondBr extends IrTerminatorOp {
+    override def toString: String = "condbr"
+  }
+
+  sealed trait CastOp extends IrOpcode
+
+  case object SInt64ToDouble extends CastOp {
+    override def toString: String = "sint64todouble"
+  }
+
+  case object UInt64ToDouble extends CastOp {
+    override def toString: String = "uint64todouble"
+  }
+
+  case object DoubleToSInt64 extends CastOp {
+    override def toString: String = "doubletosint64"
+  }
+
+  case object DoubleToUInt64 extends CastOp {
+    override def toString: String = "doubletouint64"
+  }
 }
