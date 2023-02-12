@@ -8,7 +8,7 @@ sealed trait TerminatorInsn extends Insn {
 
   def succBlocks: Seq[BasicBlock] = succBlockRefs.flatMap(_())
 
-  override def resultTy: IrTy = IrTys.void
+  override def resultTy: IrTy = IrTy.VoidTy
 
   def copy(newBlock: BasicBlock): TerminatorInsn
 
@@ -231,9 +231,14 @@ class GetCharInsn(val basicBlock: BasicBlock) extends Insn {
 class CastInsn(val op: IrOpcode.CastOp, argTgt: Insn, val basicBlock: BasicBlock) extends Insn {
   val arg: OperandRef = new OperandRef(this, Some(argTgt))
 
-  override def resultTy: IrTy =
+  override def resultTy: IrTy = op.resultTy
 
-  override def copy(newBlock: BasicBlock): Insn = ???
+  override def copy(newBlock: BasicBlock): Insn = new CastInsn(op, arg.get, newBlock)
+
+  override def validate(): Unit = {
+    super.validate()
+    assert(!arg.isDefined || op.operandTy == arg.get.resultTy)
+  }
 }
 
 /* === Terminators === */
@@ -294,6 +299,7 @@ class CondBrInsn(condOpTgt: Insn, trueBlockTgt: BasicBlock, falseBlockTgt: Basic
   override def copy(newBlock: BasicBlock): CondBrInsn = new CondBrInsn(condOp.get, trueBlock.get, falseBlock.get, newBlock)
 
   override def validate(): Unit = {
+    super.validate()
     assert(condOp.get.resultTy == Int64Ty)
   }
 }

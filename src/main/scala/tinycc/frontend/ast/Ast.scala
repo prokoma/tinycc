@@ -59,7 +59,7 @@ class AstFunDecl(val symbol: Symbol, val returnTy: AstType, val args: Seq[(AstTy
 sealed trait AstNamedTypeDecl extends AstDecl
 
 class AstStructDecl(val symbol: Symbol, val fields: Option[Seq[(AstType, Symbol)]], val loc: SourceLocation) extends AstNamedTypeDecl {
-  override def children: Seq[AstNode] = Seq.from(fields.flatMap(_.map(_._1))
+  override def children: Seq[AstNode] = fields.map(_.map(_._1)).getOrElse(Seq.empty)
 
   def hasFields: Boolean = fields.isDefined
 }

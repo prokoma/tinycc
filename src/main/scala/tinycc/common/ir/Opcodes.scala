@@ -232,11 +232,15 @@ object IrOpcode {
   }
 
   sealed trait CastOp extends IrOpcode {
+    def operandTy: IrTy
+
     def resultTy: IrTy
   }
 
   case object SInt64ToDouble extends CastOp {
     override def toString: String = "sint64todouble"
+
+    override def operandTy: IrTy = IrTy.Int64Ty
 
     override def resultTy: IrTy = IrTy.DoubleTy
   }
@@ -249,6 +253,8 @@ object IrOpcode {
 
   case object DoubleToSInt64 extends CastOp {
     override def toString: String = "doubletosint64"
+
+    override def operandTy: IrTy = IrTy.DoubleTy
 
     override def resultTy: IrTy = IrTy.Int64Ty
   }

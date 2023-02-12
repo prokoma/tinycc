@@ -1,32 +1,12 @@
 package tinycc.frontend
 
-import tinycc.frontend.Types.IntegerTy
-
 import scala.annotation.tailrec
 
 object Types {
-
-  sealed trait CastMode
-
-  object CastModes {
-
-    case object SameType extends CastMode
-
-    case object Implicit extends CastMode
-
-    case object Explicit extends CastMode
-  }
-
   sealed trait Ty {
-
-    //    def getCastModeFrom(other: Ty): Option[CastMode]
-
-    //    def isAssignableFrom(other: Ty): Boolean = getCastModeFrom(other) match {
-    //      case Some(CastModes.SameType | CastModes.Implicit) => true
-    //      case _ => false
-    //    }
-
     def isAssignableFrom(other: Ty): Boolean = this == other
+
+    def isExplicitlyCastableFrom(other: Ty): Boolean = isAssignableFrom(other)
 
     def isComplete: Boolean
   }
@@ -102,13 +82,15 @@ object Types {
       }
     }
 
-    override def getCastModeFrom(other: Ty): Option[CastMode] = other match {
-      case _ if other == this => Some(CastModes.SameType)
-      case IntTy => Some(CastModes.Explicit)
-      case PtrTy(otherTargetTy) if baseTy == VoidTy || otherTargetTy == VoidTy => Some(CastModes.Implicit)
-      case ArrayTy(elemTy, _) if baseTy == elemTy => Some(CastModes.Implicit)
-      case _ => None
-    }
+    override def isAssignableFrom(other: Ty): Boolean = super.isAssignableFrom(other) || (other match {
+      case IndexableTy(otherBaseTy) if otherBaseTy == baseTy || baseTy == VoidTy => true
+      case _ => false
+    })
+
+    override def isExplicitlyCastableFrom(other: Ty): Boolean = super.isExplicitlyCastableFrom(other) || (other match {
+      case IndexableTy(VoidTy) => true
+      case _ => false
+    })
 
     override def isComplete: Boolean = true
 
@@ -117,26 +99,15 @@ object Types {
 
   /** Static array */
   case class ArrayTy(elemTy: Ty, numElem: Int) extends IndexableTy {
-
     override def toString: String = s"$baseTy[$numElem]"
 
     override def baseTy: Ty = elemTy
-
-    override def getCastModeFrom(other: Ty): Option[CastMode] = other match {
-      case _ if other == this => Some(CastModes.SameType)
-      case _ => None
-    }
 
     override def isComplete: Boolean = true
   }
 
   case class FunTy(returnTy: Ty, argTys: IndexedSeq[Ty]) extends Ty {
     override def toString: String = s"$returnTy(${argTys.map(_.toString).mkString(",")})"
-
-    override def getCastModeFrom(other: Ty): Option[CastMode] = other match {
-      case _ if other == this => Some(CastModes.SameType)
-      case _ => None
-    }
 
     override def isComplete: Boolean = true
   }
@@ -150,9 +121,6 @@ object Types {
       s"struct$s$f;"
     }
 
-    override def getCastModeFrom(other: Ty): Option[CastMode] = ???
-
     override def isComplete: Boolean = fields.isDefined
   }
-
 }

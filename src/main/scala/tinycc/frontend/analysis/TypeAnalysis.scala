@@ -429,9 +429,9 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
 
         case exprTy: IndexableTy => exprTy.baseTy
 
-        case _ =>
-          errors += new TypeAnalysisException(Error, s"expected array or pointer, got $baseTy", node.loc)
-          baseTy
+        case exprTy =>
+          errors += new TypeAnalysisException(Error, s"expected array or pointer, got $exprTy", node.loc)
+          exprTy
       }
 
     case node: AstMember =>
@@ -495,7 +495,7 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
     case node: AstCast =>
       val newTy = visitAndGetTy(node.newTy)
       val exprTy = visitAndGetTy(node.expr)
-      if (newTy.getCastModeFrom(exprTy).isEmpty)
+      if (newTy.isExplicitlyCastableFrom(exprTy))
         errors += new TypeAnalysisException(Error, s"cannot cast $exprTy to $newTy", node.loc)
       newTy
 
