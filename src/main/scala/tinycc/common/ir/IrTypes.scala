@@ -25,11 +25,7 @@ object IrTy {
     override def sizeBytes: Int = 8
   }
 
-  case object PtrTy extends IrTy {
-    override def toString: String = "ptr"
-
-    override def sizeBytes: Int = 8
-  }
+  def PtrTy: IrTy = Int64Ty
 
   case class StructTy(fields: IndexedSeq[IrTy]) extends IrTy {
     override def toString: String = s"struct {${fields.map(f => s" $f").mkString(",")} }"

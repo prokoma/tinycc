@@ -1,13 +1,16 @@
 package tinycc.frontend
 
-import tinycc.{ErrorLevel, ProgramException}
+import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
-import tinycc.frontend.Types.FunTy
-import tinycc.frontend.analysis.IdentifierDecl.FunDecl
+import tinycc.frontend.Types.{ArithmeticTy, ArrayTy, DoubleTy, FunTy, IndexableTy, IntTy, IntegerTy, PtrTy, StructTy}
+import tinycc.frontend.analysis.IdentifierDecl.{FunArgDecl, FunDecl, VarDecl}
 import tinycc.frontend.ast._
 import tinycc.util.parsing.SourceLocation
+import tinycc.{ErrorLevel, ProgramException}
 
+import scala.annotation.tailrec
 import scala.collection.mutable
+import scala.math.Ordered.orderingToOrdered
 
 class CompilerException(level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(level, message)
 
@@ -19,6 +22,8 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
   lazy val result: IrProgram = new _Impl().compileProgram(program)
 
   final private class _Impl extends IrProgramBuilderOps {
+
+    import ErrorLevel._
 
     val program: IrProgram = new IrProgram
     val entryFun: IrFun = program.appendEntryFun()
@@ -35,7 +40,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
 
     def compileProgram(node: AstBlock): IrProgram = {
       enterFun(entryFun)
-      appendBlock("entry")
+      appendAndEnterBlock("entry")
 
       compileStmt(node)
 
@@ -89,7 +94,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
 
       case Types.StructTy(_, fieldsOption) =>
         val fieldIrTys = fieldsOption match {
-          case Some(fields) => fields.map({ case (fieldTy, _) => compileType(fieldTy) }))
+          case Some(fields) => fields.map({ case (fieldTy, _) => compileType(fieldTy) })
           case None => throw new UnsupportedOperationException(s"Cannot compile incomplete struct type.")
         }
         IrTy.StructTy(fieldIrTys)
@@ -102,7 +107,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
         val varIrTy = compileType(node.varTy.ty)
 
         allocMap(node) = funOption match {
-          case Some(_) => // local variable
+          case Some(fun) if fun != entryFun => // local variable
             val alloc = append(new AllocLInsn(varIrTy, _))
             node.value.foreach(value => {
               val compiledValue = compileExpr(value)
@@ -111,17 +116,20 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
             alloc
 
           case None => // global variable - append to entryFun
-            enterFun()
-            val alloc = efb.append(new AllocGInsn(varIrTy, Seq.empty, _))
+            enterFun(entryFun)
+            val alloc = append(new AllocGInsn(varIrTy, Seq.empty, _))
             node.value.foreach(value => {
-              val compiledValue = compileExpr(value) // TODO: temporarily switch
-              efb.append(new StoreInsn(alloc, compiledValue, _))
+              val compiledValue = compileExpr(value)
+              append(new StoreInsn(alloc, compiledValue, _))
             })
+            exitFun()
             alloc
         }
 
       case node: AstFunDecl =>
         compileFunDecl(node)
+
+      case _: AstStructDecl | _: AstFunPtrDecl => // ignore
 
       case node: AstIf =>
         val trueBlock = new BasicBlock("ifTrue", fun)
@@ -131,15 +139,15 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
         val cond = compileExpr(node.guard)
         append(new CondBrInsn(cond, trueBlock, falseBlock, _))
 
-        appendBlock(trueBlock)
+        appendAndEnterBlock(trueBlock)
         compileStmt(node.trueCase)
         append(new BrInsn(contBlock, _))
 
-        appendBlock(falseBlock)
+        appendAndEnterBlock(falseBlock)
         node.falseCase.foreach(compileStmt)
         append(new BrInsn(contBlock, _))
 
-        appendBlock(contBlock)
+        appendAndEnterBlock(contBlock)
 
       case node: AstWhile =>
         val condBlock = new BasicBlock("whileCond", fun)
@@ -148,17 +156,17 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
 
         append(new BrInsn(condBlock, _))
 
-        appendBlock(condBlock)
+        appendAndEnterBlock(condBlock)
         val cond = compileExpr(node.guard)
         append(new CondBrInsn(cond, bodyBlock, contBlock, _))
 
-        appendBlock(bodyBlock)
+        appendAndEnterBlock(bodyBlock)
         withBreakContTarget(contBlock, condBlock, {
           compileStmt(node.body)
         })
         append(new BrInsn(condBlock, _))
 
-        appendBlock(contBlock)
+        appendAndEnterBlock(contBlock)
 
       case node: AstDoWhile =>
         val bodyBlock = new BasicBlock("doWhileBody", fun)
@@ -167,17 +175,17 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
 
         append(new BrInsn(bodyBlock, _))
 
-        appendBlock(bodyBlock)
+        appendAndEnterBlock(bodyBlock)
         withBreakContTarget(contBlock, condBlock, {
           compileStmt(node.body)
         })
         append(new BrInsn(condBlock, _))
 
-        appendBlock(condBlock)
+        appendAndEnterBlock(condBlock)
         val cond = compileExpr(node.guard)
         append(new CondBrInsn(cond, bodyBlock, contBlock, _))
 
-        appendBlock(contBlock)
+        appendAndEnterBlock(contBlock)
 
       case node: AstFor =>
         val condBlock = new BasicBlock("forCond", fun)
@@ -188,7 +196,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
         node.init.foreach(compileStmt)
         append(new BrInsn(condBlock, _))
 
-        appendBlock(condBlock)
+        appendAndEnterBlock(condBlock)
         node.guard match {
           case Some(c) =>
             val cond = compileExpr(c)
@@ -198,17 +206,17 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
             append(new BrInsn(bodyBlock, _))
         }
 
-        appendBlock(bodyBlock)
+        appendAndEnterBlock(bodyBlock)
         withBreakContTarget(contBlock, incBlock, {
           compileStmt(node.body)
         })
         append(new BrInsn(incBlock, _))
 
-        appendBlock(incBlock)
+        appendAndEnterBlock(incBlock)
         node.increment.foreach(compileExpr)
         append(new BrInsn(condBlock, _))
 
-        appendBlock(contBlock)
+        appendAndEnterBlock(contBlock)
 
       case node: AstSwitch =>
         val contBlock = new BasicBlock("switchCont", fun)
@@ -222,7 +230,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
           val valueImm = append(new IImmInsn(value, _))
           val cmpEq = append(new CmpInsn(IrOpcode.CmpIEq, cond, valueImm, _))
           append(new CondBrInsn(cmpEq, caseBlock, caseContBlock, _))
-          appendBlock(caseContBlock)
+          appendAndEnterBlock(caseContBlock)
           caseBlock
         }).toIndexedSeq
 
@@ -234,7 +242,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
         node.cases.zipWithIndex.foreach({ case ((_, caseBody), i) =>
           val caseBlock = caseBlocks(i)
 
-          appendBlock(caseBlock)
+          appendAndEnterBlock(caseBlock)
           withBreakTarget(contBlock, {
             compileStmt(caseBody)
           })
@@ -247,29 +255,29 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
         })
 
         node.defaultCase.foreach(defaultBody => {
-          appendBlock(defaultBlock)
+          appendAndEnterBlock(defaultBlock)
           withBreakTarget(contBlock, {
             compileStmt(defaultBody)
           })
           append(new BrInsn(contBlock, _))
         })
 
-        appendBlock(contBlock)
+        appendAndEnterBlock(contBlock)
 
-      case c: AstContinue => contTargetOption match {
+      case node: AstContinue => contTargetOption match {
         case Some(contTarget) =>
           append(new BrInsn(contTarget, _))
-          appendBlock(new BasicBlock("unreachable", fun))
+          appendAndEnterBlock(new BasicBlock("unreachable", fun))
 
-        case None => throw new CompilerException("Unexpected continue stmt outside of loop.", c.loc)
+        case None => throw new CompilerException(Error, "Unexpected continue stmt outside of loop.", node.loc)
       }
 
-      case b: AstBreak => breakTargetOption match {
+      case node: AstBreak => breakTargetOption match {
         case Some(breakTarget) =>
           append(new BrInsn(breakTarget, _))
-          appendBlock(new BasicBlock("unreachable", fun))
+          appendAndEnterBlock(new BasicBlock("unreachable", fun))
 
-        case None => throw new CompilerException("Unexpected break stmt outside of loop.", b.loc)
+        case None => throw new CompilerException(Error, "Unexpected break stmt outside of loop.", node.loc)
       }
 
       case b: AstBlock =>
@@ -284,7 +292,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
           case None =>
             append(new RetVoidInsn(bb))
         }
-        appendBlock(new BasicBlock("unreachable", fun))
+        appendAndEnterBlock(new BasicBlock("unreachable", fun))
 
       case w: AstWrite =>
         val value = compileExpr(w.expr)
@@ -310,7 +318,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
 
       appendFun(irFun)
       if (node.body.isDefined) {
-        appendBlock(new BasicBlock("entry", fun))
+        appendAndEnterBlock(new BasicBlock("entry", fun))
         node.body.foreach(compileStmt)
 
         if (funTy.returnTy == Types.VoidTy)
@@ -319,250 +327,347 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
       exitFun()
     }
 
-    /** Returns instruction, whose result is a pointer to the expr. */
-    private def compileExprLvalue(node: AST): Insn = node match {
-      case i: ASTIdentifier => i.decl match {
-        case FunDecl(decl) => append(new LoadFunPtrInsn(funMap(decl.nameString), _))
-        case VarDecl(decl) => allocMap(decl)
-        case FunArgDecl(_, index, _) => append(new LoadArgPtrInsn(index, _))
+    private def compileMemberExprPtrHelper(structPtr: Insn, structTy: StructTy, member: Symbol): Insn = {
+      val structIrTy = compileType(structTy)
+      val fieldIndex = structTy match {
+        case StructTy(_, Some(fields)) => fields.indexWhere(f => f._2 == member)
       }
-
-      case d: ASTDeref => compileExpr(d.getTarget)
-
-      case i: ASTIndex =>
-        val base = compileExpr(i.getBase)
-        val baseTy = i.getBase.ty.asInstanceOf[IndexableTyBase]
-        val index = compileExpr(i.getIndex)
-        append(new LoadElementPtr(base, index, baseTy.baseTy.sizeCells, 0, _))
-
-      case n => throw new CompilerException(s"Expression '$n' is not a l-value.", n.loc)
+      append(new GetElementPtr(structPtr, appendIImm(0), structIrTy, fieldIndex, _))
     }
 
-    private def compileExpr(node: AST): Insn = node match {
-      case i: ASTInteger =>
-        append(new IImmInsn(i.getValue, _))
+    /** Returns instruction, whose result is a pointer to the value of the expression. */
+    private def compileExprPtr(node: AstNode): Insn = node match {
+      case node: AstIdentifier => node.decl match {
+        case FunDecl(decl) => append(new GetFunPtrInsn(funMap(decl.symbol), _))
+        case VarDecl(decl) => allocMap(decl)
+        case FunArgDecl(_, index) => append(new GetArgPtrInsn(index, _))
+      }
 
-      case uo: ASTUnaryOp =>
-        compileUnaryOp(uo)
+      case node: AstDeref => compileExpr(node.expr)
 
-      case upo: ASTUnaryPostOp =>
-        compileUnaryPostOp(upo)
+      case node: AstIndex =>
+        val expr = compileExpr(node.expr)
+        val IndexableTy(baseTy) = node.expr.ty
+        val index = compileExpr(node.index)
+        append(new GetElementPtr(expr, index, compileType(baseTy), 0, _))
 
-      case bo: ASTBinaryOp =>
-        compileBinaryOp(bo)
+      case node: AstMember => // .
+        compileMemberExprPtrHelper(compileExprPtr(node.expr), node.expr.ty.asInstanceOf[StructTy], node.member)
 
-      case s: ASTSequence =>
-        if (s.body.isEmpty)
-          throw new CompilerException("Empty sequence.", s.loc)
-        s.body.map(compileExpr).last
+      case node: AstMemberPtr => // ->
+        val structPtr = compileExpr(node.expr)
+        val structTy = node.expr.ty match {
+          case IndexableTy(structTy: StructTy) => structTy
+        }
+        compileMemberExprPtrHelper(structPtr, structTy, node.member)
 
-      case _: ASTRead =>
-        append(new GetCharInsn(bb))
+      case node => throw new CompilerException(Error, s"Expression '$node' is not a l-value.", node.loc)
+    }
 
-      case a: ASTAssignment =>
-        val lvalue = compileExprLvalue(a.getLvalue)
-        val value = compileExpr(a.getValue)
+    private def compileExpr(node: AstNode): Insn = node match {
+      case node: AstInteger =>
+        append(new IImmInsn(node.value, _))
+
+      case node: AstUnaryOp =>
+        compileUnaryOp(node)
+
+      case node: AstUnaryPostOp =>
+        compileUnaryPostOp(node)
+
+      case node: AstBinaryOp =>
+        compileBinaryOp(node)
+
+      case node: AstSequence =>
+        node.body.map(compileExpr).lastOption
+          .getOrElse(throw new CompilerException(Error, "empty sequence", node.loc))
+
+      case _: AstRead =>
+        append(new GetCharInsn(_))
+
+      case node: AstAssignment =>
+        val lvalue = compileExprPtr(node.lvalue)
+        val value = compileExpr(node.value)
         append(new StoreInsn(lvalue, value, _))
         value
 
-      // variable access
-      case i: ASTIdentifier => i.decl match {
-        case FunDecl(node) => ???
-        case VarDecl(node) => append(new LoadInsn(allocMap(node), _))
-        case FunArgDecl(_, index, _) =>
-          val ptr = append(new LoadArgPtrInsn(index, _))
-          append(new LoadInsn(ptr, _))
+      case node: AstIdentifier if node.decl.isInstanceOf[FunDecl] => node.decl match {
+        case FunDecl(decl) =>
+          append(new GetFunPtrInsn(funMap(decl.symbol), _))
       }
 
-      case a: ASTAddress =>
-        compileExprLvalue(a.getTarget)
+      case node: AstAddress =>
+        compileExprPtr(node.expr)
 
-      case d: ASTDeref =>
-        val value = compileExpr(d.getTarget)
+      case node: AstDeref =>
+        val value = compileExpr(node.expr)
         append(new LoadInsn(value, _))
 
-      case i: ASTIndex =>
-        val addr = compileExprLvalue(i)
-        append(new LoadInsn(addr, _))
+      case node: AstIndex =>
+        val expr = compileExpr(node.expr)
+        val index = compileExpr(node.index)
 
-      case c: ASTCall =>
-        c.function match {
-          case id: ASTIdentifier => // direct call
+        node.expr.ty match {
+          case exprTy: IndexableTy =>
+            val elemTy = compileType(exprTy.baseTy)
+            append(new GetElementPtr(expr, index, elemTy, 0, _))
+
+          case _ => throw new UnsupportedOperationException("Invalid AstIndex expr type.")
+        }
+
+      case c: AstCall =>
+        c.expr match {
+          case id: AstIdentifier => // direct call
             id.decl match {
               case FunDecl(decl) =>
-                append(new CallInsn(funMap(decl.nameString), compileCallArgs(c.args), _))
-              case _ => throw new CompilerException("Call of non-function", c.loc)
+                append(new CallInsn(funMap(decl.symbol), compileCallArgs(c.args), _))
+              case _ => throw new CompilerException(Error, "call of non-function", c.loc)
             }
 
           case fun => // indirect call
-            val funPtr = compileExprLvalue(fun)
+            val funPtr = compileExpr(fun)
             val funSig = compileFunSignature(fun.ty.asInstanceOf[FunTy])
             append(new CallPtrInsn(funSig, funPtr, compileCallArgs(c.args), _))
         }
 
-      case c: ASTCast =>
-        compileExpr(c.getValue) // only casts from int to ptr and vice versa are supported
+      case node: AstCast =>
+        val expr = compileExpr(node.expr)
+        compileCastFromTo(expr, node.expr.ty, node.ty, node.loc)
 
-      case n => throw new NotImplementedError(s"Expr '$n'")
+      case node =>
+        val resultPtr = compileExprPtr(node)
+        append(new LoadInsn(resultPtr, _))
     }
 
-    private def compileFunSignature(ty: FunTy): IRFunSignature =
-      IRFunSignature(compileType(ty.returnTy), ty.argTys.map(compileType))
+    @tailrec
+    private def compileCastFromTo(value: Insn, fromTy: Types.Ty, toTy: Types.Ty, loc: SourceLocation): Insn = (fromTy, toTy) match {
+      case (fromTy, toTy) if fromTy == toTy => value
 
-    private def compileCallArgs(args: Seq[AST]): Seq[Insn] =
+      case (Types.CharTy, Types.IntTy) => value
+
+      case (Types.IntTy, Types.CharTy) =>
+        val maxCharValue = append(new IImmInsn(0xff, _))
+        append(new BinaryArithInsn(IrOpcode.IAnd, value, maxCharValue, _))
+
+      case (_: Types.IntegerTy, Types.DoubleTy) =>
+        append(new CastInsn(IrOpcode.SInt64ToDouble, value, _))
+
+      case (Types.DoubleTy, _: Types.IntegerTy) =>
+        val valueInt = append(new CastInsn(IrOpcode.DoubleToSInt64, value, _))
+        compileCastFromTo(valueInt, Types.IntTy, toTy, loc)
+
+      // Types of pointers were already checked by TypeAnalysis.
+      case (Types.CharTy | Types.IntTy | _: Types.PtrTy | _: Types.ArrayTy, _: Types.PtrTy) =>
+        value
+
+      case (_: Types.PtrTy | _: Types.ArrayTy, _: Types.IntegerTy) =>
+        compileCastFromTo(value, Types.IntTy, toTy, loc)
+
+      case (fromTy, toTy) => throw new CompilerException(Error, s"cannot cast '$fromTy' to '$toTy'", loc)
+    }
+
+    private def compileExprAndCastTo(expr: AstNode, toTy: Types.Ty): Insn =
+      compileCastFromTo(compileExpr(expr), expr.ty, toTy, expr.loc)
+
+    private def compileFunSignature(ty: FunTy): IrFunSignature =
+      IrFunSignature(compileType(ty.returnTy), ty.argTys.map(compileType))
+
+    private def compileCallArgs(args: Seq[AstNode]): Seq[Insn] =
       args.map(compileExpr)
 
-    private def castToBool(arg: Insn): Insn = {
-      val zero = append(new IImmInsn(0, _))
-      append(new CmpNeInsn(zero, arg, _))
+    //    private def castToBool(arg: Insn): Insn = {
+    //      val zero = append(new IImmInsn(0, _))
+    //      append(new CmpInsn(IrOpcode.CmpINe, zero, arg, _))
+    //    }
+
+    private def compileIncDec(op: Symbol, expr: AstNode, isPostfix: Boolean): Insn = {
+      val exprPtr = compileExprPtr(expr)
+      val oldValue = append(new LoadInsn(exprPtr, _))
+      val delta = if (op == Symbols.inc) 1 else -1
+
+      val newValue = expr.ty match {
+        case _: IntegerTy =>
+          val deltaImm = appendIImm(delta)
+          append(new BinaryArithInsn(IrOpcode.IAdd, oldValue, deltaImm, _))
+
+        case DoubleTy =>
+          val deltaImm = appendFImm(delta)
+          append(new BinaryArithInsn(IrOpcode.FAdd, oldValue, deltaImm, _))
+
+        case PtrTy(baseTy) =>
+          val deltaImm = appendIImm(delta)
+          append(new GetElementPtr(oldValue, deltaImm, compileType(baseTy), 0, _))
+      }
+
+      append(new StoreInsn(exprPtr, newValue, _))
+      if (isPostfix) oldValue else newValue
     }
 
-    private def isIntOrPtrTy(ty: Ty): Boolean = ty match {
-      case IntTy | _: IndexableTyBase => true
-      case _ => false
-    }
+    private def compileUnaryOp(node: AstUnaryOp): Insn = (node.op, node.expr.ty) match {
+      case (Symbols.add, _) =>
+        compileExpr(node.expr)
 
-    private def compileUnaryOp(node: ASTUnaryOp): Insn = (node.getOp, node.getArg.ty) match {
-      case (Symbols.add, ty) if isIntOrPtrTy(ty) =>
-        compileExpr(node.getArg)
-
-      case (Symbols.sub, ty) if isIntOrPtrTy(ty) =>
-        val arg = compileExpr(node.getArg)
+      case (Symbols.sub, _: Types.IntegerTy) =>
+        val expr = compileExpr(node.expr)
         val zero = append(new IImmInsn(0, _))
-        append(new SubInsn(zero, arg, _))
+        val res = append(new BinaryArithInsn(IrOpcode.ISub, zero, expr, _))
+        compileCastFromTo(res, Types.IntTy, node.ty, node.loc)
 
-      case (Symbols.not, IntTy) =>
-        val arg = compileExpr(node.getArg)
+      case (Symbols.sub, Types.DoubleTy) =>
+        val expr = compileExpr(node.expr)
+        val zero = append(new FImmInsn(0, _))
+        append(new BinaryArithInsn(IrOpcode.FSub, zero, expr, _))
+
+      case (Symbols.neg, exprTy: Types.IntegerTy) =>
+        val expr = compileExpr(node.expr)
+        val maxValue = append(new IImmInsn(exprTy.maxValueLong, _))
+        append(new BinaryArithInsn(IrOpcode.IXor, expr, maxValue, _))
+
+      case (Symbols.not, _: Types.IntegerTy | _: Types.PtrTy) =>
+        val expr = compileExpr(node.expr)
         val zero = append(new IImmInsn(0, _))
-        append(new CmpEqInsn(arg, zero, _))
+        append(new CmpInsn(IrOpcode.CmpIEq, expr, zero, _))
 
-      case (Symbols.neg, IntTy) =>
-        val arg = compileExpr(node.getArg)
-        append(new NotInsn(arg, _))
+      case (Symbols.not, Types.DoubleTy) =>
+        val expr = compileExpr(node.expr)
+        val zero = append(new FImmInsn(0, _))
+        append(new CmpInsn(IrOpcode.CmpFEq, expr, zero, _))
 
-      case (Symbols.inc, IntTy) =>
-        val arg = compileExprLvalue(node.getArg)
-        val oldValue = append(new LoadInsn(arg, _))
-        val one = append(new IImmInsn(1, _))
-        val newValue = append(new AddInsn(oldValue, one, _))
-        append(new StoreInsn(arg, newValue, _))
-        newValue
+      case (Symbols.inc | Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = false)
 
-      case (Symbols.dec, IntTy) =>
-        val arg = compileExprLvalue(node.getArg)
-        val oldValue = append(new LoadInsn(arg, _))
-        val one = append(new IImmInsn(1, _))
-        val newValue = append(new SubInsn(oldValue, one, _))
-        append(new StoreInsn(arg, newValue, _))
-        newValue
-
-      case (op, argTy) => throw new NotImplementedError(s"UnaryOp '${op.name()}' with '$argTy'.")
+      case (op, argTy) => throw new NotImplementedError(s"UnaryOp '${op.name}' with '$argTy'.")
     }
 
-    private def compileUnaryPostOp(node: ASTUnaryPostOp): Insn = (node.getOp, node.getArg.ty) match {
-      case (Symbols.inc, ty) if isIntOrPtrTy(ty) =>
-        val arg = compileExprLvalue(node.getArg)
-        val oldValue = append(new LoadInsn(arg, _))
-        val one = append(new IImmInsn(1, _))
-        val newValue = append(new AddInsn(oldValue, one, _))
-        append(new StoreInsn(arg, newValue, _))
-        oldValue
+    private def compileUnaryPostOp(node: AstUnaryPostOp): Insn = (node.op, node.expr.ty) match {
+      case (Symbols.inc | Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = true)
 
-      case (Symbols.dec, ty) if isIntOrPtrTy(ty) =>
-        val arg = compileExprLvalue(node.getArg)
-        val oldValue = append(new LoadInsn(arg, _))
-        val one = append(new IImmInsn(1, _))
-        val newValue = append(new SubInsn(oldValue, one, _))
-        append(new StoreInsn(arg, newValue, _))
-        oldValue
-
-      case (op, argTy) => throw new NotImplementedError(s"UnaryPostOp '${op.name()}' with '$argTy'.")
+      case (op, argTy) => throw new NotImplementedError(s"UnaryPostOp '${op.name}' with '$argTy'.")
     }
 
-    private def compileBinaryOp(node: ASTBinaryOp): Insn = (node.getOp, node.getLeft.ty, node.getRight.ty) match {
-      case (Symbols.add, leftTy, IntTy) if isIntOrPtrTy(leftTy) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new AddInsn(left, right, _))
+    private def compileBinaryArith(node: AstBinaryOp): Insn = (node.op, node.ty) match {
+      case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor, resultTy: IntegerTy) =>
+        val leftInt = compileExprAndCastTo(node.left, IntTy)
+        val rightInt = compileExprAndCastTo(node.right, IntTy)
+        val resultInt = node.op match {
+          case Symbols.add => appendBinaryArith(IAdd, leftInt, rightInt)
+          case Symbols.sub => appendBinaryArith(ISub, leftInt, rightInt)
+          case Symbols.mul => appendBinaryArith(SMul, leftInt, rightInt)
+          case Symbols.div => appendBinaryArith(SDiv, leftInt, rightInt)
 
-      case (Symbols.sub, leftTy, IntTy) if isIntOrPtrTy(leftTy) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new SubInsn(left, right, _))
+          case Symbols.mod =>
+            val divRes = appendBinaryArith(SDiv, leftInt, rightInt)
+            val mulRes = appendBinaryArith(SMul, divRes, rightInt)
+            appendBinaryArith(ISub, leftInt, mulRes)
 
-      case (Symbols.mul, IntTy, IntTy) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new MulInsn(left, right, _))
+          case Symbols.bitAnd => appendBinaryArith(IAnd, leftInt, rightInt)
+          case Symbols.bitOr => appendBinaryArith(IOr, leftInt, rightInt)
+          case Symbols.bitXor => appendBinaryArith(IXor, leftInt, rightInt)
+        }
+        compileCastFromTo(resultInt, IntTy, resultTy, node.loc)
 
-      case (Symbols.div, IntTy, IntTy) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new SDivInsn(left, right, _))
+      case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod, DoubleTy) =>
+        val leftDouble = compileExprAndCastTo(node.left, DoubleTy)
+        val rightDouble = compileExprAndCastTo(node.right, DoubleTy)
+        node.op match {
+          case Symbols.add => appendBinaryArith(FAdd, leftDouble, rightDouble)
+          case Symbols.sub => appendBinaryArith(FSub, leftDouble, rightDouble)
+          case Symbols.mul => appendBinaryArith(FMul, leftDouble, rightDouble)
+          case Symbols.div => appendBinaryArith(FDiv, leftDouble, rightDouble)
 
-      case (Symbols.mod, IntTy, IntTy) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        val divRes = append(new SDivInsn(left, right, _))
-        val mulRes = append(new MulInsn(divRes, right, _))
-        append(new SubInsn(left, mulRes, _))
+          case Symbols.mod =>
+            val divRes = appendBinaryArith(SDiv, leftDouble, rightDouble)
+            val divResInt = append(new CastInsn(IrOpcode.DoubleToSInt64, divRes, _))
+            val divResFloor = append(new CastInsn(IrOpcode.SInt64ToDouble, divResInt, _))
+            val mulRes = appendBinaryArith(SMul, divResFloor, rightDouble)
+            appendBinaryArith(FSub, leftDouble, mulRes)
+        }
 
-      case (Symbols.and, IntTy, IntTy) =>
-        val leftBool = castToBool(compileExpr(node.getLeft))
-        val rightBool = castToBool(compileExpr(node.getRight))
-        append(new AndInsn(leftBool, rightBool, _))
+      case (Symbols.add | Symbols.sub, PtrTy(baseTy)) =>
+        val left = compileExpr(node.left)
+        val rightInt = compileExprAndCastTo(node.right, IntTy)
+        val index = node.op match {
+          case Symbols.add => rightInt
+          case Symbols.sub => appendBinaryArith(ISub, appendIImm(0), rightInt)
+        }
+        append(new GetElementPtr(left, index, compileType(baseTy), 0, _))
+    }
 
-      case (Symbols.bitAnd, IntTy, IntTy) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new AndInsn(left, right, _))
+    private def compileCmpArithmeticHelper(op: Symbol, argTy: Types.Ty, leftPromoted: Insn, rightPromoted: Insn): Insn = (op, argTy) match {
+      case (Symbols.eq, IntTy) => appendCmp(CmpIEq, leftPromoted, rightPromoted)
+      case (Symbols.ne, IntTy) => appendCmp(CmpINe, leftPromoted, rightPromoted)
+      case (Symbols.lt, IntTy) => appendCmp(CmpSLt, leftPromoted, rightPromoted)
+      case (Symbols.le, IntTy) => appendCmp(CmpSLe, leftPromoted, rightPromoted)
+      case (Symbols.gt, IntTy) => appendCmp(CmpSGt, leftPromoted, rightPromoted)
+      case (Symbols.ge, IntTy) => appendCmp(CmpSGe, leftPromoted, rightPromoted)
 
-      case (Symbols.or, IntTy, IntTy) =>
-        val leftBool = castToBool(compileExpr(node.getLeft))
-        val rightBool = castToBool(compileExpr(node.getRight))
-        append(new OrInsn(leftBool, rightBool, _))
+      case (Symbols.eq, DoubleTy) => appendCmp(CmpFEq, leftPromoted, rightPromoted)
+      case (Symbols.ne, DoubleTy) => appendCmp(CmpFNe, leftPromoted, rightPromoted)
+      case (Symbols.lt, DoubleTy) => appendCmp(CmpFLt, leftPromoted, rightPromoted)
+      case (Symbols.le, DoubleTy) => appendCmp(CmpFLe, leftPromoted, rightPromoted)
+      case (Symbols.gt, DoubleTy) => appendCmp(CmpFGt, leftPromoted, rightPromoted)
+      case (Symbols.ge, DoubleTy) => appendCmp(CmpFGe, leftPromoted, rightPromoted)
+    }
 
-      case (Symbols.bitOr, IntTy, IntTy) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new OrInsn(left, right, _))
+    private def compileCmp(node: AstBinaryOp): Insn = (node.op, node.left.ty, node.right.ty) match {
+      case (op, leftTy: ArithmeticTy, rightTy: ArithmeticTy) if leftTy <= rightTy =>
+        val leftPromoted = compileExprAndCastTo(node.left, rightTy)
+        val right = compileExpr(node.right)
+        compileCmpArithmeticHelper(op, rightTy, leftPromoted, right)
 
-      case (Symbols.xor, IntTy, IntTy) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new XorInsn(left, right, _))
+      case (op, leftTy: ArithmeticTy, rightTy: ArithmeticTy) if leftTy > rightTy =>
+        val left = compileExpr(node.left)
+        val rightPromoted = compileExprAndCastTo(node.right, leftTy)
+        compileCmpArithmeticHelper(op, leftTy, left, rightPromoted)
 
-      case (Symbols.lt, _, _) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new CmpSLtInsn(left, right, _))
+      case (op, _: PtrTy | _: ArrayTy, _: PtrTy | _: ArrayTy) =>
+        val left = compileExpr(node.left)
+        val right = compileExpr(node.right)
+        compileCmpArithmeticHelper(op, IntTy, left, right)
+    }
 
-      case (Symbols.lte, _, _) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new CmpSLEqInsn(left, right, _))
+    private def compileBinaryOp(node: AstBinaryOp): Insn = (node.op, node.left.ty, node.right.ty) match {
+      case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor, _, _) =>
+        compileBinaryArith(node)
 
-      case (Symbols.gt, _, _) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new CmpSGtInsn(left, right, _))
+      case (Symbols.eq | Symbols.ne | Symbols.lt | Symbols.le | Symbols.gt | Symbols.ge, _, _) =>
+        compileCmp(node)
 
-      case (Symbols.gte, _, _) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new CmpSGEqInsn(left, right, _))
+      case (Symbols.and, _, _) =>
+        val leftTrueBlock = new BasicBlock("leftTrue", fun)
+        val contBlock = new BasicBlock("cont", fun)
 
-      case (Symbols.eq, _, _) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new CmpEqInsn(left, right, _))
+        val resultPtr = append(new AllocLInsn(IrTy.Int64Ty, _))
+        append(new StoreInsn(resultPtr, appendIImm(0), _))
 
-      case (Symbols.neq, _, _) =>
-        val left = compileExpr(node.getLeft)
-        val right = compileExpr(node.getRight)
-        append(new CmpNeInsn(left, right, _))
+        val leftInt = compileExprAndCastTo(node.left, IntTy)
+        append(new CondBrInsn(leftInt, leftTrueBlock, contBlock, _))
 
-      case (op, leftTy, rightTy) => throw new NotImplementedError(s"BinaryOp '${op.name()}' with '$leftTy' and '$rightTy'.")
+        appendAndEnterBlock(leftTrueBlock)
+        val rightInt = compileExprAndCastTo(node.right, IntTy)
+        val tmpResult = appendCmp(CmpINe, rightInt, appendIImm(0))
+        append(new StoreInsn(resultPtr, tmpResult, _))
+        append(new BrInsn(contBlock, _))
+
+        appendAndEnterBlock(contBlock)
+        append(new LoadInsn(resultPtr, _))
+
+      case (Symbols.or, _, _) =>
+        val leftFalseBlock = new BasicBlock("leftFalse", fun)
+        val contBlock = new BasicBlock("cont", fun)
+
+        val resultPtr = append(new AllocLInsn(IrTy.Int64Ty, _))
+        append(new StoreInsn(resultPtr, appendIImm(1), _))
+
+        val leftInt = compileExprAndCastTo(node.left, IntTy)
+        append(new CondBrInsn(leftInt, contBlock, leftFalseBlock, _))
+
+        appendAndEnterBlock(leftFalseBlock)
+        val rightInt = compileExprAndCastTo(node.right, IntTy)
+        val tmpResult = appendCmp(CmpINe, rightInt, appendIImm(0))
+        append(new StoreInsn(resultPtr, tmpResult, _))
+        append(new BrInsn(contBlock, _))
+
+        appendAndEnterBlock(contBlock)
+        append(new LoadInsn(resultPtr, _))
     }
   }
 

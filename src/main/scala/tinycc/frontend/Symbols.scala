@@ -22,7 +22,7 @@ object Symbols {
   val or: Symbol = Symbol("||")
   val not: Symbol = Symbol("!")
   val neg: Symbol = Symbol("~")
-  val xor: Symbol = Symbol("^")
+  val bitXor: Symbol = Symbol("^")
   val dot: Symbol = Symbol(".")
   val semicolon: Symbol = Symbol(";")
   val colon: Symbol = Symbol(":")

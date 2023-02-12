@@ -54,7 +54,7 @@ object Lexer extends Lexical {
     Symbols.or,
     Symbols.not,
     Symbols.neg,
-    Symbols.xor,
+    Symbols.bitXor,
     Symbols.dot,
     Symbols.semicolon,
     Symbols.colon,

@@ -120,16 +120,16 @@ class AstDeref(val expr: AstNode, val loc: SourceLocation) extends AstNode {
   override def children: Seq[AstNode] = Seq(expr)
 }
 
-class AstIndex(val base: AstNode, val index: AstNode, val loc: SourceLocation) extends AstNode {
-  override def children: Seq[AstNode] = Seq(base, index)
+class AstIndex(val expr: AstNode, val index: AstNode, val loc: SourceLocation) extends AstNode {
+  override def children: Seq[AstNode] = Seq(expr, index)
 }
 
-class AstMember(val base: AstNode, val member: Symbol, val loc: SourceLocation) extends AstNode {
-  override def children: Seq[AstNode] = Seq(base)
+class AstMember(val expr: AstNode, val member: Symbol, val loc: SourceLocation) extends AstNode {
+  override def children: Seq[AstNode] = Seq(expr)
 }
 
-class AstMemberPtr(val base: AstNode, val member: Symbol, val loc: SourceLocation) extends AstNode {
-  override def children: Seq[AstNode] = Seq(base)
+class AstMemberPtr(val expr: AstNode, val member: Symbol, val loc: SourceLocation) extends AstNode {
+  override def children: Seq[AstNode] = Seq(expr)
 }
 
 class AstCall(val expr: AstNode, val args: Seq[AstNode], val loc: SourceLocation) extends AstNode {

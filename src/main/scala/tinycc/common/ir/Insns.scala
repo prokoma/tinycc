@@ -116,7 +116,7 @@ class StoreInsn(addrTgt: Insn, valueTgt: Insn, val basicBlock: BasicBlock) exten
   override def copy(newBlock: BasicBlock): StoreInsn = new StoreInsn(addr.get, value.get, newBlock)
 }
 
-class GetElementPtr(baseTgt: Insn, indexTgt: Insn, val elemSizeCells: Int, val fieldOffsetCells: Int, val basicBlock: BasicBlock) extends Insn {
+class GetElementPtr(baseTgt: Insn, indexTgt: Insn, val elemTy: IrTy, val fieldIndex: Int, val basicBlock: BasicBlock) extends Insn {
   val base: OperandRef = new OperandRef(this, Some(baseTgt))
   val index: OperandRef = new OperandRef(this, Some(indexTgt))
 
@@ -126,7 +126,7 @@ class GetElementPtr(baseTgt: Insn, indexTgt: Insn, val elemSizeCells: Int, val f
 
   override def operandRefs: Seq[OperandRef] = Seq(base, index)
 
-  override def copy(newBlock: BasicBlock): GetElementPtr = new GetElementPtr(base.get, index.get, elemSizeCells, fieldOffsetCells, newBlock)
+  override def copy(newBlock: BasicBlock): GetElementPtr = new GetElementPtr(base.get, index.get, elemTy, fieldIndex, newBlock)
 }
 
 /* === Function call instructions === */
@@ -228,8 +228,12 @@ class GetCharInsn(val basicBlock: BasicBlock) extends Insn {
   override def copy(newBlock: BasicBlock): GetCharInsn = new GetCharInsn(newBlock)
 }
 
-class CastInsn(argTgt: Insn, val basicBlock: BasicBlock) extends Insn {
+class CastInsn(val op: IrOpcode.CastOp, argTgt: Insn, val basicBlock: BasicBlock) extends Insn {
   val arg: OperandRef = new OperandRef(this, Some(argTgt))
+
+  override def resultTy: IrTy =
+
+  override def copy(newBlock: BasicBlock): Insn = ???
 }
 
 /* === Terminators === */
@@ -274,6 +278,7 @@ class BrInsn(succBlockTgt: BasicBlock, val basicBlock: BasicBlock) extends Termi
   override def copy(newBlock: BasicBlock): BrInsn = new BrInsn(succBlock.get, newBlock)
 }
 
+/** If condOp is non-zero, the successor is trueBlock, otherwise falseBlock. */
 class CondBrInsn(condOpTgt: Insn, trueBlockTgt: BasicBlock, falseBlockTgt: BasicBlock, val basicBlock: BasicBlock) extends TerminatorInsn {
   override def op: IrOpcode = IrOpcode.CondBr
 
@@ -287,4 +292,8 @@ class CondBrInsn(condOpTgt: Insn, trueBlockTgt: BasicBlock, falseBlockTgt: Basic
   override def succBlockRefs: Seq[TerminatorSuccRef] = Seq(trueBlock, falseBlock)
 
   override def copy(newBlock: BasicBlock): CondBrInsn = new CondBrInsn(condOp.get, trueBlock.get, falseBlock.get, newBlock)
+
+  override def validate(): Unit = {
+    assert(condOp.get.resultTy == Int64Ty)
+  }
 }

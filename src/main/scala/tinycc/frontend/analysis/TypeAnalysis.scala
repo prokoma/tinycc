@@ -312,7 +312,7 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
           case _ => errorInvalidOperands
         }
 
-        case Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.xor => (leftTy, rightTy) match {
+        case Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.`bitXor` => (leftTy, rightTy) match {
           case (leftTy: IntegerTy, rightTy: IntegerTy) =>
             promoteArithmeticTys(leftTy, rightTy)
 
@@ -418,18 +418,16 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       }
 
     case node: AstIndex =>
-      val baseTy = visitAndGetTy(node.base)
+      val exprTy = visitAndGetTy(node.expr)
       val indexTy = visitAndGetTy(node.index)
       if (!IntTy.isAssignableFrom(indexTy))
         errors += new TypeAnalysisException(Error, s"expected $IntTy (or compatible type), got $indexTy", node.index.loc)
-      baseTy match {
+      exprTy match {
         case PtrTy(_: FunTy) =>
           errors += new TypeAnalysisException(Error, s"cannot index into pointer to function", node.loc)
-          baseTy
+          exprTy
 
-        case PtrTy(targetTy) => targetTy
-
-        case ArrayTy(baseTy, _) => baseTy
+        case exprTy: IndexableTy => exprTy.baseTy
 
         case _ =>
           errors += new TypeAnalysisException(Error, s"expected array or pointer, got $baseTy", node.loc)
@@ -437,7 +435,7 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       }
 
     case node: AstMember =>
-      visitAndGetTy(node.base) match {
+      visitAndGetTy(node.expr) match {
         case baseTy: StructTy if !baseTy.isComplete =>
           errors += new TypeAnalysisException(Error, s"cannot access fields in an incomplete struct", node.loc)
           VoidTy
@@ -456,7 +454,7 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       }
 
     case node: AstMemberPtr =>
-      visitAndGetTy(node.base) match {
+      visitAndGetTy(node.expr) match {
         case PtrTy(baseTy: StructTy) if !baseTy.isComplete =>
           errors += new TypeAnalysisException(Error, s"cannot access fields in an incomplete struct $baseTy", node.loc)
           VoidTy

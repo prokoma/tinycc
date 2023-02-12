@@ -1,4 +1,4 @@
-package tinycc
+package tinycc.backend.t86
 
 // T86 instructions are immutable
 

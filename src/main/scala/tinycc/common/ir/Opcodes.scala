@@ -231,21 +231,31 @@ object IrOpcode {
     override def toString: String = "condbr"
   }
 
-  sealed trait CastOp extends IrOpcode
+  sealed trait CastOp extends IrOpcode {
+    def resultTy: IrTy
+  }
 
   case object SInt64ToDouble extends CastOp {
     override def toString: String = "sint64todouble"
+
+    override def resultTy: IrTy = IrTy.DoubleTy
   }
 
-  case object UInt64ToDouble extends CastOp {
-    override def toString: String = "uint64todouble"
-  }
+//  case object UInt64ToDouble extends CastOp {
+//    override def toString: String = "uint64todouble"
+//
+//    override def resultTy: IrTy = IrTy.DoubleTy
+//  }
 
   case object DoubleToSInt64 extends CastOp {
     override def toString: String = "doubletosint64"
+
+    override def resultTy: IrTy = IrTy.Int64Ty
   }
 
-  case object DoubleToUInt64 extends CastOp {
-    override def toString: String = "doubletouint64"
-  }
+//  case object DoubleToUInt64 extends CastOp {
+//    override def toString: String = "doubletouint64"
+//
+//    override def resultTy: IrTy = IrTy.Int64Ty
+//  }
 }
