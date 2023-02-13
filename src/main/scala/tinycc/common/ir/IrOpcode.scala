@@ -9,7 +9,9 @@ object IrOpcode {
   // - S: signed integer
   // - F: double
 
-  sealed trait BinaryArithOp extends IrOpcode
+  sealed trait BinaryOp extends IrOpcode
+
+  sealed trait BinaryArithOp extends BinaryOp
 
   case object IAdd extends BinaryArithOp {
     override def toString: String = "add"
@@ -71,7 +73,7 @@ object IrOpcode {
     override def toString: String = "fdiv"
   }
 
-  sealed trait CmpOp extends IrOpcode
+  sealed trait CmpOp extends BinaryOp
 
   sealed trait ICmpOp extends CmpOp
 

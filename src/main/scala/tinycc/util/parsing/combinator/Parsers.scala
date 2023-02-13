@@ -165,16 +165,16 @@ trait Parsers {
   def rep1sep[A](p: => Parser[A], s: => Parser[Any]): Parser[List[A]] =
     p ~ rep(s ~> p) ^^ { case x ~ xs => x :: xs } label "+,"
 
-  def chainl1[A](p: => Parser[A], s: => Parser[(A, A) => A]): Parser[A] = chainl1(p, p, s)
+//  def chainl1[A](p: => Parser[A], s: => Parser[(A, A) => A]): Parser[A] = chainl1(p, p, s)
 
-  def chainl1[A, B](first: => Parser[A], p: => Parser[B], s: => Parser[(A, B) => A]): Parser[A] = {
-    lazy val p0 = p
-    lazy val s0 = s
-
-    first ~ rep(s0 ~ p0) ^^ {
-      case x ~ xs => xs.foldLeft(x) { case (a, f ~ b) => f(a, b) }
-    } label "chainl1"
-  }
+//  def chainl1[A, B](first: => Parser[A], p: => Parser[B], s: => Parser[(A, B) => A]): Parser[A] = {
+//    lazy val p0 = p
+//    lazy val s0 = s
+//
+//    first ~ rep(s0 ~ p0) ^^ {
+//      case x ~ xs => xs.foldLeft(x) { case (a, f ~ b) => f(a, b) }
+//    } label "chainl1"
+//  }
 
   def opt[A](p: => Parser[A]): Parser[Option[A]] = (p ^^ Some.apply) | success(None) label (p.label + "?")
 

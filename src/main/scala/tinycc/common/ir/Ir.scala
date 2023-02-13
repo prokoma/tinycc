@@ -126,7 +126,7 @@ trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
 
   def fun: IrFun = basicBlock.fun
 
-  def operandRefs: Seq[OperandRef] = Seq.empty[OperandRef]
+  def operandRefs: Seq[OperandRef] = Seq.empty
 
   def operands: Seq[Insn] = operandRefs.flatMap(_())
 
@@ -160,7 +160,7 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
 
   def pred: Seq[BasicBlock] = fun.getBlockPred(this)
 
-  def succRefs: Seq[BasicBlockRef] = terminator.map(_.succBlockRefs).getOrElse(Seq.empty[BasicBlockRef])
+  def succRefs: Seq[BasicBlockRef] = terminator.map(_.succBlockRefs).getOrElse(Seq.empty)
 
   def succ: Seq[BasicBlock] = succRefs.flatMap(_())
 
