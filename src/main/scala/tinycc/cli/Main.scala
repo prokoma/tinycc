@@ -1,5 +1,7 @@
 package tinycc.cli
 
-class Main extends App {
+object Main extends App {
+  val action = CliParser.parseArgs(args)
 
+  action.execute()
 }

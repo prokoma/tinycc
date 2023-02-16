@@ -71,7 +71,7 @@ class IrPrinter extends IndentPrinter[IrObject] {
         out.write(" ")
         printIrFunRef(insn.targetFun, out)
 
-      case insn: GetArgPtrInsn => out.write(s" ${insn.index}")
+      case insn: LoadArgInsn => out.write(s" ${insn.index}")
       case insn: GetElementPtr =>
         out.write(s" ")
         printOperands(insn, out)
@@ -118,9 +118,12 @@ class IrPrinter extends IndentPrinter[IrObject] {
     printType(fun.returnTy, out)
     out.write(s" ${fun.name}(")
     fun.argTys.foreachSep(printType(_, out), out.write(", "))
-    out.write(") {")
+    out.write(") {\n")
     out.withIndent({
-      fun.basicBlocks.foreachSep(printBasicBlock(_, out), out.write("\n"))
+      fun.basicBlocks.foreach(bb => {
+        printBasicBlock(bb, out)
+        out.write("\n")
+      })
     })
     out.write("}")
   }

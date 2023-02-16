@@ -340,7 +340,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
       case node: AstIdentifier => node.decl match {
         case FunDecl(decl) => append(new GetFunPtrInsn(funMap(decl.symbol), _))
         case VarDecl(decl) => allocMap(decl)
-        case FunArgDecl(_, index) => append(new GetArgPtrInsn(index, _))
+        case FunArgDecl(_, index) => append(new LoadArgInsn(index, _))
       }
 
       case node: AstDeref => compileExpr(node.expr)

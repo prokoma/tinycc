@@ -141,12 +141,12 @@ class GetFunPtrInsn(targetFunTgt: IrFun, val basicBlock: BasicBlock) extends Ins
   override def copy(newBlock: BasicBlock): GetFunPtrInsn = new GetFunPtrInsn(targetFun.get, newBlock)
 }
 
-class GetArgPtrInsn(val index: Int, val basicBlock: BasicBlock) extends Insn {
-  override def op: IrOpcode = IrOpcode.GetArgPtr
+class LoadArgInsn(val index: Int, val basicBlock: BasicBlock) extends Insn {
+  override def op: IrOpcode = IrOpcode.LoadArg
 
   override def resultTy: IrTy = IrTy.PtrTy
 
-  override def copy(newBlock: BasicBlock): GetArgPtrInsn = new GetArgPtrInsn(index, newBlock)
+  override def copy(newBlock: BasicBlock): LoadArgInsn = new LoadArgInsn(index, newBlock)
 }
 
 sealed trait CallInsnBase extends Insn {

@@ -8,4 +8,6 @@ libraryDependencies += "org.scalameta" %% "munit" % "0.7.29" % Test
 
 testFrameworks += new TestFramework("munit.Framework")
 
+Compile / mainClass := Some("tinycc.cli.Main")
+
 assembly / assemblyJarName := "tinycc.jar"

@@ -2,9 +2,9 @@ package tinycc.util.parsing.combinator
 
 import scala.annotation.tailrec
 
-trait FiniteInput {
-  def isEmpty: Boolean
-}
+//trait FiniteInput {
+//  def isEmpty: Boolean
+//}
 
 trait Parsers {
   type Input
@@ -215,18 +215,18 @@ trait Parsers {
 
   def success[A](v: => A): Parser[A] = Parser(in => Accept(v, in)) label "success"
 
-  def parseAll[A](p: Parser[A], in: Input)(implicit ev: Input => FiniteInput): Result[A] = {
-    val x = parse(p, in)
-    x match {
-      case Accept(v, r) if ev(r).isEmpty => Accept(v, r)
-      case Accept(_, r) => Reject("end of input expected", r)
-      case r: Reject => r
-    }
-  }
+//  def parseAll[A](p: Parser[A], in: Input)(implicit ev: Input => FiniteInput): Result[A] = {
+//    val x = parse(p, in)
+//    x match {
+//      case Accept(v, r) if ev(r).isEmpty => Accept(v, r)
+//      case Accept(_, r) => Reject("end of input expected", r)
+//      case r: Reject => r
+//    }
+//  }
 
   def parse[A](p: Parser[A], in: Input): Result[A] = p(in)
 
-  implicit class IterableFiniteInput(xs: Iterable[_]) extends FiniteInput {
-    override def isEmpty: Boolean = xs.isEmpty
-  }
+//  implicit class IterableFiniteInput(xs: Iterable[_]) extends FiniteInput {
+//    override def isEmpty: Boolean = xs.isEmpty
+//  }
 }

@@ -161,6 +161,10 @@ object IrOpcode {
     override def toString: String = "load"
   }
 
+  case object LoadArg extends IrOpcode {
+    override def toString: String = "loadarg"
+  }
+
   case object Store extends IrOpcode {
     override def toString: String = "store"
   }
@@ -181,10 +185,6 @@ object IrOpcode {
 
   case object GetFunPtr extends IrOpcode {
     override def toString: String = "getfunptr"
-  }
-
-  case object GetArgPtr extends IrOpcode {
-    override def toString: String = "getargptr"
   }
 
   case object Call extends IrOpcode {
