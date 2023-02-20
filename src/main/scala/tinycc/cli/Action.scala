@@ -1,8 +1,7 @@
 package tinycc.cli
 
-import tinycc.frontend
-import tinycc.frontend.TinyCParser
 import tinycc.frontend.analysis.{SemanticAnalysis, TypeAnalysis}
+import tinycc.frontend.{TinyCCompiler, TinyCParser}
 
 import java.nio.file.{Files, Path}
 
@@ -14,11 +13,22 @@ object Action {
   case class Compile(file: Path) extends Action {
     override def execute(): Unit = {
       val str = Files.readString(file)
-      val ast = TinyCParser.parseProgram(str)
-      val decls = new SemanticAnalysis(ast).result.right.get
-      val typeMap = new TypeAnalysis(ast, decls).result.right.get
-      val irProg = new frontend.Compiler(ast, decls, typeMap).result
-      Console.println(irProg)
+      val reporter = new Reporter(str, Some(file.getFileName.toString))
+
+      val t = for(
+        ast <- TinyCParser.parseProgram(str);
+        decls <- new SemanticAnalysis(ast).result;
+        typeMap <- new TypeAnalysis(ast, decls).result;
+        irProg <- new TinyCCompiler(ast, decls, typeMap).result
+      ) yield irProg
+
+      t match {
+        case Left(ex) =>
+          Console.err.println(ex.format(reporter))
+
+        case Right(irProg) =>
+          Console.out.print(irProg)
+      }
     }
   }
 }

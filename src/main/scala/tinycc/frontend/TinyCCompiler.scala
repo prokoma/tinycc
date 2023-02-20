@@ -1,5 +1,6 @@
 package tinycc.frontend
 
+import tinycc.cli.Reporter
 import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
 import tinycc.frontend.Types.{ArithmeticTy, ArrayTy, DoubleTy, FunTy, IndexableTy, IntTy, IntegerTy, PtrTy, StructTy}
@@ -12,14 +13,23 @@ import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.math.Ordered.orderingToOrdered
 
-class CompilerException(level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(level, message)
+class TinyCCompilerException(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(message) {
+  override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
+}
 
-final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: TypeMap) {
+final class TinyCCompiler(program: AstBlock, _declarations: Declarations, _typeMap: TypeMap) {
   implicit protected def declarations: Declarations = _declarations
 
   implicit protected def typeMap: TypeMap = _typeMap
 
-  lazy val result: IrProgram = new _Impl().compileProgram(program)
+  lazy val result: Either[TinyCCompilerException, IrProgram] = {
+    try
+      Right(new _Impl().compileProgram(program))
+    catch {
+      case e: TinyCCompilerException => Left(e)
+      case e: Throwable => throw e
+    }
+  }
 
   final private class _Impl extends IrProgramBuilderOps {
 
@@ -46,10 +56,10 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
 
       enterFun(entryFun)
       val mainFun = program.funs.find(_.name == "main")
-        .getOrElse(throw new CompilerException(ErrorLevel.Error, "missing main function declaration", node.loc))
+        .getOrElse(throw new TinyCCompilerException(ErrorLevel.Error, "missing main function declaration", node.loc))
 
       if (mainFun.argTys.nonEmpty)
-        throw new CompilerException(ErrorLevel.Error, "invalid main function signature (expected main())", node.loc)
+        throw new TinyCCompilerException(ErrorLevel.Error, "invalid main function signature (expected main())", node.loc)
 
       append(new CallInsn(mainFun, Seq.empty, _))
       append(new HaltInsn(_))
@@ -269,7 +279,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
           append(new BrInsn(contTarget, _))
           appendAndEnterBlock(new BasicBlock("unreachable", fun))
 
-        case None => throw new CompilerException(Error, "Unexpected continue stmt outside of loop.", node.loc)
+        case None => throw new TinyCCompilerException(Error, "Unexpected continue stmt outside of loop.", node.loc)
       }
 
       case node: AstBreak => breakTargetOption match {
@@ -277,7 +287,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
           append(new BrInsn(breakTarget, _))
           appendAndEnterBlock(new BasicBlock("unreachable", fun))
 
-        case None => throw new CompilerException(Error, "Unexpected break stmt outside of loop.", node.loc)
+        case None => throw new TinyCCompilerException(Error, "Unexpected break stmt outside of loop.", node.loc)
       }
 
       case b: AstBlock =>
@@ -361,7 +371,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
         }
         compileMemberExprPtrHelper(structPtr, structTy, node.member)
 
-      case node => throw new CompilerException(Error, s"Expression '$node' is not a l-value.", node.loc)
+      case node => throw new TinyCCompilerException(Error, s"Expression '$node' is not a l-value.", node.loc)
     }
 
     private def compileExpr(node: AstNode): Insn = node match {
@@ -379,7 +389,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
 
       case node: AstSequence =>
         node.body.map(compileExpr).lastOption
-          .getOrElse(throw new CompilerException(Error, "empty sequence", node.loc))
+          .getOrElse(throw new TinyCCompilerException(Error, "empty sequence", node.loc))
 
       case _: AstRead =>
         append(new GetCharInsn(_))
@@ -420,7 +430,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
             id.decl match {
               case FunDecl(decl) =>
                 append(new CallInsn(funMap(decl.symbol), compileCallArgs(c.args), _))
-              case _ => throw new CompilerException(Error, "call of non-function", c.loc)
+              case _ => throw new TinyCCompilerException(Error, "call of non-function", c.loc)
             }
 
           case fun => // indirect call
@@ -462,7 +472,7 @@ final class Compiler(program: AstBlock, _declarations: Declarations, _typeMap: T
       case (_: Types.PtrTy | _: Types.ArrayTy, _: Types.IntegerTy) =>
         compileCastFromTo(value, Types.IntTy, toTy, loc)
 
-      case (fromTy, toTy) => throw new CompilerException(Error, s"cannot cast '$fromTy' to '$toTy'", loc)
+      case (fromTy, toTy) => throw new TinyCCompilerException(Error, s"cannot cast '$fromTy' to '$toTy'", loc)
     }
 
     private def compileExprAndCastTo(expr: AstNode, toTy: Types.Ty): Insn =

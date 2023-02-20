@@ -1,13 +1,22 @@
 package tinycc.frontend.analysis
 
-import tinycc.{ErrorLevel, ProgramException}
+import tinycc.cli.Reporter
 import tinycc.frontend.Declarations
 import tinycc.frontend.ast._
 import tinycc.util.parsing.SourceLocation
+import tinycc.{ErrorLevel, ProgramException}
 
 import scala.collection.mutable
 
-class SemanticAnalysisException(level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(level, message)
+class SemanticAnalysisException(messages: Seq[SemanticAnalysisException.Message]) extends ProgramException(messages.map(_.message).mkString("\n")) {
+  override def format(reporter: Reporter): String = messages.map(_.format(reporter)).mkString("\n")
+}
+
+object SemanticAnalysisException {
+  class Message(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(message) {
+    override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
+  }
+}
 
 final class LexicalStack {
   private var frames: List[mutable.Map[Symbol, IdentifierDecl]] = Nil
@@ -37,19 +46,20 @@ final class LexicalStack {
  *  prevDecl (linked list). */
 final class SemanticAnalysis(program: AstBlock) {
 
-  import IdentifierDecl._
   import ErrorLevel._
+  import IdentifierDecl._
+  import SemanticAnalysisException.Message
 
   implicit private val declarations: mutable.Map[AstIdentifierOrDecl, IdentifierDecl] = mutable.Map.empty
 
   private val lexicalStack: LexicalStack = new LexicalStack
 
-  private val errors: mutable.Buffer[SemanticAnalysisException] = mutable.Buffer.empty
+  private val errors: mutable.Buffer[Message] = mutable.Buffer.empty
 
-  lazy val result: Either[Seq[SemanticAnalysisException], Declarations] = {
+  lazy val result: Either[SemanticAnalysisException, Declarations] = {
     visit(program) // First frame is created by visitBlock.
     if (errors.nonEmpty)
-      Left(errors.toSeq)
+      Left(new SemanticAnalysisException(errors.toSeq))
     else
       Right(declarations)
   }
@@ -60,7 +70,7 @@ final class SemanticAnalysis(program: AstBlock) {
         case Some(decl) =>
           declarations(node) = decl
         case None =>
-          errors += new SemanticAnalysisException(Error, s"identifier '${node.symbol.name}' undeclared", node.loc)
+          errors += new Message(Error, s"identifier '${node.symbol.name}' undeclared", node.loc)
       }
 
     case node: AstBlock =>
@@ -78,12 +88,12 @@ final class SemanticAnalysis(program: AstBlock) {
           lexicalStack.putDecl(node.symbol, VarDecl(node))
 
         case Some(prevDecl: VarDecl) =>
-          errors += new SemanticAnalysisException(Error, s"local variable '${node.symbol.name}' redeclared", node.loc)
-          errors += new SemanticAnalysisException(Note, s"previous declaration of '${node.symbol.name}' here", prevDecl.loc)
+          errors += new Message(Error, s"local variable '${node.symbol.name}' redeclared", node.loc)
+          errors += new Message(Note, s"previous declaration of '${node.symbol.name}' here", prevDecl.loc)
 
         case Some(prevDecl) =>
-          errors += new SemanticAnalysisException(Error, s"'${node.symbol.name}' redeclared as different kind of symbol", node.loc)
-          errors += new SemanticAnalysisException(Note, s"previous declaration of '${node.symbol.name}' here", prevDecl.loc)
+          errors += new Message(Error, s"'${node.symbol.name}' redeclared as different kind of symbol", node.loc)
+          errors += new Message(Note, s"previous declaration of '${node.symbol.name}' here", prevDecl.loc)
         case None =>
           lexicalStack.putDecl(node.symbol, VarDecl(node))
       }
@@ -96,8 +106,8 @@ final class SemanticAnalysis(program: AstBlock) {
           lexicalStack.putDecl(node.symbol, FunDecl(node))
 
         case Some(prevDecl) =>
-          errors += new SemanticAnalysisException(Error, s"'${node.symbol.name}' redeclared as different kind of symbol", node.loc)
-          errors += new SemanticAnalysisException(Note, s"previous declaration of '${node.symbol.name}' here", prevDecl.loc)
+          errors += new Message(Error, s"'${node.symbol.name}' redeclared as different kind of symbol", node.loc)
+          errors += new Message(Note, s"previous declaration of '${node.symbol.name}' here", prevDecl.loc)
         case None =>
           lexicalStack.putDecl(node.symbol, FunDecl(node))
       }
@@ -106,7 +116,7 @@ final class SemanticAnalysis(program: AstBlock) {
         node.args.zipWithIndex.foreach({ case ((_, argName), idx) =>
           lexicalStack.lookupDeclInCurrentFrame(argName) match {
             case Some(_) =>
-              errors += new SemanticAnalysisException(Error, s"duplicate argument '${argName.name}'", node.loc)
+              errors += new Message(Error, s"duplicate argument '${argName.name}'", node.loc)
 
             case None =>
               lexicalStack.putDecl(argName, FunArgDecl(node, idx))
@@ -119,7 +129,7 @@ final class SemanticAnalysis(program: AstBlock) {
       val caseValues = mutable.Set.empty[Long]
       node.cases.foreach({ case (value, body) =>
         if (!caseValues.add(value))
-          errors += new SemanticAnalysisException(Error, s"duplicate case value '$value'", body.loc)
+          errors += new Message(Error, s"duplicate case value '$value'", body.loc)
         visit(body)
       })
       node.defaultCase.foreach(visit)
@@ -137,7 +147,7 @@ final class SemanticAnalysis(program: AstBlock) {
       node.lvalue match {
         case id: AstIdentifier => id.declOption match {
           case Some(_: FunDecl) =>
-            errors += new SemanticAnalysisException(Error, s"assignment to function '${id.symbol.name}'", node.loc)
+            errors += new Message(Error, s"assignment to function '${id.symbol.name}'", node.loc)
           case _ =>
           // Undeclared identifier is already handled by visitIdentifier.
         }

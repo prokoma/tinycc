@@ -42,7 +42,7 @@ object CliParser extends Parsers {
 
   lazy val COMPILE: Parser[Action.Compile] = "compile" ~> file ^^ Compile
 
-  lazy val ACTION: Parser[Action] = COMPILE //| failure("unknown action")
+  lazy val ACTION: Parser[Action] = COMPILE | failure("unknown action")
 
   def parseArgs(args: Seq[String]): Action = (ACTION <~ EOF)(SeqReader(args)) match {
     case Accept(action, _) => action

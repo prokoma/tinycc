@@ -108,9 +108,12 @@ class IrPrinter extends IndentPrinter[IrObject] {
   }
 
   protected def printBasicBlock(bb: BasicBlock, out: IndentWriter): Unit = {
-    out.write(s"${bb.name}:")
+    out.write(s"${bb.name}:\n")
     out.withIndent({
-      bb.body.foreachSep(printInsn(_, out), out.write("\n"))
+      bb.body.foreach(insn => {
+        printInsn(insn, out)
+        out.write("\n")
+      })
     })
   }
 
@@ -120,15 +123,15 @@ class IrPrinter extends IndentPrinter[IrObject] {
     fun.argTys.foreachSep(printType(_, out), out.write(", "))
     out.write(") {\n")
     out.withIndent({
-      fun.basicBlocks.foreach(bb => {
-        printBasicBlock(bb, out)
-        out.write("\n")
-      })
+      fun.basicBlocks.foreach(bb => printBasicBlock(_, out))
     })
-    out.write("}")
+    out.write("}\n")
   }
 
   protected def printIrProgram(program: IrProgram, out: IndentWriter): Unit = {
-    program.funs.foreachSep(printIrFun(_, out), out.write("\n"))
+    program.funs.foreach(fun => {
+      printIrFun(fun, out)
+      out.write("\n")
+    })
   }
 }

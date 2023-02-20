@@ -1,5 +1,7 @@
 package tinycc.frontend
 
+import tinycc.cli.Reporter
+import tinycc.{ErrorLevel, ProgramException}
 import tinycc.frontend.Symbols._
 import tinycc.frontend.ast._
 import tinycc.util.parsing.SourceLocation
@@ -7,7 +9,13 @@ import tinycc.util.parsing.combinator.{CharReader, Parsers, Reader}
 
 import scala.language.implicitConversions
 
+class TinyCParserException(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(message) {
+  override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
+}
+
 object TinyCParser extends Parsers {
+  import ErrorLevel._
+
   type Elem = Token
   type Input = ScannerAdapter
 
@@ -248,13 +256,13 @@ object TinyCParser extends Parsers {
     def withDeclaredType(ty: Symbol): ScannerAdapter = ScannerAdapter(this, declaredNamedTypes + ty)
   }
 
-  def parseProgram(in: Reader[Elem]): AstBlock =
+  def parseProgram(in: Reader[Elem]): Either[TinyCParserException, AstBlock] =
     PROGRAM(ScannerAdapter(in)) match {
-      case Accept(value, reminding) if reminding.isEmpty => value
-      case Accept(_, reminding) => throw new RuntimeException(s"expected end of input at ${reminding.loc} ${reminding.headOption}")
-      case Reject(message, reminding, _) => throw new RuntimeException(s"$message at ${reminding.loc}")
+      case Accept(value, reminding) if reminding.isEmpty => Right(value)
+      case Accept(_, reminding) => Left(new TinyCParserException(Error, s"expected end of input", reminding.loc))
+      case Reject(message, reminding, _) => Left(throw new TinyCParserException(Error, message, reminding.loc))
     }
 
-  def parseProgram(s: String): AstBlock =
+  def parseProgram(s: String): Either[TinyCParserException, AstBlock] =
     parseProgram(Lexer.TokenReader(CharReader(s)))
 }

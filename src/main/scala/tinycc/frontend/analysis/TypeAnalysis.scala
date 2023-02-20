@@ -1,20 +1,30 @@
 package tinycc.frontend.analysis
 
-import tinycc.{ErrorLevel, ProgramException}
+import tinycc.cli.Reporter
 import tinycc.frontend.Types._
 import tinycc.frontend.ast._
 import tinycc.frontend.{Declarations, Symbols, TypeMap}
 import tinycc.util.parsing.SourceLocation
+import tinycc.{ErrorLevel, ProgramException}
 
 import scala.collection.mutable
 import scala.math.Ordered.orderingToOrdered
 
-class TypeAnalysisException(level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(level, message)
+class TypeAnalysisException(messages: Seq[TypeAnalysisException.Message]) extends ProgramException(messages.map(_.message).mkString("\n")) {
+  override def format(reporter: Reporter): String = messages.map(_.format(reporter)).mkString("\n")
+}
+
+object TypeAnalysisException {
+  class Message(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(message) {
+    override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
+  }
+}
 
 final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
 
   import ErrorLevel._
   import IdentifierDecl._
+  import TypeAnalysisException.Message
 
   implicit private def declarations: Declarations = _declarations
 
@@ -28,12 +38,12 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
 
   private val namedTypeMap: mutable.Map[Symbol, (Ty, SourceLocation)] = mutable.Map.empty
 
-  private val errors: mutable.Buffer[TypeAnalysisException] = mutable.Buffer.empty
+  private val errors: mutable.Buffer[Message] = mutable.Buffer.empty
 
-  lazy val result: Either[Seq[TypeAnalysisException], TypeMap] = {
+  lazy val result: Either[TypeAnalysisException, TypeMap] = {
     visitAndGetTy(program)
     if (errors.nonEmpty)
-      Left(errors.toSeq)
+      Left(new TypeAnalysisException(errors.toSeq))
     else
       Right(typeMap)
   }
@@ -46,19 +56,19 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
   private def visitLValue(node: AstNode, label: String): Unit = {
     val hasAddr = hasAddress(node)
     if (!hasAddr)
-      errors += new TypeAnalysisException(Error, s"expected l-value $label", node.loc)
+      errors += new Message(Error, s"expected l-value $label", node.loc)
   }
 
   private def visitGuard(guard: AstNode, label: String): Unit = {
     val guardTy = visitAndGetTy(guard)
     if (!IntTy.isAssignableFrom(guardTy))
-      errors += new TypeAnalysisException(Error, s"expected $IntTy (or compatible type) $label, got $guardTy", guard.loc)
+      errors += new Message(Error, s"expected $IntTy (or compatible type) $label, got $guardTy", guard.loc)
   }
 
   private def visitAndGetTyIfComplete(node: AstNode, label: String): Ty = {
     val ty = visitAndGetTy(node)
     if (!ty.isComplete)
-      errors += new TypeAnalysisException(Error, s"cannot use incomplete type $ty $label", node.loc)
+      errors += new Message(Error, s"cannot use incomplete type $ty $label", node.loc)
     ty
   }
 
@@ -91,7 +101,7 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
           namedTypeMap.get(name) match {
             case Some((ty, _)) => ty
             case None =>
-              errors += new TypeAnalysisException(Error, s"undeclared named type '${name.name}'", node.loc)
+              errors += new Message(Error, s"undeclared named type '${name.name}'", node.loc)
               ErrorTy
           }
       }
@@ -109,8 +119,8 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       // Check if the variable is compatible with its previous declaration.
       node.prevDecl match {
         case Some(VarDecl(prevNode)) if prevNode.varTy.ty != varTy =>
-          errors += new TypeAnalysisException(Error, s"incompatible declaration of variable '${node.symbol.name}' ($varTy), previously declared as ${prevNode.varTy.ty}", node.loc)
-          errors += new TypeAnalysisException(Note, s"previous declaration of '${node.symbol.name}'", prevNode.loc)
+          errors += new Message(Error, s"incompatible declaration of variable '${node.symbol.name}' ($varTy), previously declared as ${prevNode.varTy.ty}", node.loc)
+          errors += new Message(Note, s"previous declaration of '${node.symbol.name}'", prevNode.loc)
 
         case _ =>
       }
@@ -120,8 +130,8 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
         val prevDef = node.prevDecls.collectFirst({ case VarDecl(prevNode) if prevNode.value.isDefined => prevNode })
         prevDef match {
           case Some(prevNode) =>
-            errors += new TypeAnalysisException(Error, s"redefinition of variable '${node.symbol.name}' ($varTy)", node.loc)
-            errors += new TypeAnalysisException(Note, s"previous definition of '${node.symbol.name}'", prevNode.loc)
+            errors += new Message(Error, s"redefinition of variable '${node.symbol.name}' ($varTy)", node.loc)
+            errors += new Message(Note, s"previous definition of '${node.symbol.name}'", prevNode.loc)
 
           case None =>
         }
@@ -129,7 +139,7 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
         // Check value type.
         val valueTy = visitAndGetTy(value)
         if (!varTy.isAssignableFrom(valueTy))
-          errors += new TypeAnalysisException(Error, s"cannot assign value of type $valueTy to variable '${node.symbol.name}' of type $varTy", value.loc)
+          errors += new Message(Error, s"cannot assign value of type $valueTy to variable '${node.symbol.name}' of type $varTy", value.loc)
       })
       varTy
 
@@ -147,12 +157,12 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
         case Some(prevDecl) =>
           val prevTy = prevDecl.ty
           if (prevTy != ty) {
-            errors += new TypeAnalysisException(Error, s"incompatible declaration of function '${node.symbol.name}' (${node.ty}), previously declared as ${node.ty}", node.loc)
-            errors += new TypeAnalysisException(Note, s"previous declaration of '${node.symbol.name}'", prevDecl.loc)
+            errors += new Message(Error, s"incompatible declaration of function '${node.symbol.name}' (${node.ty}), previously declared as ${node.ty}", node.loc)
+            errors += new Message(Note, s"previous declaration of '${node.symbol.name}'", prevDecl.loc)
           }
           if (prevDecl.body.isDefined && node.body.isDefined) {
-            errors += new TypeAnalysisException(Error, s"redefinition of function '${node.symbol.name}' (${node.ty})", node.loc)
-            errors += new TypeAnalysisException(Note, s"previous declaration of '${node.symbol.name}'", prevDecl.loc)
+            errors += new Message(Error, s"redefinition of function '${node.symbol.name}' (${node.ty})", node.loc)
+            errors += new Message(Note, s"previous declaration of '${node.symbol.name}'", prevDecl.loc)
           }
 
           if (prevDecl.body.isEmpty)
@@ -177,8 +187,8 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
           prevTy
 
         case Some((prevTy: StructTy, prevDeclLoc)) if prevTy.isComplete && node.hasFields =>
-          errors += new TypeAnalysisException(Error, s"redefinition of 'struct ${node.symbol.name}'", node.loc)
-          errors += new TypeAnalysisException(Note, s"previous definition of 'struct ${node.symbol.name}'", prevDeclLoc)
+          errors += new Message(Error, s"redefinition of 'struct ${node.symbol.name}'", node.loc)
+          errors += new Message(Note, s"previous definition of 'struct ${node.symbol.name}'", prevDeclLoc)
           prevTy
 
         case Some((prevTy: StructTy, _)) if !prevTy.isComplete && node.hasFields =>
@@ -188,8 +198,8 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
           prevTy
 
         case Some((_, prevDeclLoc)) =>
-          errors += new TypeAnalysisException(Error, s"redefinition of 'struct ${node.symbol.name}' as another kind of type", node.loc)
-          errors += new TypeAnalysisException(Note, s"previous declaration of '${node.symbol.name}'", prevDeclLoc)
+          errors += new Message(Error, s"redefinition of 'struct ${node.symbol.name}' as another kind of type", node.loc)
+          errors += new Message(Note, s"previous declaration of '${node.symbol.name}'", prevDeclLoc)
           StructTy(Some(node.symbol), fields)
 
         case None =>
@@ -209,8 +219,8 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
 
       namedTypeMap.get(node.symbol) match {
         case Some((_, prevDeclLoc)) =>
-          errors += new TypeAnalysisException(Error, s"redefinition of 'typedef ${node.symbol.name}", node.loc)
-          errors += new TypeAnalysisException(Note, s"previous definition of 'typedef ${node.symbol.name}'", prevDeclLoc)
+          errors += new Message(Error, s"redefinition of 'typedef ${node.symbol.name}", node.loc)
+          errors += new Message(Note, s"previous definition of 'typedef ${node.symbol.name}'", prevDeclLoc)
           ty
 
         case None =>
@@ -256,10 +266,10 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       curFunTyOption match {
         case Some(funTy) =>
           if (!funTy.returnTy.isAssignableFrom(exprTy))
-            errors += new TypeAnalysisException(Error, s"expected ${funTy.returnTy} (or compatible type), got $exprTy", exprLoc)
+            errors += new Message(Error, s"expected ${funTy.returnTy} (or compatible type), got $exprTy", exprLoc)
 
         case None =>
-          errors += new TypeAnalysisException(Error, s"cannot use return outside of function", node.loc)
+          errors += new Message(Error, s"cannot use return outside of function", node.loc)
       }
       VoidTy
 
@@ -277,7 +287,7 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       }
 
       def errorInvalidOperands: Ty = {
-        errors += new TypeAnalysisException(Error, s"invalid operands to binary ${node.op.name} (got $leftTy and $rightTy)", node.loc)
+        errors += new Message(Error, s"invalid operands to binary ${node.op.name} (got $leftTy and $rightTy)", node.loc)
         ErrorTy
       }
 
@@ -354,7 +364,7 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       val lvalueTy = visitAndGetTy(node.lvalue)
       val valueTy = visitAndGetTy(node.value)
       if (!lvalueTy.isAssignableFrom(valueTy))
-        errors += new TypeAnalysisException(Error, s"cannot assign $valueTy to l-value of type $lvalueTy", node.loc)
+        errors += new Message(Error, s"cannot assign $valueTy to l-value of type $lvalueTy", node.loc)
       lvalueTy
 
     case node: AstUnaryOp =>
@@ -363,20 +373,20 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       node.op match {
         case Symbols.add | Symbols.sub | Symbols.neg =>
           if (!IntTy.isAssignableFrom(exprTy)) {
-            errors += new TypeAnalysisException(Error, s"wrong type argument to unary ${node.op.name} (expected int-like type), got $exprTy", node.loc)
+            errors += new Message(Error, s"wrong type argument to unary ${node.op.name} (expected int-like type), got $exprTy", node.loc)
             IntTy
           } else
             exprTy
 
         case Symbols.not =>
           if (!IntTy.isAssignableFrom(exprTy) && !exprTy.isInstanceOf[PtrTy])
-            errors += new TypeAnalysisException(Error, s"wrong type argument to unary ${node.op.name} (expected int-like or pointer type), got $exprTy", node.loc)
+            errors += new Message(Error, s"wrong type argument to unary ${node.op.name} (expected int-like or pointer type), got $exprTy", node.loc)
           IntTy
 
         case Symbols.inc | Symbols.dec =>
           visitLValue(node.expr, s"in unary ${node.op.name}")
           if (!IntTy.isAssignableFrom(exprTy) && !exprTy.isInstanceOf[PtrTy]) {
-            errors += new TypeAnalysisException(Error, s"wrong type argument to unary ${node.op.name} (expected int-like or pointer type), got $exprTy", node.loc)
+            errors += new Message(Error, s"wrong type argument to unary ${node.op.name} (expected int-like or pointer type), got $exprTy", node.loc)
             IntTy
           } else
             exprTy
@@ -392,7 +402,7 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
         case Symbols.inc | Symbols.dec =>
           visitLValue(node.expr, s"in unary ${node.op.name}")
           if (!IntTy.isAssignableFrom(exprTy) && !exprTy.isInstanceOf[PtrTy]) {
-            errors += new TypeAnalysisException(Error, s"wrong type argument to unary not (expected int-like or pointer type)", node.loc)
+            errors += new Message(Error, s"wrong type argument to unary not (expected int-like or pointer type)", node.loc)
             IntTy
           } else
             exprTy
@@ -413,7 +423,7 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
         case exprTy@PtrTy(_: FunTy) => exprTy
         case PtrTy(baseTy) => baseTy
         case exprTy =>
-          errors += new TypeAnalysisException(Error, s"cannot dereference non-pointer type ($exprTy)", node.loc)
+          errors += new Message(Error, s"cannot dereference non-pointer type ($exprTy)", node.loc)
           exprTy
       }
 
@@ -421,54 +431,54 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       val exprTy = visitAndGetTy(node.expr)
       val indexTy = visitAndGetTy(node.index)
       if (!IntTy.isAssignableFrom(indexTy))
-        errors += new TypeAnalysisException(Error, s"expected $IntTy (or compatible type), got $indexTy", node.index.loc)
+        errors += new Message(Error, s"expected $IntTy (or compatible type), got $indexTy", node.index.loc)
       exprTy match {
         case PtrTy(_: FunTy) =>
-          errors += new TypeAnalysisException(Error, s"cannot index into pointer to function", node.loc)
+          errors += new Message(Error, s"cannot index into pointer to function", node.loc)
           exprTy
 
         case exprTy: IndexableTy => exprTy.baseTy
 
         case exprTy =>
-          errors += new TypeAnalysisException(Error, s"expected array or pointer, got $exprTy", node.loc)
+          errors += new Message(Error, s"expected array or pointer, got $exprTy", node.loc)
           exprTy
       }
 
     case node: AstMember =>
       visitAndGetTy(node.expr) match {
         case baseTy: StructTy if !baseTy.isComplete =>
-          errors += new TypeAnalysisException(Error, s"cannot access fields in an incomplete struct", node.loc)
+          errors += new Message(Error, s"cannot access fields in an incomplete struct", node.loc)
           VoidTy
         case baseTy@StructTy(_, Some(fields)) =>
           val fieldTy = fields.collectFirst({ case (ty, name) if name == node.member => ty })
           fieldTy match {
             case Some(value) => value
             case None =>
-              errors += new TypeAnalysisException(Error, s"unknown member ${node.member.name} in $baseTy", node.loc)
+              errors += new Message(Error, s"unknown member ${node.member.name} in $baseTy", node.loc)
               VoidTy
           }
 
         case baseTy =>
-          errors += new TypeAnalysisException(Error, s"expected struct type, got $baseTy", node.loc)
+          errors += new Message(Error, s"expected struct type, got $baseTy", node.loc)
           VoidTy
       }
 
     case node: AstMemberPtr =>
       visitAndGetTy(node.expr) match {
         case PtrTy(baseTy: StructTy) if !baseTy.isComplete =>
-          errors += new TypeAnalysisException(Error, s"cannot access fields in an incomplete struct $baseTy", node.loc)
+          errors += new Message(Error, s"cannot access fields in an incomplete struct $baseTy", node.loc)
           VoidTy
         case PtrTy(baseTy@StructTy(_, Some(fields))) =>
           val fieldTy = fields.collectFirst({ case (ty, name) if name == node.member => ty })
           fieldTy match {
             case Some(value) => value
             case None =>
-              errors += new TypeAnalysisException(Error, s"unknown member ${node.member.name} in $baseTy", node.loc)
+              errors += new Message(Error, s"unknown member ${node.member.name} in $baseTy", node.loc)
               VoidTy
           }
 
         case baseTy =>
-          errors += new TypeAnalysisException(Error, s"expected pointer to struct type, got $baseTy", node.loc)
+          errors += new Message(Error, s"expected pointer to struct type, got $baseTy", node.loc)
           VoidTy
       }
 
@@ -481,14 +491,14 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
           if (argTys.size == argExprTys.size) {
             argExprTys.zip(argTys).zipWithIndex.foreach({ case ((argExprTy, argTy), i) =>
               if (!argTy.isAssignableFrom(argExprTy))
-                errors += new TypeAnalysisException(Error, s"expected $argTy (or compatible type), $argExprTy given (arg #$i)", node.loc)
+                errors += new Message(Error, s"expected $argTy (or compatible type), $argExprTy given (arg #$i)", node.loc)
             })
           } else
-            errors += new TypeAnalysisException(Error, s"expected ${argTys.size} arguments, ${argExprTys.size} given", node.loc)
+            errors += new Message(Error, s"expected ${argTys.size} arguments, ${argExprTys.size} given", node.loc)
           returnTy
 
         case _ =>
-          errors += new TypeAnalysisException(Error, s"expected function pointer, got $exprTy", node.loc)
+          errors += new Message(Error, s"expected function pointer, got $exprTy", node.loc)
           VoidTy
       }
 
@@ -496,13 +506,13 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       val newTy = visitAndGetTy(node.newTy)
       val exprTy = visitAndGetTy(node.expr)
       if (newTy.isExplicitlyCastableFrom(exprTy))
-        errors += new TypeAnalysisException(Error, s"cannot cast $exprTy to $newTy", node.loc)
+        errors += new Message(Error, s"cannot cast $exprTy to $newTy", node.loc)
       newTy
 
     case node: AstWrite =>
       val exprTy = visitAndGetTy(node.expr)
       if (!CharTy.isAssignableFrom(exprTy))
-        errors += new TypeAnalysisException(Error, s"expected $CharTy (or compatible type), got $exprTy", node.expr.loc)
+        errors += new Message(Error, s"expected $CharTy (or compatible type), got $exprTy", node.expr.loc)
       VoidTy
 
     case node: AstRead => CharTy

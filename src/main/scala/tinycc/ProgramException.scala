@@ -1,7 +1,9 @@
 package tinycc
 
-class ProgramException(val level: ErrorLevel, message: String) extends RuntimeException(message) {
+import tinycc.cli.Reporter
 
+class ProgramException(val message: String) extends RuntimeException(message) {
+  def format(reporter: Reporter): String = reporter.formatError(ErrorLevel.Error, message)
 }
 
 sealed trait ErrorLevel extends Product with Serializable
