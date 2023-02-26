@@ -126,9 +126,9 @@ trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
 
   def fun: IrFun = basicBlock.fun
 
-  def operandRefs: Seq[OperandRef] = Seq.empty
+  def operandRefs: IndexedSeq[OperandRef] = IndexedSeq.empty
 
-  def operands: Seq[Insn] = operandRefs.flatMap(_())
+  def operands: IndexedSeq[Insn] = operandRefs.flatMap(_())
 
   def resultTy: IrTy
 

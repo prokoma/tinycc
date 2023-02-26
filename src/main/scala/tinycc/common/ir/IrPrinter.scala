@@ -72,7 +72,7 @@ class IrPrinter extends IndentPrinter[IrObject] {
         printIrFunRef(insn.targetFun, out)
 
       case insn: LoadArgInsn => out.write(s" ${insn.index}")
-      case insn: GetElementPtr =>
+      case insn: GetElementPtrInsn =>
         out.write(s" ")
         printOperands(insn, out)
         out.write(s", ")

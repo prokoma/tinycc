@@ -3,19 +3,19 @@ package tinycc.common.ir
 trait BasicBlockBuilderOps {
   def bb: BasicBlock
 
-  def append[T <: Insn](insn: T): T = bb.append(insn)
+  def emit[T <: Insn](insn: T): T = bb.append(insn)
 
-  def append[T <: Insn](insn: BasicBlock => T): T = append(insn(bb))
+  def emit[T <: Insn](insn: BasicBlock => T): T = emit(insn(bb))
 
-  def appendIImm(value: Long): IImmInsn = append(new IImmInsn(value, bb))
+  def emitIImm(value: Long): IImmInsn = emit(new IImmInsn(value, bb))
 
-  def appendFImm(value: Double): FImmInsn = append(new FImmInsn(value, bb))
+  def emitFImm(value: Double): FImmInsn = emit(new FImmInsn(value, bb))
 
-  def appendBinaryArith(op: IrOpcode.BinaryArithOp, left: Insn, right: Insn): BinaryArithInsn =
-    append(new BinaryArithInsn(op, left, right, bb))
+  def emitBinaryArith(op: IrOpcode.BinaryArithOp, left: Insn, right: Insn): BinaryArithInsn =
+    emit(new BinaryArithInsn(op, left, right, bb))
 
-  def appendCmp(op: IrOpcode.CmpOp, left: Insn, right: Insn): CmpInsn =
-    append(new CmpInsn(op, left, right, bb))
+  def emitCmp(op: IrOpcode.CmpOp, left: Insn, right: Insn): CmpInsn =
+    emit(new CmpInsn(op, left, right, bb))
 }
 
 trait IrFunBuilderOps extends BasicBlockBuilderOps {
