@@ -10,7 +10,7 @@ object Operand {
   }
 
   case class Label(symbol: Symbol) extends Operand {
-    override def toString: String = s"$symbol"
+    override def toString: String = s"${symbol.name}"
   }
 
   sealed trait Reg extends Operand {
@@ -113,6 +113,14 @@ object Operand {
 }
 
 sealed trait T86ProgramElement extends Product with Serializable
+
+case class T86Comment(value: String) extends T86ProgramElement
+
+case class T86SectionLabel(symbol: Symbol) extends T86ProgramElement
+
+object T86SectionLabel {
+  def apply(name: String): T86SectionLabel = T86SectionLabel(Symbol(name))
+}
 
 case class T86Label(symbol: Symbol) extends T86ProgramElement {
   def toOperand: Operand.Label = Operand.Label(symbol)

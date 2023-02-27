@@ -123,7 +123,7 @@ class IrPrinter extends IndentPrinter[IrObject] {
     fun.argTys.foreachSep(printType(_, out), out.write(", "))
     out.write(") {\n")
     out.withIndent({
-      fun.basicBlocks.foreach(bb => printBasicBlock(_, out))
+      fun.basicBlocks.foreach(bb => printBasicBlock(bb, out))
     })
     out.write("}\n")
   }

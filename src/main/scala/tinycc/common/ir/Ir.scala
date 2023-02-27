@@ -130,11 +130,13 @@ trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
 
   def operands: IndexedSeq[Insn] = operandRefs.flatMap(_())
 
+  def hasSideEffects: Boolean = false
+
   def resultTy: IrTy
 
   val name: String = fun.nameGen()
 
-  override def validate(): Unit = ()
+  override def validate(): Unit = () // TODO: check if all operands are defined
 
   def remove(force: Boolean = false): Unit = basicBlock.removeInsn(this, force)
 
@@ -153,6 +155,8 @@ trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
 class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTracking[BasicBlockRef, BasicBlock] {
   val name: String = fun.nameGen(_name + "$")
   val body: mutable.IndexedBuffer[Insn] = mutable.IndexedBuffer.empty[Insn]
+
+  def uniqueName: String = fun.name + "$" + name
 
   def terminator: Option[TerminatorInsn] = body.collectFirst({ case t: TerminatorInsn => t })
 
@@ -250,7 +254,7 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
 case class IrFunSignature(returnType: IrTy, argTypes: Seq[IrTy])
 
 class IrFun(val name: String, val returnTy: IrTy, val argTys: IndexedSeq[IrTy], val program: IrProgram) extends IrObject with UseTracking[IrFunRef, IrFun] {
-  val basicBlocks: mutable.IndexedBuffer[BasicBlock] = mutable.IndexedBuffer.empty[BasicBlock]
+  var basicBlocks: mutable.IndexedBuffer[BasicBlock] = mutable.IndexedBuffer.empty
 
   def signature: IrFunSignature = IrFunSignature(returnTy, argTys)
 
@@ -277,6 +281,8 @@ class IrFun(val name: String, val returnTy: IrTy, val argTys: IndexedSeq[IrTy], 
   }
 
   override def validate(): Unit = {
+    if(basicBlocks.toSet.size != basicBlocks.size)
+      throw new IrException(s"$this: Function contains duplicate basic blocks.")
     basicBlocks.foreach(_.validate())
     if (entryBlockRef.isEmpty)
       throw new IrException(s"Function '$name' doesn't have entry block set.")

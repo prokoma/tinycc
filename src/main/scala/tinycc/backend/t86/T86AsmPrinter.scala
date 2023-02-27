@@ -4,19 +4,27 @@ import tinycc.util.{IndentPrinter, IndentWriter, IterableForeachSep}
 
 class T86AsmPrinter extends IndentPrinter[T86Program] {
   override def print(obj: T86Program, out: IndentWriter): Unit = {
-    out.write(".text\n")
     out.indent()
+    obj.foreach(printElement(_, out))
+  }
 
-    obj.foreach({
-      case T86Label(symbol) =>
-        out.dedent()
-        out.write(symbol + ":\n")
-        out.indent()
+  private def printElement(el: T86ProgramElement, out: IndentWriter): Unit = el match {
+    case T86Comment(value) =>
+      out.write(s"# $value\n")
 
-      case insn: T86Insn =>
-        printInsn(insn, out)
-        out.write("\n")
-    })
+    case T86SectionLabel(symbol) =>
+      out.dedent()
+      out.write("." + symbol.name + "\n")
+      out.indent()
+
+    case T86Label(symbol) =>
+      out.dedent()
+      out.write(symbol.name + ":\n")
+      out.indent()
+
+    case insn: T86Insn =>
+      printInsn(insn, out)
+      out.write("\n")
   }
 
   private def printInsn(insn: T86Insn, out: IndentWriter): Unit = {

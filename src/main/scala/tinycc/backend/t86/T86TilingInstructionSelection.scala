@@ -5,6 +5,7 @@ import tinycc.backend.{BackendException, TilingInstructionSelection}
 import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
 
+import scala.annotation.tailrec
 import scala.collection.mutable
 
 trait T86TilingInstructionSelection extends TilingInstructionSelection {
@@ -22,14 +23,17 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
     def freshLabel(): T86Label
 
+    def getFunLabel(fun: IrFun): T86Label =
+      T86Label(fun.name)
+
     def getBasicBlockLabel(bb: BasicBlock): T86Label =
-      T86Label(bb.fun.name + "$" + bb.name)
+      T86Label(bb.uniqueName)
 
     def freshReg(): Operand.Reg
 
-    def copyReg(reg: Operand.Reg): Operand.Reg = {
+    def copyToFreshReg(op: Operand): Operand.Reg = {
       val res = freshReg()
-      emit(MOV, res, reg)
+      emit(MOV, res, op)
       res
     }
 
@@ -70,7 +74,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
   protected def emitBinArithInsn(op: T86Opcode): ((Insn, AsmEmitter[Operand.Reg], AsmEmitter[Operand])) => AsmEmitter[Operand.Reg] = {
     case (_, left, right) =>
       (ctx: Context) => {
-        val res = ctx.copyReg(left(ctx))
+        val res = ctx.copyToFreshReg(left(ctx))
         ctx.emit(op, res, right(ctx))
         res
       }
@@ -92,67 +96,61 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
   val rules: Seq[GenRule[_]] = Seq(
 
-    GenRule(RegVar, Pat.apply(IAdd, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.ADD)),
-    GenRule(RegVar, Pat.apply(ISub, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.SUB)),
-    GenRule(RegVar, Pat.apply(IAnd, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.AND)),
-    GenRule(RegVar, Pat.apply(IOr, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.OR)),
-    GenRule(RegVar, Pat.apply(IXor, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.XOR)),
-    GenRule(RegVar, Pat.apply(IShl, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.LSH)),
-    GenRule(RegVar, Pat.apply(IShr, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.RSH)),
-    GenRule(RegVar, Pat.apply(UMul, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.MUL)),
-    GenRule(RegVar, Pat.apply(UDiv, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.DIV)),
-    GenRule(RegVar, Pat.apply(SMul, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.IMUL)),
-    GenRule(RegVar, Pat.apply(SDiv, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.IDIV)),
+    GenRule(RegVar, Pat(IAdd, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.ADD)),
+    GenRule(RegVar, Pat(ISub, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.SUB)),
+    GenRule(RegVar, Pat(IAnd, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.AND)),
+    GenRule(RegVar, Pat(IOr, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.OR)),
+    GenRule(RegVar, Pat(IXor, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.XOR)),
+    GenRule(RegVar, Pat(IShl, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.LSH)),
+    GenRule(RegVar, Pat(IShr, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.RSH)),
+    GenRule(RegVar, Pat(UMul, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.MUL)),
+    GenRule(RegVar, Pat(UDiv, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.DIV)),
+    GenRule(RegVar, Pat(SMul, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.IMUL)),
+    GenRule(RegVar, Pat(SDiv, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.IDIV)),
 
-    GenRule(RegVar, Pat.apply(CmpIEq, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JZ)),
-    GenRule(RegVar, Pat.apply(CmpINe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JNE)),
-    GenRule(RegVar, Pat.apply(CmpULt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JB)),
-    GenRule(RegVar, Pat.apply(CmpULe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JBE)),
-    GenRule(RegVar, Pat.apply(CmpUGt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JA)),
-    GenRule(RegVar, Pat.apply(CmpUGe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JAE)),
-    GenRule(RegVar, Pat.apply(CmpSLt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JL)),
-    GenRule(RegVar, Pat.apply(CmpSLe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JLE)),
-    GenRule(RegVar, Pat.apply(CmpSGt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JG)),
-    GenRule(RegVar, Pat.apply(CmpSGe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JGE)),
+    GenRule(RegVar, Pat(CmpIEq, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JZ)),
+    GenRule(RegVar, Pat(CmpINe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JNE)),
+    GenRule(RegVar, Pat(CmpULt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JB)),
+    GenRule(RegVar, Pat(CmpULe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JBE)),
+    GenRule(RegVar, Pat(CmpUGt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JA)),
+    GenRule(RegVar, Pat(CmpUGe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JAE)),
+    GenRule(RegVar, Pat(CmpSLt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JL)),
+    GenRule(RegVar, Pat(CmpSLe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JLE)),
+    GenRule(RegVar, Pat(CmpSGt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JG)),
+    GenRule(RegVar, Pat(CmpSGe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JGE)),
 
-    GenRule(RegVar, Pat.apply[AllocLInsn](AllocL) ^^ { insn =>
+    GenRule(RegVar, Pat[AllocLInsn](AllocL) ^^ { insn =>
       (ctx: Context) =>
         val res = ctx.freshReg()
         ctx.emit(LEA, res, ctx.resolveAllocL(insn))
         res
     }),
-    GenRule(RegVar, Pat.apply[AllocGInsn](AllocG) ^^ { insn =>
-      (ctx: Context) =>
-        val res = ctx.freshReg()
-        ctx.emit(MOV, res, ctx.resolveAllocG(insn))
-        res
+    GenRule(RegVar, Pat[AllocGInsn](AllocG) ^^ { insn =>
+      (ctx: Context) => ctx.copyToFreshReg(ctx.resolveAllocG(insn))
     }),
-    GenRule(RegVar, Pat.apply[LoadInsn, RegVar.ValueTy](Load, RegVar) ^^ { case (_, addr) =>
-      (ctx: Context) =>
-        val res = ctx.freshReg()
-        ctx.emit(MOV, res, addr(ctx).mem)
-        res
+
+    GenRule(RegVar, Pat[LoadInsn, RegVar.ValueTy](Load, RegVar) ^^ { case (_, addr) =>
+      (ctx: Context) => ctx.copyToFreshReg(addr(ctx).mem)
     }),
-    GenRule(RegVar, Pat.apply[LoadArgInsn](LoadArg) ^^ { insn =>
-      (ctx: Context) =>
-        val res = ctx.freshReg()
-        ctx.emit(MOV, res, ctx.resolveLoadArg(insn))
-        res
+    GenRule(RegVar, Pat[LoadInsn, AllocLInsn](Load, Pat[AllocLInsn](AllocL)) ^^ { case (_, allocl) =>
+      (ctx: Context) => ctx.copyToFreshReg(ctx.resolveAllocL(allocl))
     }),
-    GenRule(RegVar, Pat.apply[StoreInsn, RegVar.ValueTy, RegVar.ValueTy](Store, RegVar, RegVar) ^^ { case (_, addr, value) =>
+    GenRule(RegVar, Pat[LoadInsn, AllocGInsn](Load, Pat[AllocGInsn](AllocG)) ^^ { case (_, allocg) =>
+      (ctx: Context) => ctx.copyToFreshReg(ctx.resolveAllocG(allocg))
+    }),
+
+    GenRule(RegVar, Pat[LoadArgInsn](LoadArg) ^^ { insn =>
+      (ctx: Context) => ctx.copyToFreshReg(ctx.resolveLoadArg(insn))
+    }),
+    GenRule(RegVar, Pat[StoreInsn, RegVar.ValueTy, RegVar.ValueTy](Store, RegVar, RegVar) ^^ { case (_, addr, value) =>
       (ctx: Context) =>
-        val res = ctx.freshReg()
         ctx.emit(MOV, addr(ctx).mem, value(ctx))
-        res
+        ctx.freshReg()
     }),
-    GenRule(RegVar, Pat.apply[IImmInsn](IImm) ^^ { insn =>
-      (ctx: Context) => {
-        val res = ctx.freshReg()
-        ctx.emit(MOV, res, Operand.Imm(insn.value))
-        res
-      }
+    GenRule(RegVar, Pat[IImmInsn](IImm) ^^ { insn =>
+      (ctx: Context) => ctx.copyToFreshReg(Operand.Imm(insn.value))
     }),
-    GenRule(RegVar, Pat.apply[GetElementPtrInsn, RegVar.ValueTy, RegVar.ValueTy](GetElementPtr, RegVar, RegVar) ^^ { case (insn, base, index) =>
+    GenRule(RegVar, Pat[GetElementPtrInsn, RegVar.ValueTy, RegVar.ValueTy](GetElementPtr, RegVar, RegVar) ^^ { case (insn, base, index) =>
       (ctx: Context) => {
         val res = ctx.freshReg()
         if (insn.fieldIndex == 0)
@@ -162,21 +160,43 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
         res
       }
     }),
-    // Call
-    // CallPtr
-    GenRule(RegVar, Pat.apply[PutCharInsn, RegVar.ValueTy](PutChar, RegVar) ^^ { case (insn, reg) =>
+    GenRule(RegVar, CallInsnPat[RegVar.ValueTy](RegVar) ^^ { case (insn, args) =>
+      (ctx: Context) => {
+        args.foreach(arg => {
+          ctx.emit(PUSH, arg(ctx))
+        })
+        ctx.emit(CALL, ctx.getFunLabel(insn.targetFun.get).toOperand)
+        ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
+        val res = ctx.freshReg()
+        ctx.emit(MOV, res, ctx.resolveRetValueCaller())
+        res
+      }
+    }),
+    GenRule(RegVar, CallPtrInsnPat[RegVar.ValueTy, RegVar.ValueTy](RegVar, RegVar) ^^ { case (insn, ptr, args) =>
+      (ctx: Context) => {
+        args.foreach(arg => {
+          ctx.emit(PUSH, arg(ctx))
+        })
+        ctx.emit(CALL, ptr(ctx))
+        ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
+        val res = ctx.freshReg()
+        ctx.emit(MOV, res, ctx.resolveRetValueCaller())
+        res
+      }
+    }),
+    GenRule(RegVar, Pat[PutCharInsn, RegVar.ValueTy](PutChar, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(PUTCHAR, reg(ctx))
         ctx.freshReg()
       }
     }),
-    GenRule(RegVar, Pat.apply[PutNumInsn, RegVar.ValueTy](PutNum, RegVar) ^^ { case (insn, reg) =>
+    GenRule(RegVar, Pat[PutNumInsn, RegVar.ValueTy](PutNum, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(PUTNUM, reg(ctx))
         ctx.freshReg()
       }
     }),
-    GenRule(RegVar, Pat.apply[GetCharInsn](GetChar) ^^ { insn =>
+    GenRule(RegVar, Pat[GetCharInsn](GetChar) ^^ { insn =>
       (ctx: Context) => {
         val res = ctx.freshReg()
         ctx.emit(GETCHAR, res)
@@ -184,31 +204,31 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       }
     }),
     // Phi
-    GenRule(RegVar, Pat.apply[RetInsn, RegVar.ValueTy](Ret, RegVar) ^^ { case (insn, reg) =>
+    GenRule(RegVar, Pat[RetInsn, RegVar.ValueTy](Ret, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(MOV, ctx.resolveRetValueCallee(), reg(ctx))
         ctx.emitFunEpilogue()
         ctx.freshReg()
       }
     }),
-    GenRule(RegVar, Pat.apply[RetVoidInsn](RetVoid) ^^ { _ =>
+    GenRule(RegVar, Pat[RetVoidInsn](RetVoid) ^^ { _ =>
       (ctx: Context) =>
         ctx.emitFunEpilogue()
         ctx.freshReg()
     }),
-    GenRule(RegVar, Pat.apply[HaltInsn](Halt) ^^ { _ =>
+    GenRule(RegVar, Pat[HaltInsn](Halt) ^^ { _ =>
       (ctx: Context) => {
         ctx.emit(HALT)
         ctx.freshReg()
       }
     }),
-    GenRule(RegVar, Pat.apply[BrInsn](Br) ^^ { insn =>
+    GenRule(RegVar, Pat[BrInsn](Br) ^^ { insn =>
       (ctx: Context) => {
         ctx.emit(JMP, ctx.getBasicBlockLabel(insn.succBlock.get).toOperand)
         ctx.freshReg()
       }
     }),
-    GenRule(RegVar, Pat.apply[CondBrInsn, RegVar.ValueTy](CondBr, RegVar) ^^ { case (insn, reg) =>
+    GenRule(RegVar, Pat[CondBrInsn, RegVar.ValueTy](CondBr, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(CMP, reg(ctx), Operand.Imm(0))
         ctx.emit(JZ, ctx.getBasicBlockLabel(insn.falseBlock.get).toOperand)
@@ -252,12 +272,14 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
   private val globalsMap = mutable.Map.empty[AllocGInsn, Long]
 
   lazy val result: Either[BackendException, T86Program] = {
-    val code = program.funs.map(tileIrFun).reduce(_ ++ _)
-    Right(code)
+    val textSection = T86SectionLabel("text") +: program.funs.map(tileIrFun).reduce(_ ++ _)
+    Right(textSection)
   }
 
   def getSizeWords(ty: IrTy): Long =
     (ty.sizeBytes / 8).ceil.toLong
+
+  private lazy val sortedRules = rules.sortBy(r => -r.rhs.size)
 
   def tileIrFun(fun: IrFun): T86Program = {
     val code = mutable.Buffer.empty[T86ProgramElement]
@@ -351,31 +373,53 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
 
   def tileBasicBlock(bb: BasicBlock, ctx: Context): Unit = {
     val allCoveredInsns = mutable.Set.empty[Insn]
-    val tileMap = mutable.Map.empty[Insn, GenRule.Match[_]]
+    val allRequiredInsns = mutable.Set.empty[(Var[_], Insn)]
+    val tileMap = mutable.Map.empty[(Var[_], Insn), GenRule.Match[_]]
 
-    // TODO: work with register constraints (Reg vs FReg)
+    ctx.emit(T86Label(bb.fun.name + "$" + bb.name))
 
     // instructions in a basic block are topologically sorted
     // greedily cover instructions with tiles
     bb.body.reverse.foreach(insn => {
-      if (!allCoveredInsns.contains(insn)) {
-        rules.view.flatMap(_(insn)).headOption match {
+      val requiredVars = variables.filter(v => allRequiredInsns.contains((v, insn)))
+
+      if (requiredVars.nonEmpty) {
+        if (requiredVars.size > 1 && insn.hasSideEffects)
+          throw new BackendException(s"Insn $insn is required by multiple tiles with different types, but has side effects.")
+
+        requiredVars.foreach(v => {
+          val varRules = sortedRules.filter(_.v == v)
+          varRules.view.flatMap(_(insn)).headOption match {
+            case Some(m) =>
+              tileMap((m.rule.v, insn)) = m
+              allCoveredInsns ++= m.coveredInsns
+              allRequiredInsns ++= m.requiredInsns
+
+            case None =>
+              throw new BackendException(s"Failed to cover $insn as $v (tried ${varRules.size} rules)")
+          }
+        })
+      } else if (!allCoveredInsns.contains(insn)) {
+        sortedRules.view.flatMap(_(insn)).headOption match {
           case Some(m) =>
-            tileMap(insn) = m
+            tileMap((m.rule.v, insn)) = m
             allCoveredInsns ++= m.coveredInsns
+            allRequiredInsns ++= m.requiredInsns
 
           case None =>
-            throw new BackendException(s"Failed to cover $insn (tried ${rules.size} rules)")
+            throw new BackendException(s"Failed to cover $insn (tried ${sortedRules.size} rules)")
         }
       }
     })
 
     // now loop in the program order and generate code for the matched tiles
-    bb.body.foreach(insn => tileMap.get(insn) match {
-      case Some(m) =>
-        tileResults((m.rule.v, insn)) = m.value(ctx)
+    bb.body.foreach(insn => {
+      variables.foreach(v => tileMap.get((v, insn)) match {
+        case Some(m) =>
+          tileResults((v, insn)) = m.value(ctx)
 
-      case None =>
+        case None =>
+      })
     })
   }
 }
