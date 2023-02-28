@@ -20,6 +20,7 @@ case class SeqReader[T](that: Seq[T]) extends Reader[T] {
 }
 
 object CliParser extends Parsers {
+
   import Action._
 
   type Input = SeqReader[Elem]
@@ -40,9 +41,15 @@ object CliParser extends Parsers {
     .filter(_.isSuccess)
     .map(_.get).label("valid file")
 
+  type OptParser[T] = Parser[T => T]
+
+  lazy val TRANSPILE_TO_C: Parser[Action.TranspileToC] = "transpile-to-c" ~> file ^^ TranspileToC
+
   lazy val COMPILE: Parser[Action.Compile] = "compile" ~> file ^^ Compile
 
-  lazy val ACTION: Parser[Action] = COMPILE | failure("unknown action")
+  lazy val ACTION: Parser[Action] = (
+    TRANSPILE_TO_C | COMPILE
+    ) | failure("unknown action")
 
   def parseArgs(args: Seq[String]): Action = (ACTION <~ EOF)(SeqReader(args)) match {
     case Accept(action, _) => action

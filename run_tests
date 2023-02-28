@@ -1,0 +1,36 @@
+#!/bin/bash
+set -euo pipefail
+trap 'echo "Script error: $(basename "$BASH_SOURCE"):$LINENO $BASH_COMMAND" >&2' ERR
+
+SCRIPT_DIR="$(dirname "$0")"
+INPUT_DIR="$SCRIPT_DIR/examples"
+OUTPUT_DIR="$SCRIPT_DIR/test-out"
+
+run_test () {
+  local file="$1"
+  local name="$(basename $1)"
+  local out_base="$OUTPUT_DIR/$name"
+
+  echo "== $name =="
+
+  local expected="$out_base.expected"
+  cat "$file" | grep -e '// >' | sed 's/\/\/ > \?//' >"$expected"
+
+  local cfile="$out_base.c"
+  local cbin="$cfile.bin"
+  local cout="$cfile.out"
+
+  ./tinycc transpile-to-c --prefix='#include "gcc_runtime.h"' "$file" -o "$cfile"
+  gcc -Wall --std=c99 -I "$SCRIPT_DIR" "$cfile" -o "$cbin"
+
+  "$cbin" >"$cout"
+
+  diff "$expected" "$cout" | colordiff
+}
+
+mkdir -p "$OUTPUT_DIR"
+
+test_files="$(find "$INPUT_DIR" -iname '*.c' -print)"
+for file in $test_files; do
+  run_test "$file"
+done

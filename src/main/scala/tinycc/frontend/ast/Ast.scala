@@ -42,6 +42,10 @@ class AstBlock(val body: Seq[AstNode], val loc: SourceLocation) extends AstNode 
   override def children: Seq[AstNode] = body
 }
 
+class AstProgram(val body: Seq[AstNode], val loc: SourceLocation) extends AstNode {
+  override def children: Seq[AstNode] = body
+}
+
 sealed trait AstDecl extends AstNode with AstIdentifierOrDecl {
   def symbol: Symbol
 }

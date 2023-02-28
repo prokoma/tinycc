@@ -40,8 +40,8 @@ object TinyCParser extends Parsers {
   lazy val string: Parser[String] = elem({ case StringLiteral(value, '"') => value }, tok => s"expected string literal, got ${tokenToString(tok)}")
 
   /** PROGRAM := { FUN_DECL | VAR_DECLS ';' | STRUCT_DECL | FUNPTR_DECL } */
-  lazy val PROGRAM: Parser[AstBlock] = loc ~ rep[AstNode](FUN_DECL | (VAR_DECLS <~ semicolon) | STRUCT_DECL | FUNPTR_DECL) ^^ {
-    case loc ~ decls => new AstBlock(decls, loc)
+  lazy val PROGRAM: Parser[AstProgram] = loc ~ rep[AstNode](FUN_DECL | (VAR_DECLS <~ semicolon) | STRUCT_DECL | FUNPTR_DECL) ^^ {
+    case loc ~ decls => new AstProgram(decls, loc)
   }
 
   /** FUN_DECL := TYPE_FUN_RET identifier '(' [ FUN_ARG { ',' FUN_ARG } ] ')' [ BLOCK_STMT ] */
@@ -256,13 +256,13 @@ object TinyCParser extends Parsers {
     def withDeclaredType(ty: Symbol): ScannerAdapter = ScannerAdapter(this, declaredNamedTypes + ty)
   }
 
-  def parseProgram(in: Reader[Elem]): Either[TinyCParserException, AstBlock] =
+  def parseProgram(in: Reader[Elem]): Either[TinyCParserException, AstProgram] =
     PROGRAM(ScannerAdapter(in)) match {
       case Accept(value, reminding) if reminding.isEmpty => Right(value)
       case Accept(_, reminding) => Left(new TinyCParserException(Error, s"expected end of input", reminding.loc))
       case Reject(message, reminding, _) => Left(throw new TinyCParserException(Error, message, reminding.loc))
     }
 
-  def parseProgram(s: String): Either[TinyCParserException, AstBlock] =
+  def parseProgram(s: String): Either[TinyCParserException, AstProgram] =
     parseProgram(Lexer.TokenReader(CharReader(s)))
 }

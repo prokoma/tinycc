@@ -17,7 +17,7 @@ class TinyCCompilerException(val level: ErrorLevel, message: String, val loc: So
   override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
 }
 
-final class TinyCCompiler(program: AstBlock, _declarations: Declarations, _typeMap: TypeMap) {
+final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typeMap: TypeMap) {
   implicit protected def declarations: Declarations = _declarations
 
   implicit protected def typeMap: TypeMap = _typeMap
@@ -48,7 +48,7 @@ final class TinyCCompiler(program: AstBlock, _declarations: Declarations, _typeM
 
     /* Entry Method */
 
-    def compileProgram(node: AstBlock): IrProgram = {
+    def compileProgram(node: AstProgram): IrProgram = {
       enterFun(entryFun)
       appendAndEnterBlock("entry")
 
@@ -290,11 +290,8 @@ final class TinyCCompiler(program: AstBlock, _declarations: Declarations, _typeM
         case None => throw new TinyCCompilerException(Error, "Unexpected break stmt outside of loop.", node.loc)
       }
 
-      case b: AstBlock =>
-        b.body.foreach(compileStmt)
-
-      case r: AstReturn =>
-        r.expr match {
+      case node: AstReturn =>
+        node.expr match {
           case Some(v) =>
             val retVal = compileExpr(v)
             emit(new RetInsn(retVal, _))
@@ -304,15 +301,12 @@ final class TinyCCompiler(program: AstBlock, _declarations: Declarations, _typeM
         }
         appendAndEnterBlock(new BasicBlock("unreachable", fun))
 
-      case w: AstWrite =>
-        val value = compileExpr(w.expr)
+      case node: AstWrite =>
+        val value = compileExpr(node.expr)
         emit(new PutCharInsn(value, _))
 
-      case s: AstSequence =>
-        s.body.foreach(compileStmt)
-
-      case s: AstBlock =>
-        s.body.foreach(compileStmt)
+      case _: AstSequence | _: AstBlock | _: AstProgram =>
+        node.children.foreach(compileStmt)
 
       case _ => compileExpr(node)
     }

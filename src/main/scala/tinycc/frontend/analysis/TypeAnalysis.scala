@@ -20,7 +20,7 @@ object TypeAnalysisException {
   }
 }
 
-final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
+final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
 
   import ErrorLevel._
   import IdentifierDecl._
@@ -110,6 +110,10 @@ final class TypeAnalysis(program: AstBlock, _declarations: Declarations) {
       node.body.map(visitAndGetTy).lastOption.getOrElse(VoidTy)
 
     case node: AstBlock =>
+      node.body.foreach(visitAndGetTy)
+      VoidTy
+
+    case node: AstProgram =>
       node.body.foreach(visitAndGetTy)
       VoidTy
 

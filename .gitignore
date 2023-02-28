@@ -18,3 +18,5 @@ project/local-plugins.sbt
 .idea
 .idea_modules
 /.worksheet/
+
+test-out/

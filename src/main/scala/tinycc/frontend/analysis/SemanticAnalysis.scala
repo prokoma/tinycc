@@ -44,7 +44,7 @@ final class LexicalStack {
 /** Semantic analysis maps variable and function identifiers to theirs respective declarations. Because global variables
  *  and functions can have multiple declarations (and one definition), previous declarations can be accessed through
  *  prevDecl (linked list). */
-final class SemanticAnalysis(program: AstBlock) {
+final class SemanticAnalysis(program: AstProgram) {
 
   import ErrorLevel._
   import IdentifierDecl._
@@ -72,6 +72,11 @@ final class SemanticAnalysis(program: AstBlock) {
         case None =>
           errors += new Message(Error, s"identifier '${node.symbol.name}' undeclared", node.loc)
       }
+
+    case node: AstProgram =>
+      lexicalStack.withFrame({
+        node.body.foreach(visit)
+      })
 
     case node: AstBlock =>
       lexicalStack.withFrame({
