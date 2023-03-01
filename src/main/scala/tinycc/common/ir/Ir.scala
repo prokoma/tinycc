@@ -385,5 +385,5 @@ class IrProgram extends IrObject {
 }
 
 object IrProgram {
-  val entryFunName: String = "<entry>"
+  val entryFunName: String = "entry"
 }

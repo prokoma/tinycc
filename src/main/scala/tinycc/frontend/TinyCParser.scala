@@ -44,16 +44,19 @@ object TinyCParser extends Parsers {
     case loc ~ decls => new AstProgram(decls, loc)
   }
 
-  /** FUN_DECL := TYPE_FUN_RET identifier '(' [ FUN_ARG { ',' FUN_ARG } ] ')' [ BLOCK_STMT ] */
-  lazy val FUN_DECL: Parser[AstFunDecl] = loc ~ TYPE_FUN_RET ~ identifier ~ (parOpen ~> repsep(FUN_ARG, comma)) ~ (parClose ~> opt(BLOCK_STMT)) ^^ {
+  /** FUN_DECL := TYPE_FUN_RET identifier '(' [ FUN_ARG { ',' FUN_ARG } ] ')' FUN_DECL_BODY */
+  lazy val FUN_DECL: Parser[AstFunDecl] = loc ~ TYPE_FUN_RET ~ identifier ~ (parOpen ~> repsep(FUN_ARG, comma)) ~ (parClose ~> FUN_BODY) ^^ {
     case loc ~ returnTy ~ name ~ args ~ body => new AstFunDecl(name, returnTy, args, body, loc)
   }
 
   /** FUN_ARG := TYPE identifier */
   lazy val FUN_ARG: Parser[(AstType, Symbol)] = TYPE ~ identifier ^^ { case argTy ~ name => (argTy, name) }
 
+  /** FUN_BODY := BLOCK_STMT | ';' */
+  lazy val FUN_BODY: Parser[Option[AstBlock]] = (BLOCK_STMT ^^ Some.apply) | (semicolon ^^ { _ => None })
+
   /** STATEMENT := BLOCK_STMT | IF_STMT | SWITCH_STMT | WHILE_STMT | DO_WHILE_STMT | FOR_STMT | BREAK_STMT | CONTINUE_STMT | RETURN_STMT | EXPR_STMT */
-  lazy val STATEMENT: Parser[AstNode] = BLOCK_STMT | IF_STMT | SWITCH_STMT | WHILE_STMT | DO_WHILE_STMT | FOR_STMT | BREAK_STMT | CONTINUE_STMT | RETURN_STMT | WRITE_STMT | EXPR_STMT
+  lazy val STATEMENT: Parser[AstNode] = BLOCK_STMT | IF_STMT | SWITCH_STMT | WHILE_STMT | DO_WHILE_STMT | FOR_STMT | BREAK_STMT | CONTINUE_STMT | RETURN_STMT | WRITE_STMT | WRITE_NUM_STMT | EXPR_STMT
 
   /** BLOCK_STMT := '{' { STATEMENT } '}' */
   lazy val BLOCK_STMT: Parser[AstBlock] = loc ~ (curlyOpen ~> rep(STATEMENT)) <~ curlyClose ^^ {
@@ -104,6 +107,9 @@ object TinyCParser extends Parsers {
 
   /** WRITE_STMT := print '(' EXPR ')' ';' */
   lazy val WRITE_STMT: Parser[AstWrite] = loc ~ (kwPrint ~> parOpen ~> EXPR) <~ (parClose ~ semicolon) ^^ { case loc ~ expr => new AstWrite(expr, loc) }
+
+  /** WRITE_NUM_STMT := printnum '(' EXPR ')' ';' */
+  lazy val WRITE_NUM_STMT: Parser[AstWriteNum] = loc ~ (kwPrintnum ~> parOpen ~> EXPR) <~ (parClose ~ semicolon) ^^ { case loc ~ expr => new AstWriteNum(expr, loc) }
 
   /** EXPR_STMT := EXPRS_OR_VAR_DECLS ';' */
   lazy val EXPR_STMT: Parser[AstNode] = EXPRS_OR_VAR_DECLS <~ semicolon

@@ -91,6 +91,7 @@ object Lexer extends Lexical {
     Symbols.kwWhile,
     Symbols.kwScan,
     Symbols.kwPrint,
+    Symbols.kwPrintnum,
   ), (_: CharReader) => "expected keyword") ^^ Special
 
   lazy val letter: Parser[Char] = elem({ case c if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') => c }, c => s"expected letter, got $c")
@@ -125,7 +126,6 @@ object Lexer extends Lexical {
       oneOfChar(Seq('\'', '\"', '\\'), (_: Char) => "")
         | ('r' ^^ { _ => '\r' })
         | ('n' ^^ { _ => '\n' })
-        | ('r' ^^ { _ => '\r' })
         | ('t' ^^ { _ => '\t' })
         | failure("invalid escape sequence")
       )) | elem({ case c if c != quote => c }, _ => "unexpected quote")

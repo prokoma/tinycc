@@ -79,10 +79,12 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
     case node: AstString => ArrayTy(CharTy, node.value.length)
 
     case node: AstIdentifier =>
+      // need to call visitAndGetTy on the declaration, because it may be later in the code
+      // it always points to the complete declaration
       node.decl match {
-        case FunDecl(node) => PtrTy(node.ty)
-        case FunArgDecl(node, index) => node.ty.asInstanceOf[FunTy].argTys(index)
-        case VarDecl(node) => node.ty
+        case FunDecl(node) => PtrTy(visitAndGetTy(node))
+        case FunArgDecl(node, index) => visitAndGetTy(node).asInstanceOf[FunTy].argTys(index)
+        case VarDecl(node) => visitAndGetTy(node)
       }
 
     case node: AstPointerType =>
@@ -159,13 +161,13 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
 
       funDeclMap.get(node.symbol) match {
         case Some(prevDecl) =>
-          val prevTy = prevDecl.ty
+          val prevTy = visitAndGetTy(prevDecl)
           if (prevTy != ty) {
-            errors += new Message(Error, s"incompatible declaration of function '${node.symbol.name}' (${node.ty}), previously declared as ${node.ty}", node.loc)
+            errors += new Message(Error, s"incompatible declaration of function '${node.symbol.name}' (${ty}), previously declared as ${prevTy}", node.loc)
             errors += new Message(Note, s"previous declaration of '${node.symbol.name}'", prevDecl.loc)
           }
           if (prevDecl.body.isDefined && node.body.isDefined) {
-            errors += new Message(Error, s"redefinition of function '${node.symbol.name}' (${node.ty})", node.loc)
+            errors += new Message(Error, s"redefinition of function '${node.symbol.name}' (${ty})", node.loc)
             errors += new Message(Note, s"previous declaration of '${node.symbol.name}'", prevDecl.loc)
           }
 
@@ -517,6 +519,12 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
       val exprTy = visitAndGetTy(node.expr)
       if (!CharTy.isAssignableFrom(exprTy))
         errors += new Message(Error, s"expected $CharTy (or compatible type), got $exprTy", node.expr.loc)
+      VoidTy
+
+    case node: AstWriteNum =>
+      val exprTy = visitAndGetTy(node.expr)
+      if (!IntTy.isAssignableFrom(exprTy))
+        errors += new Message(Error, s"expected $IntTy (or compatible type), got $exprTy", node.expr.loc)
       VoidTy
 
     case node: AstRead => CharTy

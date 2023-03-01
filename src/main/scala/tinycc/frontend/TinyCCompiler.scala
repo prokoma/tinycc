@@ -3,7 +3,7 @@ package tinycc.frontend
 import tinycc.cli.Reporter
 import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
-import tinycc.frontend.Types.{ArithmeticTy, ArrayTy, DoubleTy, FunTy, IndexableTy, IntTy, IntegerTy, PtrTy, StructTy}
+import tinycc.frontend.Types.{ArithmeticTy, ArrayTy, CharTy, DoubleTy, FunTy, IndexableTy, IntTy, IntegerTy, PtrTy, StructTy}
 import tinycc.frontend.analysis.IdentifierDecl.{FunArgDecl, FunDecl, VarDecl}
 import tinycc.frontend.ast._
 import tinycc.util.parsing.SourceLocation
@@ -293,7 +293,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node: AstReturn =>
         node.expr match {
           case Some(v) =>
-            val retVal = compileExpr(v)
+            val retVal = compileExpr(v) // TODO: cast return value
             emit(new RetInsn(retVal, _))
 
           case None =>
@@ -304,6 +304,10 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node: AstWrite =>
         val value = compileExpr(node.expr)
         emit(new PutCharInsn(value, _))
+
+      case node: AstWriteNum =>
+        val value = compileExpr(node.expr)
+        emit(new PutNumInsn(value, _))
 
       case _: AstSequence | _: AstBlock | _: AstProgram =>
         node.children.foreach(compileStmt)
@@ -371,6 +375,12 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     private def compileExpr(node: AstNode): Insn = node match {
       case node: AstInteger =>
         emit(new IImmInsn(node.value, _))
+
+      case node: AstChar =>
+        emit(new IImmInsn(node.value.toLong, _))
+
+      case node: AstDouble =>
+        emit(new FImmInsn(node.value, _))
 
       case node: AstUnaryOp =>
         compileUnaryOp(node)

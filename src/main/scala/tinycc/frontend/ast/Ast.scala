@@ -6,6 +6,12 @@ sealed trait AstNode {
   def loc: SourceLocation
 
   def children: Seq[AstNode] = Seq.empty
+
+  override def toString: String = AstNode.printer.printToString(this) + s"[$loc]"
+}
+
+object AstNode {
+  val printer = new AstPrinter
 }
 
 sealed trait AstType extends AstNode
@@ -145,6 +151,10 @@ class AstCast(val expr: AstNode, val newTy: AstType, val loc: SourceLocation) ex
 }
 
 class AstWrite(val expr: AstNode, val loc: SourceLocation) extends AstNode {
+  override def children: Seq[AstNode] = Seq(expr)
+}
+
+class AstWriteNum(val expr: AstNode, val loc: SourceLocation) extends AstNode {
   override def children: Seq[AstNode] = Seq(expr)
 }
 

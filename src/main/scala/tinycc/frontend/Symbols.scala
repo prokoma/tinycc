@@ -57,4 +57,5 @@ object Symbols {
   val kwWhile: Symbol = Symbol("while")
   val kwScan: Symbol = Symbol("scan")
   val kwPrint: Symbol = Symbol("print")
+  val kwPrintnum: Symbol = Symbol("printnum")
 }

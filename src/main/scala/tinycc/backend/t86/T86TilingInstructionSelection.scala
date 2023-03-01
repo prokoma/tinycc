@@ -203,6 +203,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
         res
       }
     }),
+    // Cast
     // Phi
     GenRule(RegVar, Pat[RetInsn, RegVar.ValueTy](Ret, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
@@ -297,6 +298,7 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
     val epilogue = mutable.Buffer.empty[T86ProgramElement]
     epilogue += T86Insn(MOV, Operand.SP, Operand.BP)
     epilogue += T86Insn(POP, Operand.BP)
+    epilogue += T86Insn(RET)
 
     val ctx = new Context {
       private var nextReg: Long = 1 // 0 is reserved for return value
@@ -321,7 +323,7 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
       override def resolveAllocL(insn: AllocLInsn): Operand.MemRegImm = {
         val offset = localsMap.getOrElseUpdate(insn, {
           localsSize += getSizeWords(insn.varTy)
-          -localsSize
+          localsSize
         })
         Operand.MemRegImm(Operand.BP, -offset)
       }

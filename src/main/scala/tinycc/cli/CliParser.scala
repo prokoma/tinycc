@@ -7,16 +7,16 @@ import java.nio.file.Path
 import scala.language.implicitConversions
 import scala.util.Try
 
-case class SeqReader[T](that: Seq[T]) extends Reader[T] {
-  override def headOption: Option[T] = that.headOption
+case class SeqReader[T](seq: Seq[T]) extends Reader[T] {
+  override def headOption: Option[T] = seq.headOption
 
-  override def isEmpty: Boolean = that.isEmpty
+  override def isEmpty: Boolean = seq.isEmpty
 
-  override def tail: SeqReader[T] = SeqReader(that.tail)
+  override def tail: SeqReader[T] = SeqReader(seq.tail)
 
   override def loc: SourceLocation = ???
 
-  override def iterator: Iterator[T] = that.iterator
+  override def iterator: Iterator[T] = seq.iterator
 }
 
 object CliParser extends Parsers {
@@ -33,6 +33,13 @@ object CliParser extends Parsers {
     case Some(tok) => Accept(tok, in.tail)
   }
 
+  def longOpt(name: String): Parser[Elem] = in => in.headOption match {
+    case None => unexpectedEndOfInput(in)
+    case Some(tok) if tok == s"--$name" => Accept(tok, in.tail)
+    case Some(tok) if tok.startsWith(s"--$name=") => Accept(s"--$name=", SeqReader(tok.substring(s"--$name=".length) +: in.seq.tail))
+    case Some(tok) => Reject(s"unexpected $tok", in)
+  }
+
   lazy val EOF: Parser[Unit] = in => if (in.isEmpty) Accept((), in) else Reject("expected end of input", in)
 
   implicit def stringParser(s: String): Parser[String] = elem.filter(_ == s).label(s)
@@ -43,9 +50,20 @@ object CliParser extends Parsers {
 
   type OptParser[T] = Parser[T => T]
 
-  lazy val TRANSPILE_TO_C: Parser[Action.TranspileToC] = "transpile-to-c" ~> file ^^ TranspileToC
+  def applyOpts[T](action: T, opts: Seq[T => T]): T = opts.foldLeft(action)((action, opt) => opt(action))
 
-  lazy val COMPILE: Parser[Action.Compile] = "compile" ~> file ^^ Compile
+  lazy val outputFile: Parser[Path] = ("-o" | longOpt("output")) ~> file
+
+  lazy val prefix: Parser[String] = longOpt("prefix") ~> elem
+
+  lazy val TRANSPILE_TO_C: Parser[Action.TranspileToC] = "transpile-to-c" ~> rep(
+    (outputFile ^^ { outFile => (a: TranspileToC) => a.copy(outFile = Some(outFile)) }) |
+      (prefix ^^ { prefix => (a: TranspileToC) => a.copy(prefix = a.prefix :+ prefix) })
+  ) ~ file ^^ { case opts ~ file => applyOpts(TranspileToC(file), opts) }
+
+  lazy val COMPILE: Parser[Action.Compile] = "compile" ~> rep(
+    outputFile ^^ { outFile => (a: Compile) => a.copy(outFile = Some(outFile)) }
+  ) ~ file ^^ { case opts ~ file => applyOpts(Compile(file), opts) }
 
   lazy val ACTION: Parser[Action] = (
     TRANSPILE_TO_C | COMPILE

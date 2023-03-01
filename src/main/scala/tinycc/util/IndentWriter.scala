@@ -5,7 +5,7 @@ import java.io.Writer
 class IndentWriter(inner: Writer, indent: String = "  ") extends Writer {
   private var level: Int = 0
 
-  private var isStartOfLine: Boolean = false
+  private var isStartOfLine: Boolean = true
 
   override def write(cbuf: Array[Char], off: Int, len: Int): Unit = {
     for (i <- 0.until(len)) {
@@ -25,7 +25,7 @@ class IndentWriter(inner: Writer, indent: String = "  ") extends Writer {
 
   override def close(): Unit = inner.close()
 
-  def nl(): Unit = write("\n")
+  def nl(): Unit = write('\n')
 
   def indent(): Unit = {
     level += 1
