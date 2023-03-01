@@ -1,13 +1,15 @@
 #include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
 
-void print(int c) {
+void print(int8_t c) {
     putchar(c);
 }
 
-void printnum(int num) {
-    printf("%d", num);
+void printnum(int64_t num) {
+    printf("%" PRId64 "\n", num);
 }
 
-int read() {
+int8_t read() {
     return getchar();
 }

@@ -2,9 +2,10 @@
 set -euo pipefail
 trap 'echo "Script error: $(basename "$BASH_SOURCE"):$LINENO $BASH_COMMAND" >&2' ERR
 
-SCRIPT_DIR="$(dirname "$0")"
-INPUT_DIR="$SCRIPT_DIR/examples"
-OUTPUT_DIR="$SCRIPT_DIR/test-out"
+ROOT_DIR="$(dirname "$0")"
+INPUT_DIR="$ROOT_DIR/examples"
+OUTPUT_DIR="$ROOT_DIR/test-out"
+T86_CLI_BIN="$ROOT_DIR/t86/build/t86-cli/t86-cli"
 
 run_test () {
   local file="$1"
@@ -14,18 +15,30 @@ run_test () {
   echo "== $name =="
 
   local expected="$out_base.expected"
-  cat "$file" | grep -e '// >' | sed 's/\/\/ > \?//' >"$expected"
+  cat "$file" | { grep -e '// >' || true; } | sed 's/\/\/ > \?//' >"$expected"
 
-  local cfile="$out_base.c"
+  local cfile="$out_base.gcc"
   local cbin="$cfile.bin"
   local cout="$cfile.out"
 
-  ./tinycc transpile-to-c --prefix='#include "gcc_runtime.h"' "$file" -o "$cfile"
-  gcc -Wall --std=c99 -I "$SCRIPT_DIR" "$cfile" -o "$cbin"
-
+  ./tinycc transpile-to-c --prefix='#include "gcc_runtime.h"' -o "$cfile" "$file"
+  gcc -x c -Wall --std=c99 -I "$ROOT_DIR" "$cfile" -o "$cbin"
   "$cbin" >"$cout"
 
-  diff "$expected" "$cout" | colordiff
+  diff -s "$expected" "$cout" | colordiff
+
+  local asmfile="$out_base.t86"
+  local asmerr="$asmfile.err"
+  local asmout="$asmfile.out"
+
+  if ! ./tinycc compile -o "$asmfile" "$file" &>"$asmerr"; then
+    cat "$asmerr" >&2
+    return 1
+  fi
+
+  "$T86_CLI_BIN" run "$asmfile" -registerCnt=30 >"$asmout"
+
+  diff -s "$expected" "$asmout" | colordiff
 }
 
 mkdir -p "$OUTPUT_DIR"
