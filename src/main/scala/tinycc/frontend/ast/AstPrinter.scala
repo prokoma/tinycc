@@ -241,11 +241,11 @@ class AstPrinter extends IndentPrinter[AstNode] {
 
   protected def printType(node: AstType, out: IndentWriter): Unit = node match {
     case node: AstPointerType =>
-      printType(node.base, out)
+      printAsExpr(node.base, out)
       out.write("*")
 
     case node: AstArrayType =>
-      printType(node.base, out)
+      printAsExpr(node.base, out)
       out.write("[]")
 
     case node: AstNamedType => out.write(node.symbol.name)

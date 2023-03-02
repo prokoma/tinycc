@@ -67,6 +67,8 @@ object Action {
 
           _ = (new BasicBlockScheduling).transformProgram(irProg)
           t86Asm <- T86InstructionSelection(irProg).result
+          _ = Console.out.println(new T86AsmPrinter().printToString(t86Asm))
+
           t86ProccesedAsm <- new T86LabelProcessor(t86Asm).result
         } yield {
           out.print(new T86AsmPrinter().printToString(t86ProccesedAsm))

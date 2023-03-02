@@ -162,26 +162,22 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     }),
     GenRule(RegVar, CallInsnPat[RegVar.ValueTy](RegVar) ^^ { case (insn, args) =>
       (ctx: Context) => {
-        args.foreach(arg => {
+        args.reverse.foreach(arg => {
           ctx.emit(PUSH, arg(ctx))
         })
         ctx.emit(CALL, ctx.getFunLabel(insn.targetFun.get).toOperand)
         ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
-        val res = ctx.freshReg()
-        ctx.emit(MOV, res, ctx.resolveRetValueCaller())
-        res
+        ctx.copyToFreshReg(ctx.resolveRetValueCaller())
       }
     }),
     GenRule(RegVar, CallPtrInsnPat[RegVar.ValueTy, RegVar.ValueTy](RegVar, RegVar) ^^ { case (insn, ptr, args) =>
       (ctx: Context) => {
-        args.foreach(arg => {
+        args.reverse.foreach(arg => {
           ctx.emit(PUSH, arg(ctx))
         })
         ctx.emit(CALL, ptr(ctx))
         ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
-        val res = ctx.freshReg()
-        ctx.emit(MOV, res, ctx.resolveRetValueCaller())
-        res
+        ctx.copyToFreshReg(ctx.resolveRetValueCaller())
       }
     }),
     GenRule(RegVar, Pat[PutCharInsn, RegVar.ValueTy](PutChar, RegVar) ^^ { case (insn, reg) =>
@@ -283,7 +279,7 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
   private lazy val sortedRules = rules.sortBy(r => -r.rhs.size)
 
   def tileIrFun(fun: IrFun): T86Program = {
-    val code = mutable.Buffer.empty[T86ProgramElement]
+    val codeBuilder = Seq.newBuilder[T86ProgramElement]
 
     var localsSize: Long = 0
     val localsMap = mutable.Map.empty[AllocLInsn, Long]
@@ -295,10 +291,8 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
       oldSize
     })
 
-    val epilogue = mutable.Buffer.empty[T86ProgramElement]
-    epilogue += T86Insn(MOV, Operand.SP, Operand.BP)
-    epilogue += T86Insn(POP, Operand.BP)
-    epilogue += T86Insn(RET)
+    val epilogueMarker = T86Comment("EPILOGUE_HERE")
+    val backupRegs: mutable.Buffer[Operand] = mutable.Buffer.empty
 
     val ctx = new Context {
       private var nextReg: Long = 1 // 0 is reserved for return value
@@ -308,16 +302,20 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
       override def resolveVar[T](v: Var[AsmEmitter[T]], insn: Insn): T = tileResults((v, insn)).asInstanceOf[T]
 
       override def emit(el: T86ProgramElement): Unit =
-        code += el
+        codeBuilder += el
 
       override def freshReg(): Operand.Reg = {
         nextReg += 1
-        Operand.BasicReg(nextReg - 1)
+        val reg = Operand.BasicReg(nextReg - 1)
+        backupRegs += reg
+        reg
       }
 
       override def freshFReg(): Operand.FReg = {
         nextFreg += 1
-        Operand.BasicFReg(nextFreg - 1)
+        val reg = Operand.BasicFReg(nextFreg - 1)
+        backupRegs += reg
+        reg
       }
 
       override def resolveAllocL(insn: AllocLInsn): Operand.MemRegImm = {
@@ -340,11 +338,11 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
       /** Can return either MemRegImm or Reg depending on calling conventions. */
       override def resolveLoadArg(insn: LoadArgInsn): Operand = {
         val offset = argsMap(insn.index)
-        Operand.MemRegImm(Operand.BP, offset + 1) // 1 for return address
+        Operand.MemRegImm(Operand.BP, offset + 2) // return address + stored BP
       }
 
       override def emitFunEpilogue(): Unit =
-        code ++= epilogue
+        codeBuilder += epilogueMarker
 
       /** Can return either MemRegImm or Reg depending on calling conventions. */
       override def resolveRetValueCallee(): Operand =
@@ -361,16 +359,25 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
 
     fun.basicBlocks.foreach(bb => tileBasicBlock(bb, ctx))
 
-    val prologue = mutable.Buffer.empty[T86ProgramElement]
-    prologue += T86Label(fun.name)
-    prologue += T86Insn(PUSH, Operand.BP)
-    prologue += T86Insn(MOV, Operand.BP, Operand.SP)
-    prologue += T86Insn(SUB, Operand.SP, Operand.Imm(localsSize))
+    val prologueBuilder = Seq.newBuilder[T86ProgramElement]
+    prologueBuilder += T86Label(fun.name)
+    prologueBuilder += T86Insn(PUSH, Operand.BP)
+    prologueBuilder += T86Insn(MOV, Operand.BP, Operand.SP)
+    prologueBuilder += T86Insn(SUB, Operand.SP, Operand.Imm(localsSize))
     // TODO: if arguments are passed via registers, copy them to fresh registers
+    backupRegs.foreach(reg => prologueBuilder += T86Insn(PUSH, reg))
 
-    code.prependAll(prologue)
+    val epilogueBuilder = Seq.newBuilder[T86ProgramElement]
+    backupRegs.reverse.foreach(reg => epilogueBuilder += T86Insn(POP, reg))
+    epilogueBuilder += T86Insn(MOV, Operand.SP, Operand.BP)
+    epilogueBuilder += T86Insn(POP, Operand.BP)
+    epilogueBuilder += T86Insn(RET)
 
-    code.toSeq
+    val epilogue = epilogueBuilder.result()
+    prologueBuilder.result() ++ codeBuilder.result().flatMap {
+      case elem if elem == epilogueMarker => epilogue
+      case elem => Seq(elem)
+    }
   }
 
   def tileBasicBlock(bb: BasicBlock, ctx: Context): Unit = {

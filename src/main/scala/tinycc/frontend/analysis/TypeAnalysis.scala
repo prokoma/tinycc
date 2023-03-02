@@ -158,6 +158,7 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
         }).toIndexedSeq)
 
       curFunTyOption = Some(ty)
+      typeMap(node) = ty // Set the type early to prevent infinite recursion if the function is used in the body.
 
       funDeclMap.get(node.symbol) match {
         case Some(prevDecl) =>

@@ -3,7 +3,8 @@ package tinycc.frontend
 import tinycc.cli.Reporter
 import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
-import tinycc.frontend.Types.{ArithmeticTy, ArrayTy, CharTy, DoubleTy, FunTy, IndexableTy, IntTy, IntegerTy, PtrTy, StructTy}
+import tinycc.frontend.Types._
+import tinycc.frontend.analysis.IdentifierDecl
 import tinycc.frontend.analysis.IdentifierDecl.{FunArgDecl, FunDecl, VarDecl}
 import tinycc.frontend.ast._
 import tinycc.util.parsing.SourceLocation
@@ -43,7 +44,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     var breakTargetOption: Option[BasicBlock] = None
     var contTargetOption: Option[BasicBlock] = None
 
-    val allocMap: mutable.Map[AstVarDecl, AllocInsn] = mutable.Map.empty
+    val allocMap: mutable.Map[IdentifierDecl, AllocInsn] = mutable.Map.empty
     val funMap: mutable.Map[Symbol, IrFun] = mutable.Map.empty
 
     /* Entry Method */
@@ -116,7 +117,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node: AstVarDecl =>
         val varIrTy = compileType(node.varTy.ty)
 
-        allocMap(node) = funOption match {
+        allocMap(VarDecl(node)) = funOption match {
           case Some(fun) if fun != entryFun => // local variable
             val alloc = emit(new AllocLInsn(varIrTy, _))
             node.value.foreach(value => {
@@ -327,6 +328,14 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       appendFun(irFun)
       if (node.body.isDefined) {
         appendAndEnterBlock(new BasicBlock("entry", fun))
+
+        // Load arguments into local variables (they could be mutated later in the body.
+        irFun.argTys.zipWithIndex.foreach({ case (argTy, index) =>
+          val alloc = emit(new AllocLInsn(argTy, _))
+          emit(new StoreInsn(alloc, emit(new LoadArgInsn(index, _)), _))
+          allocMap(FunArgDecl(node, index)) = alloc
+        })
+
         node.body.foreach(compileStmt)
 
         if (funTy.returnTy == Types.VoidTy)
@@ -347,8 +356,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     private def compileExprPtr(node: AstNode): Insn = node match {
       case node: AstIdentifier => node.decl match {
         case FunDecl(decl) => emit(new GetFunPtrInsn(funMap(decl.symbol), _))
-        case VarDecl(decl) => allocMap(decl)
-        case FunArgDecl(_, index) => emit(new LoadArgInsn(index, _))
+        case decl => allocMap(decl)
       }
 
       case node: AstDeref => compileExpr(node.expr)

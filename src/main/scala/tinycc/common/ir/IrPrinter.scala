@@ -37,7 +37,7 @@ class IrPrinter extends IndentPrinter[IrObject] {
   }
 
   protected def printBasicBlockRef(bb: BasicBlock, out: IndentWriter): Unit =
-    out.write(s"%${bb.name}")
+    out.write(s"label %${bb.name}")
 
   protected def printBasicBlockRef(ref: BasicBlockRef, out: IndentWriter): Unit = ref() match {
     case Some(value) => printBasicBlockRef(value, out)
@@ -64,31 +64,61 @@ class IrPrinter extends IndentPrinter[IrObject] {
     out.write(insn.op.toString)
 
     insn match {
+      // %0 = iimm 42
       case insn: IImmInsn => out.write(s" ${insn.value}")
+
+      // %0 = fimm 42.5
       case insn: FImmInsn => out.write(s" ${insn.value}")
 
+      // %0 = getfunptr foo
       case insn: GetFunPtrInsn =>
         out.write(" ")
         printIrFunRef(insn.targetFun, out)
 
+      // %0 = loadarg 0
       case insn: LoadArgInsn => out.write(s" ${insn.index}")
+
+      // %0 = getelementptr i64, ptr %1, [%2].0
       case insn: GetElementPtrInsn =>
         out.write(s" ")
-        printOperands(insn, out)
-        out.write(s", ")
         printType(insn.elemTy, out)
-        out.write(s", ${insn.fieldIndex}")
+        out.write(", ptr ")
+        printInsnRef(insn.base, out)
+        out.write(", [")
+        printInsnRef(insn.index, out)
+        out.write(s"].${insn.fieldIndex}")
 
+      // %0 = call i32 foo(i32 %1, i32 %2)
       case insn: CallInsn =>
         out.write(s" ")
+        printType(insn.funSig.returnType, out)
+        out.write(" ")
         printIrFunRef(insn.targetFun, out)
+        out.write("(")
+        insn.funSig.argTypes.zip(insn.args).foreachSep({
+          case (argTy, arg) =>
+            printType(argTy, out)
+            out.write(" ")
+            printInsnRef(arg, out)
+        }, out.write(", "))
+        out.write(")")
 
+      // %0 = callptr i32 %1(i32 %2, i32 %3)
       case insn: CallPtrInsn =>
         out.write(s" ")
-        printOperands(insn, out)
-        out.write(", ")
-        printFunSig(insn.funSig, out)
+        printType(insn.funSig.returnType, out)
+        out.write(" ")
+        printInsnRef(insn.funPtr, out)
+        out.write("(")
+        insn.funSig.argTypes.zip(insn.args).foreachSep({
+          case (argTy, arg) =>
+            printType(argTy, out)
+            out.write(" ")
+            printInsnRef(arg, out)
+        }, out.write(", "))
+        out.write(")")
 
+      // %0 = condbr %1, label %trueBlock, label %falseBlock
       case insn: TerminatorInsn =>
         if (insn.operandRefs.nonEmpty) {
           out.write(" ")
@@ -99,6 +129,7 @@ class IrPrinter extends IndentPrinter[IrObject] {
           printSuccBlocks(insn, out)
         }
 
+      // %0 = iadd %1, %2
       case insn =>
         if (insn.operandRefs.nonEmpty) {
           out.write(" ")
@@ -118,6 +149,7 @@ class IrPrinter extends IndentPrinter[IrObject] {
   }
 
   protected def printIrFun(fun: IrFun, out: IndentWriter): Unit = {
+    out.write("fun ")
     printType(fun.returnTy, out)
     out.write(s" ${fun.name}(")
     fun.argTys.foreachSep(printType(_, out), out.write(", "))
