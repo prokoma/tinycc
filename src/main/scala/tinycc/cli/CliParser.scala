@@ -14,7 +14,7 @@ case class SeqReader[T](seq: Seq[T]) extends Reader[T] {
 
   override def tail: SeqReader[T] = SeqReader(seq.tail)
 
-  override def loc: SourceLocation = ???
+  override def loc: SourceLocation = SourceLocation(0, 0, 0)
 
   override def iterator: Iterator[T] = seq.iterator
 }

@@ -28,7 +28,7 @@ object Lexer extends Lexical {
   // Token
 
   lazy val TOKEN: Parser[Token] =
-    OPERATOR | KEYWORD | IDENTIFIER | NUMERIC_LITERAL | STRING_SINGLE_QUOTED | STRING_DOUBLE_QUOTED
+    OPERATOR | IDENTIFIER_OR_KEYWORD | NUMERIC_LITERAL | STRING_SINGLE_QUOTED | STRING_DOUBLE_QUOTED
 
   // Operator
 
@@ -70,7 +70,7 @@ object Lexer extends Lexical {
     Symbols.backtick,
   ), (_: CharReader) => "expected operator") ^^ Special
 
-  lazy val KEYWORD: Parser[Special] = oneOfSymbol(Seq(
+  private val keywords: Seq[Symbol] = Seq(
     Symbols.kwBreak,
     Symbols.kwCase,
     Symbols.kwCast,
@@ -92,7 +92,11 @@ object Lexer extends Lexical {
     Symbols.kwScan,
     Symbols.kwPrint,
     Symbols.kwPrintnum,
-  ), (_: CharReader) => "expected keyword") ^^ Special
+  )
+
+  lazy val IDENTIFIER_OR_KEYWORD: Parser[Token] = IDENTIFIER ^^ { ident =>
+    if (keywords.contains(ident.value)) Special(ident.value) else ident
+  }
 
   lazy val letter: Parser[Char] = elem({ case c if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') => c }, c => s"expected letter, got $c")
 

@@ -110,10 +110,10 @@ class AstPrinter extends IndentPrinter[AstNode] {
       case node: AstIf =>
         out.write("if (")
         printAsExpr(node.guard, out)
-        out.write(")")
+        out.write(") ")
         printAsStmt(node.trueCase, out)
         node.falseCase.foreach(falseCase => {
-          out.write("else")
+          out.write(" else ")
           printAsStmt(falseCase, out)
         })
 
@@ -136,7 +136,7 @@ class AstPrinter extends IndentPrinter[AstNode] {
       case node: AstWhile =>
         out.write("while (")
         printAsExpr(node.guard, out)
-        out.write(")")
+        out.write(") ")
         printAsStmt(node.body, out)
 
       case node: AstDoWhile =>

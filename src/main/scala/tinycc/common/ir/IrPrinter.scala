@@ -70,6 +70,11 @@ class IrPrinter extends IndentPrinter[IrObject] {
       // %0 = fimm 42.5
       case insn: FImmInsn => out.write(s" ${insn.value}")
 
+      // %0 = allocl i64
+      case insn: AllocInsn =>
+        out.write(" ")
+        printType(insn.varTy, out)
+
       // %0 = getfunptr foo
       case insn: GetFunPtrInsn =>
         out.write(" ")
@@ -123,9 +128,12 @@ class IrPrinter extends IndentPrinter[IrObject] {
         if (insn.operandRefs.nonEmpty) {
           out.write(" ")
           printOperands(insn, out)
-        }
-        if (insn.succBlockRefs.nonEmpty) {
-          out.write(", ")
+          if (insn.succBlockRefs.nonEmpty) {
+            out.write(", ")
+            printSuccBlocks(insn, out)
+          }
+        } else if (insn.succBlockRefs.nonEmpty) {
+          out.write(" ")
           printSuccBlocks(insn, out)
         }
 

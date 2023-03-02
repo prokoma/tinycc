@@ -1,5 +1,7 @@
 package tinycc.util.parsing.combinator
 
+import tinycc.util.parsing.SourceLocation
+
 import scala.annotation.tailrec
 
 //trait FiniteInput {
@@ -7,7 +9,7 @@ import scala.annotation.tailrec
 //}
 
 trait Parsers {
-  type Input
+  type Input <: Reader[_]
 
   sealed trait Result[+A] {
     def map[B](f: A => B): Result[B]
@@ -27,6 +29,14 @@ trait Parsers {
 
   /** fatal = true stops parsing immediately and doesn't backtrack */
   case class Reject(message: String, reminding: Input, fatal: Boolean = false) extends Result[Nothing] {
+    var furthestRejection: Reject = this
+
+    def updateFurthestRejection(v: Reject): this.type = {
+      if (v.reminding.loc > reminding.loc)
+        furthestRejection = v
+      this
+    }
+
     override def success: Boolean = false
 
     override def map[B](f: Nothing => B): Result[B] = this
@@ -72,7 +82,7 @@ trait Parsers {
     def withMessage(msg: Input => String): Parser[A] = Parser { in =>
       this (in) match {
         case Accept(v, r) => Accept(v, r)
-        case Reject(_, r, b) => Reject(msg(r), r, b)
+        case rej@Reject(_, r, b) => Reject(msg(r), r, b).updateFurthestRejection(rej)
       }
     }
 
@@ -165,16 +175,16 @@ trait Parsers {
   def rep1sep[A](p: => Parser[A], s: => Parser[Any]): Parser[List[A]] =
     p ~ rep(s ~> p) ^^ { case x ~ xs => x :: xs } label "+,"
 
-//  def chainl1[A](p: => Parser[A], s: => Parser[(A, A) => A]): Parser[A] = chainl1(p, p, s)
+  //  def chainl1[A](p: => Parser[A], s: => Parser[(A, A) => A]): Parser[A] = chainl1(p, p, s)
 
-//  def chainl1[A, B](first: => Parser[A], p: => Parser[B], s: => Parser[(A, B) => A]): Parser[A] = {
-//    lazy val p0 = p
-//    lazy val s0 = s
-//
-//    first ~ rep(s0 ~ p0) ^^ {
-//      case x ~ xs => xs.foldLeft(x) { case (a, f ~ b) => f(a, b) }
-//    } label "chainl1"
-//  }
+  //  def chainl1[A, B](first: => Parser[A], p: => Parser[B], s: => Parser[(A, B) => A]): Parser[A] = {
+  //    lazy val p0 = p
+  //    lazy val s0 = s
+  //
+  //    first ~ rep(s0 ~ p0) ^^ {
+  //      case x ~ xs => xs.foldLeft(x) { case (a, f ~ b) => f(a, b) }
+  //    } label "chainl1"
+  //  }
 
   def opt[A](p: => Parser[A]): Parser[Option[A]] = (p ^^ Some.apply) | success(None) label (p.label + "?")
 
@@ -192,7 +202,10 @@ trait Parsers {
     Parser { in =>
       p10(in) match {
         case Accept(v, r) => Accept(v, r)
-        case r: Reject if !r.fatal => p20(in)
+        case r: Reject if !r.fatal => p20(in) match {
+          case Accept(v, r) => Accept(v, r)
+          case newR: Reject => r.updateFurthestRejection(newR)
+        }
         case r: Reject => r
       }
     } label (p10.label + " | " + p20.label)
@@ -215,18 +228,18 @@ trait Parsers {
 
   def success[A](v: => A): Parser[A] = Parser(in => Accept(v, in)) label "success"
 
-//  def parseAll[A](p: Parser[A], in: Input)(implicit ev: Input => FiniteInput): Result[A] = {
-//    val x = parse(p, in)
-//    x match {
-//      case Accept(v, r) if ev(r).isEmpty => Accept(v, r)
-//      case Accept(_, r) => Reject("end of input expected", r)
-//      case r: Reject => r
-//    }
-//  }
+  //  def parseAll[A](p: Parser[A], in: Input)(implicit ev: Input => FiniteInput): Result[A] = {
+  //    val x = parse(p, in)
+  //    x match {
+  //      case Accept(v, r) if ev(r).isEmpty => Accept(v, r)
+  //      case Accept(_, r) => Reject("end of input expected", r)
+  //      case r: Reject => r
+  //    }
+  //  }
 
   def parse[A](p: Parser[A], in: Input): Result[A] = p(in)
 
-//  implicit class IterableFiniteInput(xs: Iterable[_]) extends FiniteInput {
-//    override def isEmpty: Boolean = xs.isEmpty
-//  }
+  //  implicit class IterableFiniteInput(xs: Iterable[_]) extends FiniteInput {
+  //    override def isEmpty: Boolean = xs.isEmpty
+  //  }
 }

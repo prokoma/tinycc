@@ -229,7 +229,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       (ctx: Context) => {
         ctx.emit(CMP, reg(ctx), Operand.Imm(0))
         ctx.emit(JZ, ctx.getBasicBlockLabel(insn.falseBlock.get).toOperand)
-        ctx.emit(JZ, ctx.getBasicBlockLabel(insn.falseBlock.get).toOperand)
+        ctx.emit(JMP, ctx.getBasicBlockLabel(insn.trueBlock.get).toOperand)
         ctx.freshReg()
       }
     }),

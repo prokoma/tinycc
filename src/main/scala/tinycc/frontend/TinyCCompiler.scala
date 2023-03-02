@@ -122,7 +122,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
         allocMap(VarDecl(node)) = funOption match {
           case Some(fun) if fun != entryFun => // local variable
-            val alloc = emit(new AllocLInsn(varIrTy, _))
+            val alloc = emit(new AllocLInsn(varIrTy, _)).name(node.symbol.name)
             node.value.foreach(value => {
               val compiledValue = compileExpr(value)
               emit(new StoreInsn(alloc, compiledValue, _))
@@ -134,7 +134,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
           case None => // global variable - append to entryFun
             withEntryFun({
-              val alloc = emit(new AllocGInsn(varIrTy, Seq.empty, _))
+              val alloc = emit(new AllocGInsn(varIrTy, Seq.empty, _)).name(node.symbol.name)
               node.value.foreach(value => {
                 val compiledValue = compileExpr(value)
                 emit(new StoreInsn(alloc, compiledValue, _))
@@ -336,8 +336,8 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         appendAndEnterBlock(new BasicBlock("entry", fun))
 
         // Load arguments into local variables (they could be mutated later in the body.
-        irFun.argTys.zipWithIndex.foreach({ case (argTy, index) =>
-          val alloc = emit(new AllocLInsn(argTy, _))
+        node.args.zip(irFun.argTys).zipWithIndex.foreach({ case (((_, argName), argTy), index) =>
+          val alloc = emit(new AllocLInsn(argTy, _)).name(argName.name)
           emit(new StoreInsn(alloc, emit(new LoadArgInsn(index, _)), _))
           allocMap(FunArgDecl(node, index)) = alloc
         })

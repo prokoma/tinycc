@@ -88,11 +88,11 @@ object TinyCParser extends Parsers {
 
   /** DO_WHILE_STMT := do STATEMENT while '(' EXPR ')' ';' */
   lazy val DO_WHILE_STMT: Parser[AstDoWhile] = loc ~ (kwDo ~> STATEMENT) ~ (kwWhile ~> parOpen ~> EXPR) <~ (parClose ~ semicolon) ^^ {
-    case loc ~ body ~ guard => new AstDoWhile(body, guard, loc)
+    case loc ~ body ~ guard => new AstDoWhile(guard, body, loc)
   }
 
   /** FOR_STMT := for '(' [ EXPRS_OR_VAR_DECLS ] ';' [ EXPR ] ';' [ EXPR ] ')' STATEMENT */
-  lazy val FOR_STMT: Parser[AstFor] = loc ~ (kwFor ~> parOpen ~> opt(EXPRS_OR_VAR_DECLS)) ~ (semicolon ~> opt(EXPR)) ~ (semicolon ~> opt(EXPR)) ~ STATEMENT ^^ {
+  lazy val FOR_STMT: Parser[AstFor] = loc ~ (kwFor ~> parOpen ~> opt(EXPRS_OR_VAR_DECLS)) ~ (semicolon ~> opt(EXPR)) ~ (semicolon ~> opt(EXPR)) ~ (parClose ~> STATEMENT) ^^ {
     case loc ~ init ~ guard ~ increment ~ body => new AstFor(init, guard, increment, body, loc)
   }
 
@@ -266,7 +266,7 @@ object TinyCParser extends Parsers {
     PROGRAM(ScannerAdapter(in)) match {
       case Accept(value, reminding) if reminding.isEmpty => Right(value)
       case Accept(_, reminding) => Left(new TinyCParserException(Error, s"expected end of input", reminding.loc))
-      case Reject(message, reminding, _) => Left(throw new TinyCParserException(Error, message, reminding.loc))
+      case rej@Reject(message, reminding, _) => Left(throw new TinyCParserException(Error, rej.furthestRejection.message, rej.furthestRejection.reminding.loc))
     }
 
   def parseProgram(s: String): Either[TinyCParserException, AstProgram] =

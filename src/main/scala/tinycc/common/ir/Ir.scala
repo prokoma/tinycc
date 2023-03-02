@@ -134,7 +134,11 @@ trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
 
   def resultTy: IrTy
 
-  val name: String = fun.nameGen()
+  protected var _name: String = fun.nameGen()
+
+  def name: String = _name
+
+  def name(newName: String): this.type = { _name = fun.nameGen(newName); this }
 
   override def validate(): Unit = () // TODO: check if all operands are defined
 
