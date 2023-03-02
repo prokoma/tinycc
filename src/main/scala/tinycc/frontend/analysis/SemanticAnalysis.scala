@@ -42,8 +42,8 @@ final class LexicalStack {
 }
 
 /** Semantic analysis maps variable and function identifiers to theirs respective declarations. Because global variables
- *  and functions can have multiple declarations (and one definition), previous declarations can be accessed through
- *  prevDecl (linked list). */
+ * and functions can have multiple declarations (and one definition), previous declarations can be accessed through
+ * prevDecl (linked list). */
 final class SemanticAnalysis(program: AstProgram) {
 
   import ErrorLevel._
@@ -153,11 +153,13 @@ final class SemanticAnalysis(program: AstProgram) {
         case id: AstIdentifier => id.declOption match {
           case Some(_: FunDecl) =>
             errors += new Message(Error, s"assignment to function '${id.symbol.name}'", node.loc)
+
           case _ =>
           // Undeclared identifier is already handled by visitIdentifier.
         }
-      }
 
+        case _ =>
+      }
       visit(node.value)
 
     case node =>

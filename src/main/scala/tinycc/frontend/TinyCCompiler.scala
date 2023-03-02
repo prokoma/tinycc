@@ -18,6 +18,39 @@ class TinyCCompilerException(val level: ErrorLevel, message: String, val loc: So
   override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
 }
 
+trait TinyCIrProgramBuilder extends IrProgramBuilderOps {
+  val program: IrProgram = new IrProgram
+  val entryFun: IrFun = program.appendEntryFun()
+
+  var breakTargetOption: Option[BasicBlock] = None
+  var contTargetOption: Option[BasicBlock] = None
+
+  def withEntryFun[T](thunk: => T): T = withFun(entryFun, thunk)
+
+  def withBreakTarget[T](breakTarget: BasicBlock, thunk: => T): T = {
+    val oldBreakTargetOption = breakTargetOption
+    breakTargetOption = Some(breakTarget)
+    try
+      thunk
+    finally {
+      breakTargetOption = oldBreakTargetOption
+    }
+  }
+
+  def withBreakContTarget[T](breakTarget: BasicBlock, contTarget: BasicBlock, thunk: => T): T = {
+    val oldBreakTargetOption = breakTargetOption
+    val oldContTargetOption = contTargetOption
+    breakTargetOption = Some(breakTarget)
+    contTargetOption = Some(contTarget)
+    try
+      thunk
+    finally {
+      breakTargetOption = oldBreakTargetOption
+      contTargetOption = oldContTargetOption
+    }
+  }
+}
+
 final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typeMap: TypeMap) {
   implicit protected def declarations: Declarations = _declarations
 
@@ -32,17 +65,11 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
   }
 
-  final private class _Impl extends IrProgramBuilderOps {
+  final private class _Impl extends TinyCIrProgramBuilder {
 
     import ErrorLevel._
 
-    val program: IrProgram = new IrProgram
-    val entryFun: IrFun = program.appendEntryFun()
-
     /* Compiler State */
-
-    var breakTargetOption: Option[BasicBlock] = None
-    var contTargetOption: Option[BasicBlock] = None
 
     val allocMap: mutable.Map[IdentifierDecl, AllocInsn] = mutable.Map.empty
     val funMap: mutable.Map[Symbol, IrFun] = mutable.Map.empty
@@ -50,47 +77,23 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     /* Entry Method */
 
     def compileProgram(node: AstProgram): IrProgram = {
-      enterFun(entryFun)
-      appendAndEnterBlock("entry")
+      withEntryFun({
+        appendAndEnterBlock("entry")
+      })
 
       compileStmt(node)
 
-      enterFun(entryFun)
-      val mainFun = program.funs.find(_.name == "main")
-        .getOrElse(throw new TinyCCompilerException(ErrorLevel.Error, "missing main function declaration", node.loc))
+      withEntryFun({
+        val mainFun = program.funs.find(_.name == "main")
+          .getOrElse(throw new TinyCCompilerException(ErrorLevel.Error, "missing main function declaration", node.loc))
+        if (mainFun.argTys.nonEmpty)
+          throw new TinyCCompilerException(ErrorLevel.Error, "invalid main function signature (expected main())", node.loc)
 
-      if (mainFun.argTys.nonEmpty)
-        throw new TinyCCompilerException(ErrorLevel.Error, "invalid main function signature (expected main())", node.loc)
-
-      emit(new CallInsn(mainFun, IndexedSeq.empty, _))
-      emit(new HaltInsn(_))
+        emit(new CallInsn(mainFun, IndexedSeq.empty, _))
+        emit(new HaltInsn(_))
+      })
 
       program
-    }
-
-    /* Helper Methods */
-
-    private def withBreakTarget[T](breakTarget: BasicBlock, thunk: => T): T = {
-      val oldBreakTargetOption = breakTargetOption
-      breakTargetOption = Some(breakTarget)
-      try
-        thunk
-      finally {
-        breakTargetOption = oldBreakTargetOption
-      }
-    }
-
-    private def withBreakContTarget[T](breakTarget: BasicBlock, contTarget: BasicBlock, thunk: => T): T = {
-      val oldBreakTargetOption = breakTargetOption
-      val oldContTargetOption = contTargetOption
-      breakTargetOption = Some(breakTarget)
-      contTargetOption = Some(contTarget)
-      try
-        thunk
-      finally {
-        breakTargetOption = oldBreakTargetOption
-        contTargetOption = oldContTargetOption
-      }
     }
 
     /* Visitor Methods */
@@ -126,15 +129,18 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
             })
             alloc
 
+          case Some(fun) if fun == entryFun =>
+            throw new UnsupportedOperationException(s"Cannot declare variable inside entry function.")
+
           case None => // global variable - append to entryFun
-            enterFun(entryFun)
-            val alloc = emit(new AllocGInsn(varIrTy, Seq.empty, _))
-            node.value.foreach(value => {
-              val compiledValue = compileExpr(value)
-              emit(new StoreInsn(alloc, compiledValue, _))
+            withEntryFun({
+              val alloc = emit(new AllocGInsn(varIrTy, Seq.empty, _))
+              node.value.foreach(value => {
+                val compiledValue = compileExpr(value)
+                emit(new StoreInsn(alloc, compiledValue, _))
+              })
+              alloc
             })
-            exitFun()
-            alloc
         }
 
       case node: AstFunDecl =>

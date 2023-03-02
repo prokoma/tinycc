@@ -58,6 +58,18 @@ trait IrProgramBuilderOps extends IrFunBuilderOps {
     newFun
   }
 
+  def withFun[T](newFun: IrFun, thunk: => T): T = {
+    val oldFunOption = funOption
+    val oldBbOption = bbOption
+    enterFun(newFun)
+    try
+      thunk
+    finally {
+      funOption = oldFunOption
+      bbOption = oldBbOption
+    }
+  }
+
   def enterFun(newFun: IrFun): Unit = {
     funOption = Some(newFun)
     bbOption = newFun.basicBlocks.lastOption

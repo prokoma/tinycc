@@ -83,7 +83,7 @@ class AllocLInsn(varTy: IrTy, basicBlock: BasicBlock) extends AllocInsn(varTy, b
 
 class AllocGInsn(varTy: IrTy, val initData: Seq[Byte], basicBlock: BasicBlock) extends AllocInsn(varTy, basicBlock) {
   // TODO: make sure the name is unique in the entire program
-  override def op: IrOpcode = IrOpcode.AllocL
+  override def op: IrOpcode = IrOpcode.AllocG
 
   override def copy(newBlock: BasicBlock): AllocGInsn = new AllocGInsn(varTy, initData, newBlock)
 

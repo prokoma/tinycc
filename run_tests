@@ -43,7 +43,13 @@ run_test () {
 
 mkdir -p "$OUTPUT_DIR"
 
-test_files="$(find "$INPUT_DIR" -iname '*.c' -print)"
-for file in $test_files; do
-  run_test "$file"
-done
+if [ $# -gt 0 ]; then
+  for file in "$@"; do
+    run_test "$INPUT_DIR/$(basename "$file")"
+  done
+else
+  test_files="$(find "$INPUT_DIR" -iname '*.c' -print | sort)"
+  for file in $test_files; do
+    run_test "$file"
+  done
+fi

@@ -2,7 +2,9 @@ package tinycc
 
 import tinycc.cli.Reporter
 
-class ProgramException(val message: String) extends RuntimeException(message) {
+class ProgramException(val message: String, cause: Throwable = null) extends RuntimeException(message, cause) {
+  def cause: Throwable = getCause
+
   def format(reporter: Reporter): String = reporter.formatError(ErrorLevel.Error, message)
 }
 

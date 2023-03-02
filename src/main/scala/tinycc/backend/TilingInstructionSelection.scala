@@ -47,6 +47,8 @@ trait TilingInstructionSelection {
 
     override def apply(insn: Insn): Option[Pat.Match[T]] =
       if (insn.op == op) Some(Pat.Match(insn.asInstanceOf[T], List(insn), List.empty)) else None
+
+    override def toString(): String = s"Pat($op)"
   }
 
   /** Matches an unary instruction by its opcode and operand, returns the instruction and value of the operand. */
@@ -59,6 +61,8 @@ trait TilingInstructionSelection {
           Pat.Match(value, coveredInsns, requiredInsns) <- operand(insn.operands(0))
         ) yield Pat.Match((insn.asInstanceOf[T], value), insn :: coveredInsns, requiredInsns)
       } else None
+
+    override def toString(): String = s"Pat($op, $operand)"
   }
 
   /** Matches a binary instruction by its opcode and operands, returns the instruction and value of the operands. */
@@ -75,6 +79,8 @@ trait TilingInstructionSelection {
           insn :: (leftCoveredInsns ++ rightCoveredInsns),
           leftRequiredInsns ++ rightRequiredInsns)
       else None
+
+    override def toString(): String = s"Pat($op, $left, $right)"
   }
 
   /** Matches a nonterminal, the value for it must be available. */
@@ -83,6 +89,8 @@ trait TilingInstructionSelection {
 
     override def apply(insn: Insn): Option[Pat.Match[T]] =
       Some(Pat.Match(v.resolveValue(insn), Nil, List((v, insn))))
+
+    override def toString(): String = s"VarPat($v)"
   }
 
   /** Transforms value of a pattern. */
@@ -94,6 +102,8 @@ trait TilingInstructionSelection {
         Pat.Match(value, coveredInsns, requiredInsns) <- pat(insn)
       ) yield Pat.Match(f(value), coveredInsns, requiredInsns)
     }
+
+    override def toString(): String = s"($pat ^^ $f)"
   }
 
   protected def matchIndexedSeq[A](seq: IndexedSeq[Insn], pat: Pat[A]): Option[Pat.Match[IndexedSeq[A]]] = {
@@ -117,6 +127,8 @@ trait TilingInstructionSelection {
           Pat.Match(args, coveredInsns, requiredInsns) <- matchIndexedSeq(callInsn.args.map(_.get), arg)
         ) yield Pat.Match((callInsn, args), insn :: coveredInsns, requiredInsns)
       } else None
+
+    override def toString(): String = s"CallInsnPat($arg)"
   }
 
   case class CallPtrInsnPat[A, B](ptr: Pat[A], arg: Pat[B]) extends Pat[(CallPtrInsn, A, IndexedSeq[B])] {
@@ -130,10 +142,20 @@ trait TilingInstructionSelection {
           Pat.Match(args, argsCoveredInsns, argsRequiredInsns) <- matchIndexedSeq(callInsn.args.map(_.get), arg)
         ) yield Pat.Match((callInsn, ptr, args), insn :: ptrCoveredInsns ++ argsCoveredInsns, ptrRequiredInsns ++ argsRequiredInsns)
       } else None
+
+    override def toString(): String = s"CallPtrInsnPat($arg)"
   }
 
   case class GenRule[T](v: Var[AsmEmitter[T]], rhs: Pat[AsmEmitter[T]]) extends (Insn => Option[GenRule.Match[T]]) {
-    override def apply(insn: Insn): Option[GenRule.Match[T]] = rhs(insn).map(GenRule.Match(this, _))
+    override def apply(insn: Insn): Option[GenRule.Match[T]] = {
+      try
+        rhs(insn).map(GenRule.Match(this, _))
+      catch {
+        case e: Throwable => throw new BackendException(s"Failed to match $this", e)
+      }
+    }
+
+    override def toString(): String = s"($v -> $rhs)"
   }
 
   object GenRule {
