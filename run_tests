@@ -15,7 +15,7 @@ run_test () {
   echo "== $name =="
 
   local expected="$out_base.expected"
-  cat "$file" | { grep -e '// >' || true; } | sed 's/\/\/ > \?//' >"$expected"
+  awk 'match($0, /^\/\/ > (.+)/, m) { print m[1] }' "$file" >"$expected"
 
   local cfile="$out_base.gcc"
   local cbin="$cfile.bin"

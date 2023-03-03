@@ -29,6 +29,8 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     def getBasicBlockLabel(bb: BasicBlock): T86Label =
       T86Label(bb.uniqueName)
 
+    def voidReg(): Operand.Reg = Operand.BasicReg(0)
+
     def freshReg(): Operand.Reg
 
     def copyToFreshReg(op: Operand): Operand.Reg = {
@@ -71,7 +73,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
   val variables: Seq[Var[_]] = Seq(RegVar, FRegVar)
 
-  protected def emitBinArithInsn(op: T86Opcode): ((Insn, AsmEmitter[Operand.Reg], AsmEmitter[Operand])) => AsmEmitter[Operand.Reg] = {
+  protected def emitBinArithInsn(op: T86Opcode): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.Reg] = {
     case (_, left, right) =>
       (ctx: Context) => {
         val res = ctx.copyToFreshReg(left(ctx))
@@ -80,77 +82,114 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       }
   }
 
-  protected def emitCmpInsn(jmpOp: T86Opcode.CondJmpOp): ((Insn, AsmEmitter[Operand.Reg], AsmEmitter[Operand])) => AsmEmitter[Operand.Reg] = {
+  def pure[T](value: T): AsmEmitter[T] = (ctx: Context) => value
+
+  def constImm(v: Long): AsmPat[Operand.Imm] = Pat(IImm)
+    .filter({ case insn: IImmInsn => insn.value == v }) ^^ { case insn: IImmInsn => pure(Operand.Imm(insn.value)) }
+
+  lazy val imm: AsmPat[Operand.Imm] = Pat(IImm) ^^ { case insn: IImmInsn => pure(Operand.Imm(insn.value)) }
+  lazy val fimm: AsmPat[Operand.FImm] = Pat(FImm) ^^ { case insn: FImmInsn => pure(Operand.FImm(insn.value)) }
+  lazy val regOrImm: AsmPat[Operand] = imm | RegVar
+
+  lazy val memReg: AsmPat[Operand.MemReg] = RegVar ^^ { reg => (ctx: Context) => reg(ctx).mem }
+  lazy val memAllocL: AsmPat[Operand.MemRegImm] = Pat(AllocL) ^^ { case insn: AllocLInsn => (ctx: Context) => ctx.resolveAllocL(insn) }
+  lazy val memAllocG: AsmPat[Operand.MemImm] = Pat(AllocG) ^^ { case insn: AllocGInsn => (ctx: Context) => ctx.resolveAllocG(insn) }
+
+  lazy val memAddr: AsmPat[Operand] = memReg | memAllocL | memAllocG
+
+  protected def emitCmpAndReturnJmpOp(jmpOp: T86Opcode.CondJmpOp): ((Insn, AsmEmitter[Operand.Reg], AsmEmitter[Operand])) => AsmEmitter[T86Opcode.CondJmpOp] = {
     case (_, left, right) =>
+      (ctx: Context) => {
+        ctx.emit(CMP, left(ctx), right(ctx))
+        jmpOp
+      }
+  }
+
+  lazy val cmpInsn: AsmPat[CondJmpOp] = (
+    Pat(CmpIEq, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JZ) |
+      Pat(CmpINe, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JNE) |
+      Pat(CmpULt, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JB) |
+      Pat(CmpULe, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JBE) |
+      Pat(CmpUGt, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JA) |
+      Pat(CmpUGe, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JAE) |
+      Pat(CmpSLt, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JL) |
+      Pat(CmpSLe, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JLE) |
+      Pat(CmpSGt, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JG) |
+      Pat(CmpSGe, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JGE) |
+
+      // cmpieq (sub %1, %2), (iimm 0)
+      Pat(CmpIEq, Pat(ISub, RegVar, regOrImm), constImm(0)) ^^ { case (_, (_, left, right), _) =>
+        (ctx: Context) => {
+          ctx.emit(CMP, left(ctx), right(ctx))
+          T86Opcode.JZ
+        }
+      }
+    )
+
+  val rules: Seq[GenRule[_]] = Seq(
+
+    GenRule(RegVar, Pat(IAdd, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.ADD)),
+    GenRule(RegVar, Pat(ISub, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.SUB)),
+    GenRule(RegVar, Pat(IAnd, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.AND)),
+    GenRule(RegVar, Pat(IOr, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.OR)),
+    GenRule(RegVar, Pat(IXor, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.XOR)),
+    GenRule(RegVar, Pat(IShl, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.LSH)),
+    GenRule(RegVar, Pat(IShr, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.RSH)),
+    GenRule(RegVar, Pat(UMul, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.MUL)),
+    GenRule(RegVar, Pat(UDiv, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.DIV)),
+    GenRule(RegVar, Pat(SMul, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.IMUL)),
+    GenRule(RegVar, Pat(SDiv, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.IDIV)),
+
+    // %2 = cmpieq %0, %1
+    GenRule(RegVar, cmpInsn ^^ { cmpInsn =>
       (ctx: Context) => {
         val lab = ctx.freshLabel()
         val res = ctx.freshReg()
         ctx.emit(XOR, res, res)
-        ctx.emit(CMP, left(ctx), right(ctx))
+        val jmpOp = cmpInsn(ctx)
         ctx.emit(jmpOp.neg, lab.toOperand)
         ctx.emit(MOV, res, Operand.Imm(1))
         ctx.emit(lab)
         res
       }
-  }
+    }),
 
-  val rules: Seq[GenRule[_]] = Seq(
+    // %2 = condbr (cmpieq %0, %1)
+    GenRule(RegVar, Pat(CondBr, cmpInsn) ^^ { case (condBrInsn: CondBrInsn, cmpInsn) =>
+      (ctx: Context) => {
+        val jmpOp = cmpInsn(ctx)
+        ctx.emit(jmpOp, ctx.getBasicBlockLabel(condBrInsn.trueBlock.get).toOperand)
+        ctx.emit(JMP, ctx.getBasicBlockLabel(condBrInsn.falseBlock.get).toOperand)
+        ctx.voidReg()
+      }
+    }),
 
-    GenRule(RegVar, Pat(IAdd, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.ADD)),
-    GenRule(RegVar, Pat(ISub, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.SUB)),
-    GenRule(RegVar, Pat(IAnd, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.AND)),
-    GenRule(RegVar, Pat(IOr, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.OR)),
-    GenRule(RegVar, Pat(IXor, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.XOR)),
-    GenRule(RegVar, Pat(IShl, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.LSH)),
-    GenRule(RegVar, Pat(IShr, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.RSH)),
-    GenRule(RegVar, Pat(UMul, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.MUL)),
-    GenRule(RegVar, Pat(UDiv, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.DIV)),
-    GenRule(RegVar, Pat(SMul, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.IMUL)),
-    GenRule(RegVar, Pat(SDiv, RegVar, RegVar) ^^ emitBinArithInsn(T86Opcode.IDIV)),
-
-    GenRule(RegVar, Pat(CmpIEq, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JZ)),
-    GenRule(RegVar, Pat(CmpINe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JNE)),
-    GenRule(RegVar, Pat(CmpULt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JB)),
-    GenRule(RegVar, Pat(CmpULe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JBE)),
-    GenRule(RegVar, Pat(CmpUGt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JA)),
-    GenRule(RegVar, Pat(CmpUGe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JAE)),
-    GenRule(RegVar, Pat(CmpSLt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JL)),
-    GenRule(RegVar, Pat(CmpSLe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JLE)),
-    GenRule(RegVar, Pat(CmpSGt, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JG)),
-    GenRule(RegVar, Pat(CmpSGe, RegVar, RegVar) ^^ emitCmpInsn(T86Opcode.JGE)),
-
-    GenRule(RegVar, Pat[AllocLInsn](AllocL) ^^ { insn =>
+    GenRule(RegVar, Pat(AllocL) ^^ { case insn: AllocLInsn =>
       (ctx: Context) =>
         val res = ctx.freshReg()
         ctx.emit(LEA, res, ctx.resolveAllocL(insn))
         res
     }),
-    GenRule(RegVar, Pat[AllocGInsn](AllocG) ^^ { insn =>
+    GenRule(RegVar, Pat(AllocG) ^^ { case insn: AllocGInsn =>
       (ctx: Context) => ctx.copyToFreshReg(ctx.resolveAllocG(insn))
     }),
 
-    GenRule(RegVar, Pat[LoadInsn, RegVar.ValueTy](Load, RegVar) ^^ { case (_, addr) =>
-      (ctx: Context) => ctx.copyToFreshReg(addr(ctx).mem)
-    }),
-    GenRule(RegVar, Pat[LoadInsn, AllocLInsn](Load, Pat[AllocLInsn](AllocL)) ^^ { case (_, allocl) =>
-      (ctx: Context) => ctx.copyToFreshReg(ctx.resolveAllocL(allocl))
-    }),
-    GenRule(RegVar, Pat[LoadInsn, AllocGInsn](Load, Pat[AllocGInsn](AllocG)) ^^ { case (_, allocg) =>
-      (ctx: Context) => ctx.copyToFreshReg(ctx.resolveAllocG(allocg))
+    GenRule(RegVar, Pat(Load, memAddr) ^^ { case (_, memAddr) =>
+      (ctx: Context) => ctx.copyToFreshReg(memAddr(ctx))
     }),
 
-    GenRule(RegVar, Pat[LoadArgInsn](LoadArg) ^^ { insn =>
+    GenRule(RegVar, Pat(LoadArg) ^^ { case insn: LoadArgInsn =>
       (ctx: Context) => ctx.copyToFreshReg(ctx.resolveLoadArg(insn))
     }),
-    GenRule(RegVar, Pat[StoreInsn, RegVar.ValueTy, RegVar.ValueTy](Store, RegVar, RegVar) ^^ { case (_, addr, value) =>
+    GenRule(RegVar, Pat(Store, memAddr, regOrImm) ^^ { case (_, memAddr, value) =>
       (ctx: Context) =>
-        ctx.emit(MOV, addr(ctx).mem, value(ctx))
-        ctx.freshReg()
+        ctx.emit(MOV, memAddr(ctx), value(ctx))
+        ctx.voidReg()
     }),
-    GenRule(RegVar, Pat[IImmInsn](IImm) ^^ { insn =>
+    GenRule(RegVar, Pat(IImm) ^^ { case insn: IImmInsn =>
       (ctx: Context) => ctx.copyToFreshReg(Operand.Imm(insn.value))
     }),
-    GenRule(RegVar, Pat[GetElementPtrInsn, RegVar.ValueTy, RegVar.ValueTy](GetElementPtr, RegVar, RegVar) ^^ { case (insn, base, index) =>
+    GenRule(RegVar, Pat(GetElementPtr, RegVar, RegVar) ^^ { case (insn: GetElementPtrInsn, base, index) =>
       (ctx: Context) => {
         val res = ctx.freshReg()
         if (insn.fieldIndex == 0)
@@ -180,19 +219,19 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
         ctx.copyToFreshReg(ctx.resolveRetValueCaller())
       }
     }),
-    GenRule(RegVar, Pat[PutCharInsn, RegVar.ValueTy](PutChar, RegVar) ^^ { case (insn, reg) =>
+    GenRule(RegVar, Pat(PutChar, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(PUTCHAR, reg(ctx))
-        ctx.freshReg()
+        ctx.voidReg()
       }
     }),
-    GenRule(RegVar, Pat[PutNumInsn, RegVar.ValueTy](PutNum, RegVar) ^^ { case (insn, reg) =>
+    GenRule(RegVar, Pat(PutNum, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(PUTNUM, reg(ctx))
-        ctx.freshReg()
+        ctx.voidReg()
       }
     }),
-    GenRule(RegVar, Pat[GetCharInsn](GetChar) ^^ { insn =>
+    GenRule(RegVar, Pat(GetChar) ^^ { insn =>
       (ctx: Context) => {
         val res = ctx.freshReg()
         ctx.emit(GETCHAR, res)
@@ -201,40 +240,41 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     }),
     // Cast
     // Phi
-    GenRule(RegVar, Pat[RetInsn, RegVar.ValueTy](Ret, RegVar) ^^ { case (insn, reg) =>
+    GenRule(RegVar, Pat(Ret, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(MOV, ctx.resolveRetValueCallee(), reg(ctx))
         ctx.emitFunEpilogue()
-        ctx.freshReg()
+        ctx.voidReg()
       }
     }),
-    GenRule(RegVar, Pat[RetVoidInsn](RetVoid) ^^ { _ =>
+    GenRule(RegVar, Pat(RetVoid) ^^ { _ =>
       (ctx: Context) =>
         ctx.emitFunEpilogue()
-        ctx.freshReg()
+        ctx.voidReg()
     }),
-    GenRule(RegVar, Pat[HaltInsn](Halt) ^^ { _ =>
+    GenRule(RegVar, Pat(Halt) ^^ { _ =>
       (ctx: Context) => {
         ctx.emit(HALT)
-        ctx.freshReg()
+        ctx.voidReg()
       }
     }),
-    GenRule(RegVar, Pat[BrInsn](Br) ^^ { insn =>
+    GenRule(RegVar, Pat(Br) ^^ { case insn: BrInsn =>
       (ctx: Context) => {
         ctx.emit(JMP, ctx.getBasicBlockLabel(insn.succBlock.get).toOperand)
-        ctx.freshReg()
+        ctx.voidReg()
       }
     }),
-    GenRule(RegVar, Pat[CondBrInsn, RegVar.ValueTy](CondBr, RegVar) ^^ { case (insn, reg) =>
+
+    GenRule(RegVar, Pat(CondBr, RegVar) ^^ { case (insn: CondBrInsn, reg) =>
       (ctx: Context) => {
         ctx.emit(CMP, reg(ctx), Operand.Imm(0))
         ctx.emit(JZ, ctx.getBasicBlockLabel(insn.falseBlock.get).toOperand)
         ctx.emit(JMP, ctx.getBasicBlockLabel(insn.trueBlock.get).toOperand)
-        ctx.freshReg()
+        ctx.voidReg()
       }
     }),
 
-  )
+  ).flatMap(_.flatten)
 
   // we need to convert an IrProgram into list of T86 instructions with virtual registers
   // at first, we are doing instruction selection locally for each block - the only exceptions are allocl and allocg, but those don't emit any code

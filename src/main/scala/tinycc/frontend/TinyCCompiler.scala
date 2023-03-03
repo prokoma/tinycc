@@ -72,6 +72,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     /* Compiler State */
 
     val allocMap: mutable.Map[IdentifierDecl, AllocInsn] = mutable.Map.empty
+    val globalMap: mutable.Map[Symbol, AllocGInsn] = mutable.Map.empty
     val funMap: mutable.Map[Symbol, IrFun] = mutable.Map.empty
 
     /* Entry Method */
@@ -117,36 +118,9 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileStmt(node: AstNode): Unit = node match {
-      case node: AstVarDecl =>
-        val varIrTy = compileType(node.varTy.ty)
-
-        allocMap(VarDecl(node)) = funOption match {
-          case Some(fun) if fun != entryFun => // local variable
-            val alloc = emit(new AllocLInsn(varIrTy, _)).name(node.symbol.name)
-            node.value.foreach(value => {
-              val compiledValue = compileExpr(value)
-              emit(new StoreInsn(alloc, compiledValue, _))
-            })
-            alloc
-
-          case Some(fun) if fun == entryFun =>
-            throw new UnsupportedOperationException(s"Cannot declare variable inside entry function.")
-
-          case None => // global variable - append to entryFun
-            withEntryFun({
-              val alloc = emit(new AllocGInsn(varIrTy, Seq.empty, _)).name(node.symbol.name)
-              node.value.foreach(value => {
-                val compiledValue = compileExpr(value)
-                emit(new StoreInsn(alloc, compiledValue, _))
-              })
-              alloc
-            })
-        }
-
-      case node: AstFunDecl =>
-        compileFunDecl(node)
-
-      case _: AstStructDecl | _: AstFunPtrDecl => // ignore
+      case node: AstVarDecl => compileVarDecl(node)
+      case node: AstFunDecl => compileFunDecl(node)
+      case _: AstStructDecl | _: AstFunPtrDecl => // Ignore, handled by TypeAnalysis
 
       case node: AstIf =>
         val trueBlock = new BasicBlock("ifTrue", fun)
@@ -320,6 +294,34 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         node.children.foreach(compileStmt)
 
       case _ => compileExpr(node)
+    }
+
+    private def compileVarDecl(node: AstVarDecl): Unit = {
+      val varIrTy = compileType(node.varTy.ty)
+
+      allocMap(VarDecl(node)) = funOption match {
+        case Some(fun) if fun != entryFun => // local variable
+          val alloc = emit(new AllocLInsn(varIrTy, _)).name(node.symbol.name)
+          node.value.foreach(value => {
+            val compiledValue = compileExpr(value)
+            emit(new StoreInsn(alloc, compiledValue, _))
+          })
+          alloc
+
+        case Some(fun) if fun == entryFun =>
+          throw new UnsupportedOperationException(s"Cannot declare variable inside entry function.")
+
+        case None => // global variable - append to entryFun
+          withEntryFun({
+            // globals can have forward declarations - keep track of variable names in globalMap
+            val alloc = globalMap.getOrElseUpdate(node.symbol, emit(new AllocGInsn(varIrTy, Seq.empty, _)).name(node.symbol.name))
+            node.value.foreach(value => {
+              val compiledValue = compileExpr(value)
+              emit(new StoreInsn(alloc, compiledValue, _))
+            })
+            alloc
+          })
+      }
     }
 
     private def compileFunDecl(node: AstFunDecl): Unit = {
