@@ -15,8 +15,8 @@ class TypeAnalysisException(messages: Seq[TypeAnalysisException.Message]) extend
 }
 
 object TypeAnalysisException {
-  class Message(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(message) {
-    override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
+  class Message(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException("type analysis: " + message) {
+    override def format(reporter: Reporter): String = reporter.formatError(level, getMessage, loc)
   }
 }
 
@@ -76,7 +76,7 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
     case _: AstInteger => IntTy
     case _: AstDouble => DoubleTy
     case _: AstChar => CharTy
-    case node: AstString => ArrayTy(CharTy, node.value.length)
+    case node: AstString => ArrayTy(CharTy, node.value.length + 1) // + 1 for '\0'
 
     case node: AstIdentifier =>
       // need to call visitAndGetTy on the declaration, because it may be later in the code
@@ -512,7 +512,7 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
     case node: AstCast =>
       val newTy = visitAndGetTy(node.newTy)
       val exprTy = visitAndGetTy(node.expr)
-      if (newTy.isExplicitlyCastableFrom(exprTy))
+      if (!newTy.isExplicitlyCastableFrom(exprTy))
         errors += new Message(Error, s"cannot cast $exprTy to $newTy", node.loc)
       newTy
 

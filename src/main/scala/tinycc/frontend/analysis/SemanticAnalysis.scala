@@ -13,8 +13,8 @@ class SemanticAnalysisException(messages: Seq[SemanticAnalysisException.Message]
 }
 
 object SemanticAnalysisException {
-  class Message(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(message) {
-    override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
+  class Message(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException("semantic analysis: " + message) {
+    override def format(reporter: Reporter): String = reporter.formatError(level, getMessage, loc)
   }
 }
 

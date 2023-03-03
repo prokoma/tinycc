@@ -303,7 +303,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         case Some(fun) if fun != entryFun => // local variable
           val alloc = emit(new AllocLInsn(varIrTy, _)).name(node.symbol.name)
           node.value.foreach(value => {
-            val compiledValue = compileExpr(value)
+            val compiledValue = compileExprAndCastTo(value, node.varTy.ty)
             emit(new StoreInsn(alloc, compiledValue, _))
           })
           alloc
@@ -316,7 +316,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
             // globals can have forward declarations - keep track of variable names in globalMap
             val alloc = globalMap.getOrElseUpdate(node.symbol, emit(new AllocGInsn(varIrTy, Seq.empty, _)).name(node.symbol.name))
             node.value.foreach(value => {
-              val compiledValue = compileExpr(value)
+              val compiledValue = compileExprAndCastTo(value, node.varTy.ty)
               emit(new StoreInsn(alloc, compiledValue, _))
             })
             alloc
@@ -395,6 +395,8 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node: AstChar =>
         emit(new IImmInsn(node.value.toLong, _))
 
+      // TODO: AstString
+
       case node: AstDouble =>
         emit(new FImmInsn(node.value, _))
 
@@ -416,7 +418,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node: AstAssignment =>
         val lvalue = compileExprPtr(node.lvalue)
-        val value = compileExpr(node.value)
+        val value = compileExprAndCastTo(node.value, node.lvalue.ty)
         emit(new StoreInsn(lvalue, value, _))
         value
 
@@ -449,14 +451,16 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           case id: AstIdentifier => // direct call
             id.decl match {
               case FunDecl(decl) =>
-                emit(new CallInsn(funMap(decl.symbol), compileCallArgs(c.args).toIndexedSeq, _))
+                val funTy = decl.ty.asInstanceOf[FunTy]
+                emit(new CallInsn(funMap(decl.symbol), compileCallArgs(funTy.argTys, c.args).toIndexedSeq, _))
               case _ => throw new TinyCCompilerException(Error, "call of non-function", c.loc)
             }
 
           case fun => // indirect call
+            val funTy = fun.ty.asInstanceOf[FunTy]
             val funPtr = compileExpr(fun)
-            val funSig = compileFunSignature(fun.ty.asInstanceOf[FunTy])
-            emit(new CallPtrInsn(funSig, funPtr, compileCallArgs(c.args).toIndexedSeq, _))
+            val funSig = compileFunSignature(funTy)
+            emit(new CallPtrInsn(funSig, funPtr, compileCallArgs(funTy.argTys, c.args).toIndexedSeq, _))
         }
 
       case node: AstCast =>
@@ -475,8 +479,9 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case (Types.CharTy, Types.IntTy) => value
 
       case (Types.IntTy, Types.CharTy) =>
-        val maxCharValue = emit(new IImmInsn(0xff, _))
-        emit(new BinaryArithInsn(IrOpcode.IAnd, value, maxCharValue, _))
+        val imm = emitIImm(64 - 8)
+        val tmp = emit(new BinaryArithInsn(IrOpcode.IShl, value, imm, _))
+        emit(new BinaryArithInsn(IrOpcode.IShr, tmp, imm, _))
 
       case (_: Types.IntegerTy, Types.DoubleTy) =>
         emit(new CastInsn(IrOpcode.SInt64ToDouble, value, _))
@@ -501,13 +506,8 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     private def compileFunSignature(ty: FunTy): IrFunSignature =
       IrFunSignature(compileType(ty.returnTy), ty.argTys.map(compileType))
 
-    private def compileCallArgs(args: Seq[AstNode]): Seq[Insn] =
-      args.map(compileExpr)
-
-    //    private def castToBool(arg: Insn): Insn = {
-    //      val zero = append(new IImmInsn(0, _))
-    //      append(new CmpInsn(IrOpcode.CmpINe, zero, arg, _))
-    //    }
+    private def compileCallArgs(argTys: Seq[Ty], args: Seq[AstNode]): Seq[Insn] =
+      argTys.zip(args).map({ case (ty, arg) => compileExprAndCastTo(arg, ty) })
 
     private def compileIncDec(op: Symbol, expr: AstNode, isPostfix: Boolean): Insn = {
       val exprPtr = compileExprPtr(expr)
@@ -622,12 +622,12 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileCmpArithmeticHelper(op: Symbol, argTy: Types.Ty, leftPromoted: Insn, rightPromoted: Insn): Insn = (op, argTy) match {
-      case (Symbols.eq, IntTy) => emitCmp(CmpIEq, leftPromoted, rightPromoted)
-      case (Symbols.ne, IntTy) => emitCmp(CmpINe, leftPromoted, rightPromoted)
-      case (Symbols.lt, IntTy) => emitCmp(CmpSLt, leftPromoted, rightPromoted)
-      case (Symbols.le, IntTy) => emitCmp(CmpSLe, leftPromoted, rightPromoted)
-      case (Symbols.gt, IntTy) => emitCmp(CmpSGt, leftPromoted, rightPromoted)
-      case (Symbols.ge, IntTy) => emitCmp(CmpSGe, leftPromoted, rightPromoted)
+      case (Symbols.eq, _: IntegerTy) => emitCmp(CmpIEq, leftPromoted, rightPromoted)
+      case (Symbols.ne, _: IntegerTy) => emitCmp(CmpINe, leftPromoted, rightPromoted)
+      case (Symbols.lt, _: IntegerTy) => emitCmp(CmpSLt, leftPromoted, rightPromoted)
+      case (Symbols.le, _: IntegerTy) => emitCmp(CmpSLe, leftPromoted, rightPromoted)
+      case (Symbols.gt, _: IntegerTy) => emitCmp(CmpSGt, leftPromoted, rightPromoted)
+      case (Symbols.ge, _: IntegerTy) => emitCmp(CmpSGe, leftPromoted, rightPromoted)
 
       case (Symbols.eq, DoubleTy) => emitCmp(CmpFEq, leftPromoted, rightPromoted)
       case (Symbols.ne, DoubleTy) => emitCmp(CmpFNe, leftPromoted, rightPromoted)
@@ -635,6 +635,8 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case (Symbols.le, DoubleTy) => emitCmp(CmpFLe, leftPromoted, rightPromoted)
       case (Symbols.gt, DoubleTy) => emitCmp(CmpFGt, leftPromoted, rightPromoted)
       case (Symbols.ge, DoubleTy) => emitCmp(CmpFGe, leftPromoted, rightPromoted)
+
+      case _ => throw new NotImplementedError(s"compileCmpArithmeticHelper($op, $argTy)")
     }
 
     private def compileCmp(node: AstBinaryOp): Insn = (node.op, node.left.ty, node.right.ty) match {

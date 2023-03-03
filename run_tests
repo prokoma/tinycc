@@ -7,6 +7,11 @@ INPUT_DIR="$ROOT_DIR/examples"
 OUTPUT_DIR="$ROOT_DIR/test-out"
 T86_CLI_BIN="$ROOT_DIR/t86/build/t86-cli/t86-cli"
 
+fancy_diff () {
+#  diff --side-by-side -s "$1" "$2" | colordiff
+  diff -us "$1" "$2" | colordiff
+}
+
 run_test () {
   local file="$1"
   local name="$(basename $1)"
@@ -25,7 +30,7 @@ run_test () {
   gcc -x c -Wall --std=c99 -I "$ROOT_DIR" "$cfile" -o "$cbin"
   "$cbin" >"$cout"
 
-  diff -s "$expected" "$cout" | colordiff
+  fancy_diff "$expected" "$cout"
 
   local asmfile="$out_base.t86"
   local asmerr="$asmfile.err"
@@ -38,7 +43,7 @@ run_test () {
 
   "$T86_CLI_BIN" run "$asmfile" -registerCnt=30 >"$asmout"
 
-  diff -s "$expected" "$asmout" | colordiff
+  fancy_diff "$expected" "$asmout"
 }
 
 mkdir -p "$OUTPUT_DIR"

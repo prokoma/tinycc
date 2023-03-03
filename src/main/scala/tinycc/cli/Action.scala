@@ -43,6 +43,7 @@ object Action {
         chain match {
           case Left(ex) =>
             Console.err.println(ex.format(reporter))
+            sys.exit(1)
 
           case Right(_) =>
         }
@@ -77,6 +78,7 @@ object Action {
         chain match {
           case Left(ex) =>
             Console.err.println(ex.format(reporter))
+            sys.exit(1)
 
           case Right(_) =>
         }

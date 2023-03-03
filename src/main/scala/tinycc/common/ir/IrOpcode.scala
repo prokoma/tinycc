@@ -33,10 +33,12 @@ object IrOpcode {
     override def toString: String = "ixor"
   }
 
+  /** Arithmetic shift left */
   case object IShl extends BinaryArithOp {
     override def toString: String = "ishl"
   }
 
+  /** Arithmetic shift right */
   case object IShr extends BinaryArithOp {
     override def toString: String = "ishr"
   }
