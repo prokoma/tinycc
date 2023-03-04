@@ -10,7 +10,7 @@ object Operand {
   }
 
   case class Label(symbol: Symbol) extends Operand {
-    override def toString: String = s"${symbol.name}"
+    override def toString: String = s".${symbol.name}"
   }
 
   sealed trait Reg extends Operand {

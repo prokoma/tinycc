@@ -11,73 +11,87 @@ object IrOpcode {
 
   sealed trait BinaryOp extends IrOpcode
 
-  sealed trait BinaryArithOp extends BinaryOp
+  sealed trait BinaryArithOp extends BinaryOp {
+    def insnTy: IrTy
+  }
 
-  case object IAdd extends BinaryArithOp {
+  sealed trait IBinaryArithOp extends BinaryArithOp {
+    override def insnTy: IrTy = IrTy.Int64Ty
+  }
+
+  case object IAdd extends IBinaryArithOp {
     override def toString: String = "add"
   }
 
-  case object ISub extends BinaryArithOp {
+  case object ISub extends IBinaryArithOp {
     override def toString: String = "sub"
   }
 
-  case object IAnd extends BinaryArithOp {
+  case object IAnd extends IBinaryArithOp {
     override def toString: String = "iand"
   }
 
-  case object IOr extends BinaryArithOp {
+  case object IOr extends IBinaryArithOp {
     override def toString: String = "ior"
   }
 
-  case object IXor extends BinaryArithOp {
+  case object IXor extends IBinaryArithOp {
     override def toString: String = "ixor"
   }
 
   /** Arithmetic shift left */
-  case object IShl extends BinaryArithOp {
+  case object IShl extends IBinaryArithOp {
     override def toString: String = "ishl"
   }
 
   /** Arithmetic shift right */
-  case object IShr extends BinaryArithOp {
+  case object IShr extends IBinaryArithOp {
     override def toString: String = "ishr"
   }
 
-  case object UMul extends BinaryArithOp {
+  case object UMul extends IBinaryArithOp {
     override def toString: String = "umul"
   }
 
-  case object UDiv extends BinaryArithOp {
+  case object UDiv extends IBinaryArithOp {
     override def toString: String = "udiv"
   }
 
-  case object SMul extends BinaryArithOp {
+  case object SMul extends IBinaryArithOp {
     override def toString: String = "smul"
   }
 
-  case object SDiv extends BinaryArithOp {
+  case object SDiv extends IBinaryArithOp {
     override def toString: String = "sdiv"
   }
 
-  case object FAdd extends BinaryArithOp {
+  sealed trait FBinaryArithOp extends BinaryArithOp {
+    override def insnTy: IrTy = IrTy.DoubleTy
+  }
+
+  case object FAdd extends FBinaryArithOp {
     override def toString: String = "fadd"
   }
 
-  case object FSub extends BinaryArithOp {
+  case object FSub extends FBinaryArithOp {
     override def toString: String = "fsub"
   }
 
-  case object FMul extends BinaryArithOp {
+  case object FMul extends FBinaryArithOp {
     override def toString: String = "fmul"
   }
 
-  case object FDiv extends BinaryArithOp {
+  case object FDiv extends FBinaryArithOp {
     override def toString: String = "fdiv"
   }
 
-  sealed trait CmpOp extends BinaryOp
+  sealed trait CmpOp extends BinaryOp {
+    def operandTy: IrTy
+  }
 
-  sealed trait ICmpOp extends CmpOp
+  sealed trait ICmpOp extends CmpOp {
+    def operandTy: IrTy = IrTy.Int64Ty
+  }
 
   case object CmpIEq extends ICmpOp {
     override def toString: String = "cmpieq"
@@ -119,7 +133,9 @@ object IrOpcode {
     override def toString: String = "cmpsge"
   }
 
-  sealed trait FCmpOp extends CmpOp
+  sealed trait FCmpOp extends CmpOp {
+    def operandTy: IrTy = IrTy.DoubleTy
+  }
 
   case object CmpFEq extends FCmpOp {
     override def toString: String = "cmpfeq"

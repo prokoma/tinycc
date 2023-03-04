@@ -83,6 +83,13 @@ class IrPrinter extends IndentPrinter[IrObject] {
       // %0 = loadarg 0
       case insn: LoadArgInsn => out.write(s" ${insn.index}")
 
+      // %0 = load i64 %1
+      case insn: LoadInsn =>
+        out.write(" ")
+        printType(insn.valueTy, out)
+        out.write(" ")
+        printOperands(insn, out)
+
       // %0 = getelementptr i64, ptr %1, [%2].0
       case insn: GetElementPtrInsn =>
         out.write(s" ")

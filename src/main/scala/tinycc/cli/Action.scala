@@ -67,6 +67,7 @@ object Action {
           _ = Console.out.println(new IrPrinter().printToString(irProg))
 
           _ = (new BasicBlockScheduling).transformProgram(irProg)
+          _ = irProg.validate()
           t86Asm <- T86InstructionSelection(irProg).result
           _ = Console.out.println(new T86AsmPrinter().printToString(t86Asm))
 

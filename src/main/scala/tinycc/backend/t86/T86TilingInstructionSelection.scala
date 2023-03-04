@@ -41,9 +41,15 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
     def freshFReg(): Operand.FReg
 
-    def copyFReg(freg: Operand.FReg): Operand.FReg = {
+    def copyToFreshFReg(op: Operand): Operand.FReg = {
+      op match {
+        case _: Operand.FImm | _: Operand.FReg | _: Operand.Reg | _: Operand.MemImm | _: Operand.MemReg =>
+        case _ =>
+          throw new AssertionError(s"unsupported operand type for MOV Fx: $op") // TODO: maybe check operand in emit
+      }
+
       val res = freshFReg()
-      emit(MOV, res, freg)
+      emit(MOV, res, op)
       res
     }
 
@@ -73,29 +79,25 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
   val variables: Seq[Var[_]] = Seq(RegVar, FRegVar)
 
-  protected def emitBinArithInsn(op: T86Opcode): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.Reg] = {
-    case (_, left, right) =>
-      (ctx: Context) => {
-        val res = ctx.copyToFreshReg(left(ctx))
-        ctx.emit(op, res, right(ctx))
-        res
-      }
-  }
-
   def pure[T](value: T): AsmEmitter[T] = (ctx: Context) => value
 
   def constImm(v: Long): AsmPat[Operand.Imm] = Pat(IImm)
     .filter({ case insn: IImmInsn => insn.value == v }) ^^ { case insn: IImmInsn => pure(Operand.Imm(insn.value)) }
 
   lazy val imm: AsmPat[Operand.Imm] = Pat(IImm) ^^ { case insn: IImmInsn => pure(Operand.Imm(insn.value)) }
-  lazy val fimm: AsmPat[Operand.FImm] = Pat(FImm) ^^ { case insn: FImmInsn => pure(Operand.FImm(insn.value)) }
   lazy val regOrImm: AsmPat[Operand] = imm | RegVar
+
+  lazy val fimm: AsmPat[Operand.FImm] = Pat(FImm) ^^ { case insn: FImmInsn => pure(Operand.FImm(insn.value)) }
+  lazy val freg: AsmPat[Operand.FReg] = FRegVar | (RegVar ^^ { reg => (ctx: Context) => ctx.copyToFreshFReg(reg(ctx)) }) // TODO: increase cost for casting between register types
+  lazy val fregOrFimm: AsmPat[Operand] = freg | fimm
+  lazy val regOrFregOrFimm: AsmPat[Operand] = RegVar | fregOrFimm
 
   lazy val memReg: AsmPat[Operand.MemReg] = RegVar ^^ { reg => (ctx: Context) => reg(ctx).mem }
   lazy val memAllocL: AsmPat[Operand.MemRegImm] = Pat(AllocL) ^^ { case insn: AllocLInsn => (ctx: Context) => ctx.resolveAllocL(insn) }
   lazy val memAllocG: AsmPat[Operand.MemImm] = Pat(AllocG) ^^ { case insn: AllocGInsn => (ctx: Context) => ctx.resolveAllocG(insn) }
 
   lazy val memAddr: AsmPat[Operand] = memReg | memAllocL | memAllocG
+  lazy val memRegOrMemImm: AsmPat[Operand] = memReg | memAllocG
 
   protected def emitCmpAndReturnJmpOp(jmpOp: T86Opcode.CondJmpOp): ((Insn, AsmEmitter[Operand.Reg], AsmEmitter[Operand])) => AsmEmitter[T86Opcode.CondJmpOp] = {
     case (_, left, right) =>
@@ -126,6 +128,69 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       }
     )
 
+  protected def emitFloatBinArithInsn(op: T86Opcode): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.FReg] = {
+    case (_, left, right) =>
+      (ctx: Context) => {
+        val res = ctx.copyToFreshFReg(left(ctx))
+        ctx.emit(op, res, right(ctx))
+        res
+      }
+  }
+
+  lazy val floatBinArithInsn: AsmPat[Operand.FReg] = (
+    Pat(FAdd, regOrFregOrFimm, fregOrFimm) ^^ emitFloatBinArithInsn(T86Opcode.FADD) |
+      Pat(FSub, regOrFregOrFimm, fregOrFimm) ^^ emitFloatBinArithInsn(T86Opcode.FSUB) |
+      Pat(FMul, regOrFregOrFimm, fregOrFimm) ^^ emitFloatBinArithInsn(T86Opcode.FMUL) |
+      Pat(FDiv, regOrFregOrFimm, fregOrFimm) ^^ emitFloatBinArithInsn(T86Opcode.FDIV)
+    )
+
+  protected def emitBinArithInsn(op: T86Opcode): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.Reg] = {
+    case (_, left, right) =>
+      (ctx: Context) => {
+        val res = ctx.copyToFreshReg(left(ctx))
+        ctx.emit(op, res, right(ctx))
+        res
+      }
+  }
+
+  protected def fregToReg(freg: AsmEmitter[Operand.FReg]): AsmEmitter[Operand.Reg] =
+    (ctx: Context) => ctx.copyToFreshReg(freg(ctx))
+
+  lazy val castSInt64ToDouble: AsmPat[Operand.FReg] = (
+    Pat(SInt64ToDouble, RegVar) ^^ { case (_, reg) =>
+      (ctx: Context) => {
+        val res = ctx.freshFReg()
+        ctx.emit(EXT, res, reg(ctx))
+        res
+      }
+    } |
+      Pat(SInt64ToDouble, Pat(IImm)) ^^ { case (_, iimm: IImmInsn) =>
+        (ctx: Context) => ctx.copyToFreshFReg(Operand.FImm(iimm.value.toDouble))
+      }
+    )
+
+  lazy val call: AsmPat[Operand] = CallInsnPat(RegVar) ^^ { case (insn, args) =>
+    (ctx: Context) => {
+      args.reverse.foreach(arg => {
+        ctx.emit(PUSH, arg(ctx))
+      })
+      ctx.emit(CALL, ctx.getFunLabel(insn.targetFun.get).toOperand)
+      ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
+      ctx.resolveRetValueCaller()
+    }
+  }
+
+  lazy val callPtr = CallPtrInsnPat(RegVar, RegVar) ^^ { case (insn, ptr, args) =>
+    (ctx: Context) => {
+      args.reverse.foreach(arg => {
+        ctx.emit(PUSH, arg(ctx))
+      })
+      ctx.emit(CALL, ptr(ctx))
+      ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
+      ctx.resolveRetValueCaller()
+    }
+  }
+
   val rules: Seq[GenRule[_]] = Seq(
 
     GenRule(RegVar, Pat(IAdd, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.ADD)),
@@ -139,6 +204,9 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     GenRule(RegVar, Pat(UDiv, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.DIV)),
     GenRule(RegVar, Pat(SMul, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.IMUL)),
     GenRule(RegVar, Pat(SDiv, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.IDIV)),
+
+    GenRule(FRegVar, floatBinArithInsn),
+    GenRule(RegVar, floatBinArithInsn ^^ fregToReg), // TODO: increase cost for casting between register types
 
     // %2 = cmpieq %0, %1
     GenRule(RegVar, cmpInsn ^^ { cmpInsn =>
@@ -177,11 +245,14 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     GenRule(RegVar, Pat(Load, memAddr) ^^ { case (_, memAddr) =>
       (ctx: Context) => ctx.copyToFreshReg(memAddr(ctx))
     }),
+    GenRule(FRegVar, Pat(Load, memRegOrMemImm) ^^ { case (_, memAddr) =>
+      (ctx: Context) => ctx.copyToFreshFReg(memAddr(ctx))
+    }),
 
     GenRule(RegVar, Pat(LoadArg) ^^ { case insn: LoadArgInsn =>
       (ctx: Context) => ctx.copyToFreshReg(ctx.resolveLoadArg(insn))
     }),
-    GenRule(RegVar, Pat(Store, memAddr, regOrImm) ^^ { case (_, memAddr, value) =>
+    GenRule(RegVar, Pat(Store, memAddr, regOrImm | freg) ^^ { case (_, memAddr, value) =>
       (ctx: Context) =>
         ctx.emit(MOV, memAddr(ctx), value(ctx))
         ctx.voidReg()
@@ -189,6 +260,13 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     GenRule(RegVar, Pat(IImm) ^^ { case insn: IImmInsn =>
       (ctx: Context) => ctx.copyToFreshReg(Operand.Imm(insn.value))
     }),
+    GenRule(FRegVar, Pat(FImm) ^^ { case insn: FImmInsn =>
+      (ctx: Context) => ctx.copyToFreshFReg(Operand.FImm(insn.value))
+    }),
+    GenRule(RegVar, Pat(FImm) ^^ { case insn: FImmInsn =>
+      (ctx: Context) => ctx.copyToFreshFReg(Operand.FImm(insn.value))
+    } ^^ fregToReg),
+
     GenRule(RegVar, Pat(GetElementPtr, RegVar, RegVar) ^^ { case (insn: GetElementPtrInsn, base, index) =>
       (ctx: Context) => {
         val res = ctx.freshReg()
@@ -199,26 +277,13 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
         res
       }
     }),
-    GenRule(RegVar, CallInsnPat[RegVar.ValueTy](RegVar) ^^ { case (insn, args) =>
-      (ctx: Context) => {
-        args.reverse.foreach(arg => {
-          ctx.emit(PUSH, arg(ctx))
-        })
-        ctx.emit(CALL, ctx.getFunLabel(insn.targetFun.get).toOperand)
-        ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
-        ctx.copyToFreshReg(ctx.resolveRetValueCaller())
-      }
-    }),
-    GenRule(RegVar, CallPtrInsnPat[RegVar.ValueTy, RegVar.ValueTy](RegVar, RegVar) ^^ { case (insn, ptr, args) =>
-      (ctx: Context) => {
-        args.reverse.foreach(arg => {
-          ctx.emit(PUSH, arg(ctx))
-        })
-        ctx.emit(CALL, ptr(ctx))
-        ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
-        ctx.copyToFreshReg(ctx.resolveRetValueCaller())
-      }
-    }),
+
+    GenRule(RegVar, call ^^ { retValue => (ctx: Context) => ctx.copyToFreshReg(retValue(ctx)) }),
+    GenRule(FRegVar, call ^^ { retValue => (ctx: Context) => ctx.copyToFreshFReg(retValue(ctx)) }),
+
+    GenRule(RegVar, callPtr ^^ { retValue => (ctx: Context) => ctx.copyToFreshReg(retValue(ctx)) }),
+    GenRule(FRegVar, callPtr ^^ { retValue => (ctx: Context) => ctx.copyToFreshFReg(retValue(ctx)) }),
+
     GenRule(RegVar, Pat(PutChar, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(PUTCHAR, reg(ctx))
@@ -238,7 +303,18 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
         res
       }
     }),
+    GenRule(RegVar, Pat(DoubleToSInt64, freg) ^^ { case (_, freg) =>
+      (ctx: Context) => {
+        val res = ctx.freshReg()
+        ctx.emit(NRW, res, freg(ctx))
+        res
+      }
+    }),
+
     // Cast
+    GenRule(FRegVar, castSInt64ToDouble),
+    GenRule(RegVar, castSInt64ToDouble ^^ fregToReg),
+
     // Phi
     GenRule(RegVar, Pat(Ret, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
@@ -275,6 +351,8 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     }),
 
   ).flatMap(_.flatten)
+
+  Console.err.println(s"Using ${rules.size} rules")
 
   // we need to convert an IrProgram into list of T86 instructions with virtual registers
   // at first, we are doing instruction selection locally for each block - the only exceptions are allocl and allocg, but those don't emit any code
@@ -405,10 +483,24 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
     prologueBuilder += T86Insn(MOV, Operand.BP, Operand.SP)
     prologueBuilder += T86Insn(SUB, Operand.SP, Operand.Imm(localsSize))
     // TODO: if arguments are passed via registers, copy them to fresh registers
-    backupRegs.foreach(reg => prologueBuilder += T86Insn(PUSH, reg))
+    backupRegs.foreach({
+      case reg: Operand.Reg =>
+        prologueBuilder += T86Insn(PUSH, reg)
+      case freg: Operand.FReg =>
+        prologueBuilder += T86Insn(FPUSH, freg)
+      case op =>
+        throw new IllegalArgumentException(op.toString)
+    })
 
     val epilogueBuilder = Seq.newBuilder[T86ProgramElement]
-    backupRegs.reverse.foreach(reg => epilogueBuilder += T86Insn(POP, reg))
+    backupRegs.reverse.foreach({
+      case reg: Operand.Reg =>
+        epilogueBuilder += T86Insn(POP, reg)
+      case freg: Operand.FReg =>
+        epilogueBuilder += T86Insn(FPOP, freg)
+      case op =>
+        throw new IllegalArgumentException(op.toString)
+    })
     epilogueBuilder += T86Insn(MOV, Operand.SP, Operand.BP)
     epilogueBuilder += T86Insn(POP, Operand.BP)
     epilogueBuilder += T86Insn(RET)

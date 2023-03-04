@@ -283,11 +283,11 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         appendAndEnterBlock(new BasicBlock("unreachable", fun))
 
       case node: AstWrite =>
-        val value = compileExpr(node.expr)
+        val value = compileExprAndCastTo(node.expr, CharTy)
         emit(new PutCharInsn(value, _))
 
       case node: AstWriteNum =>
-        val value = compileExpr(node.expr)
+        val value = compileExprAndCastTo(node.expr, IntTy)
         emit(new PutNumInsn(value, _))
 
       case _: AstSequence | _: AstBlock | _: AstProgram =>
@@ -432,11 +432,11 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node: AstDeref =>
         val value = compileExpr(node.expr)
-        emit(new LoadInsn(value, _))
+        emit(new LoadInsn(compileType(node.ty), value, _))
 
       case node: AstIndex =>
         val expr = compileExpr(node.expr)
-        val index = compileExpr(node.index)
+        val index = compileExprAndCastTo(node.index, IntTy)
 
         node.expr.ty match {
           case exprTy: IndexableTy =>
@@ -469,7 +469,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node =>
         val resultPtr = compileExprPtr(node)
-        emit(new LoadInsn(resultPtr, _))
+        emit(new LoadInsn(compileType(node.ty), resultPtr, _))
     }
 
     @tailrec
@@ -511,7 +511,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
     private def compileIncDec(op: Symbol, expr: AstNode, isPostfix: Boolean): Insn = {
       val exprPtr = compileExprPtr(expr)
-      val oldValue = emit(new LoadInsn(exprPtr, _))
+      val oldValue = emit(new LoadInsn(compileType(expr.ty), exprPtr, _))
       val delta = if (op == Symbols.inc) 1 else -1
 
       val newValue = expr.ty match {
@@ -680,7 +680,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         emit(new BrInsn(contBlock, _))
 
         appendAndEnterBlock(contBlock)
-        emit(new LoadInsn(resultPtr, _))
+        emit(new LoadInsn(IrTy.Int64Ty, resultPtr, _))
 
       case (Symbols.or, _, _) =>
         val leftFalseBlock = new BasicBlock("leftFalse", fun)
@@ -699,7 +699,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         emit(new BrInsn(contBlock, _))
 
         appendAndEnterBlock(contBlock)
-        emit(new LoadInsn(resultPtr, _))
+        emit(new LoadInsn(IrTy.Int64Ty, resultPtr, _))
     }
   }
 

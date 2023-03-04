@@ -54,9 +54,12 @@ sealed abstract class BinaryInsn(leftOpTgt: Insn, rightOpTgt: Insn, val basicBlo
 }
 
 class BinaryArithInsn(val op: IrOpcode.BinaryArithOp, leftOpTgt: Insn, rightOpTgt: Insn, basicBlock: BasicBlock) extends BinaryInsn(leftOpTgt, rightOpTgt, basicBlock) {
-  override def resultTy: IrTy = {
-    assert(leftOp.get.resultTy == rightOp.get.resultTy)
-    leftOp.get.resultTy
+  override def resultTy: IrTy = op.insnTy
+
+  override def validate(): Unit = {
+    super.validate()
+    assert(leftOp.get.resultTy == op.insnTy)
+    assert(rightOp.get.resultTy == op.insnTy)
   }
 
   override def copy(newBlock: BasicBlock): Insn = new BinaryArithInsn(op, leftOp.get, rightOp.get, newBlock)
@@ -65,6 +68,12 @@ class BinaryArithInsn(val op: IrOpcode.BinaryArithOp, leftOpTgt: Insn, rightOpTg
 /** All compare instructions return either 0 or 1. */
 class CmpInsn(val op: IrOpcode.CmpOp, leftOpTgt: Insn, rightOpTgt: Insn, basicBlock: BasicBlock) extends BinaryInsn(leftOpTgt, rightOpTgt, basicBlock) {
   override def resultTy: IrTy = IrTy.Int64Ty
+
+  override def validate(): Unit = {
+    super.validate()
+    assert(leftOp.get.resultTy == op.operandTy)
+    assert(rightOp.get.resultTy == op.operandTy)
+  }
 
   override def copy(newBlock: BasicBlock): Insn = new CmpInsn(op, leftOp.get, rightOp.get, newBlock)
 }
@@ -94,16 +103,16 @@ class AllocGInsn(varTy: IrTy, val initData: Seq[Byte], basicBlock: BasicBlock) e
   }
 }
 
-class LoadInsn(addrTgt: Insn, val basicBlock: BasicBlock) extends Insn {
+class LoadInsn(val valueTy: IrTy, addrTgt: Insn, val basicBlock: BasicBlock) extends Insn {
   val addr: OperandRef = new OperandRef(this, Some(addrTgt))
 
   override def op: IrOpcode = IrOpcode.Load
 
-  override def resultTy: IrTy = IrTy.Int64Ty
+  override def resultTy: IrTy = valueTy
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(addr)
 
-  override def copy(newBlock: BasicBlock): LoadInsn = new LoadInsn(addr.get, newBlock)
+  override def copy(newBlock: BasicBlock): LoadInsn = new LoadInsn(valueTy, addr.get, newBlock)
 }
 
 class StoreInsn(addrTgt: Insn, valueTgt: Insn, val basicBlock: BasicBlock) extends Insn {
@@ -131,6 +140,12 @@ class GetElementPtrInsn(baseTgt: Insn, indexTgt: Insn, val elemTy: IrTy, val fie
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(base, index)
 
+  override def validate(): Unit = {
+    super.validate()
+    assert(base.get.resultTy == IrTy.PtrTy)
+    assert(index.get.resultTy == IrTy.Int64Ty)
+  }
+
   override def copy(newBlock: BasicBlock): GetElementPtrInsn = new GetElementPtrInsn(base.get, index.get, elemTy, fieldIndex, newBlock)
 }
 
@@ -149,7 +164,7 @@ class GetFunPtrInsn(targetFunTgt: IrFun, val basicBlock: BasicBlock) extends Ins
 class LoadArgInsn(val index: Int, val basicBlock: BasicBlock) extends Insn {
   override def op: IrOpcode = IrOpcode.LoadArg
 
-  override def resultTy: IrTy = IrTy.PtrTy
+  override def resultTy: IrTy = basicBlock.fun.argTys(index)
 
   override def copy(newBlock: BasicBlock): LoadArgInsn = new LoadArgInsn(index, newBlock)
 }
@@ -226,6 +241,11 @@ class PutCharInsn(argTgt: Insn, val basicBlock: BasicBlock) extends Insn {
 
   override def hasSideEffects: Boolean = true
 
+  override def validate(): Unit = {
+    super.validate()
+    assert(arg.get.resultTy == IrTy.Int64Ty)
+  }
+
   override def copy(newBlock: BasicBlock): PutCharInsn = new PutCharInsn(arg.get, newBlock)
 }
 
@@ -239,6 +259,11 @@ class PutNumInsn(argTgt: Insn, val basicBlock: BasicBlock) extends Insn {
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(arg)
 
   override def hasSideEffects: Boolean = true
+
+  override def validate(): Unit = {
+    super.validate()
+    assert(arg.get.resultTy == IrTy.Int64Ty)
+  }
 
   override def copy(newBlock: BasicBlock): PutNumInsn = new PutNumInsn(arg.get, newBlock)
 }
@@ -257,6 +282,8 @@ class CastInsn(val op: IrOpcode.CastOp, argTgt: Insn, val basicBlock: BasicBlock
   val arg: OperandRef = new OperandRef(this, Some(argTgt))
 
   override def resultTy: IrTy = op.resultTy
+
+  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(arg)
 
   override def copy(newBlock: BasicBlock): Insn = new CastInsn(op, arg.get, newBlock)
 
@@ -279,6 +306,11 @@ class RetInsn(retValTgt: Insn, val basicBlock: BasicBlock) extends IrFunExitPoin
 
   override def succBlockRefs: Seq[TerminatorSuccRef] = Seq.empty
 
+  override def validate(): Unit = {
+    super.validate()
+    assert(retVal.get.resultTy == basicBlock.fun.returnTy)
+  }
+
   override def copy(newBlock: BasicBlock): RetInsn = new RetInsn(retVal.get, newBlock)
 }
 
@@ -286,6 +318,11 @@ class RetVoidInsn(val basicBlock: BasicBlock) extends IrFunExitPoint {
   override def op: IrOpcode = IrOpcode.RetVoid
 
   override def succBlockRefs: Seq[TerminatorSuccRef] = Seq.empty
+
+  override def validate(): Unit = {
+    super.validate()
+    assert(basicBlock.fun.returnTy == IrTy.VoidTy)
+  }
 
   override def copy(newBlock: BasicBlock): RetVoidInsn = new RetVoidInsn(newBlock)
 }

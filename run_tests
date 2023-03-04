@@ -41,7 +41,7 @@ run_test () {
     return 1
   fi
 
-  "$T86_CLI_BIN" run "$asmfile" -registerCnt=30 >"$asmout"
+  "$T86_CLI_BIN" run "$asmfile" -registerCnt=32 -floatRegisterCnt=8 >"$asmout"
 
   fancy_diff "$expected" "$asmout"
 }
