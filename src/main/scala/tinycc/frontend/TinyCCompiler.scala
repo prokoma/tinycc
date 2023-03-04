@@ -127,7 +127,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val falseBlock = new BasicBlock("ifFalse", fun)
         val contBlock = new BasicBlock("ifCont", fun)
 
-        val cond = compileExpr(node.guard)
+        val cond = compileExprAndCastToBool(node.guard)
         emit(new CondBrInsn(cond, trueBlock, falseBlock, _))
 
         appendAndEnterBlock(trueBlock)
@@ -148,7 +148,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         emit(new BrInsn(condBlock, _))
 
         appendAndEnterBlock(condBlock)
-        val cond = compileExpr(node.guard)
+        val cond = compileExprAndCastToBool(node.guard)
         emit(new CondBrInsn(cond, bodyBlock, contBlock, _))
 
         appendAndEnterBlock(bodyBlock)
@@ -173,7 +173,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         emit(new BrInsn(condBlock, _))
 
         appendAndEnterBlock(condBlock)
-        val cond = compileExpr(node.guard)
+        val cond = compileExprAndCastToBool(node.guard)
         emit(new CondBrInsn(cond, bodyBlock, contBlock, _))
 
         appendAndEnterBlock(contBlock)
@@ -190,7 +190,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         appendAndEnterBlock(condBlock)
         node.guard match {
           case Some(c) =>
-            val cond = compileExpr(c)
+            val cond = compileExprAndCastToBool(c)
             emit(new CondBrInsn(cond, bodyBlock, contBlock, _))
 
           case None =>
@@ -213,7 +213,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val contBlock = new BasicBlock("switchCont", fun)
         val defaultBlock = new BasicBlock("switchDefault", fun)
 
-        val cond = compileExpr(node.guard)
+        val cond = compileExprAndCastTo(node.guard, IntTy)
         val caseBlocks = node.cases.map({ case (value, _) =>
           val caseBlock = new BasicBlock(s"switchCase$value", fun)
           val caseContBlock = new BasicBlock(s"switchCase${value}Cont", fun)
@@ -503,6 +503,13 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     private def compileExprAndCastTo(expr: AstNode, toTy: Types.Ty): Insn =
       compileCastFromTo(compileExpr(expr), expr.ty, toTy, expr.loc)
 
+    private def compileExprAndCastToBool(expr: AstNode): Insn = expr.ty match {
+      case DoubleTy =>
+        emitCmp(CmpFNe, compileExpr(expr), emitFImm(0))
+
+      case _ => compileExprAndCastTo(expr, IntTy)
+    }
+
     private def compileFunSignature(ty: FunTy): IrFunSignature =
       IrFunSignature(compileType(ty.returnTy), ty.argTys.map(compileType))
 
@@ -602,13 +609,6 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           case Symbols.sub => emitBinaryArith(FSub, leftDouble, rightDouble)
           case Symbols.mul => emitBinaryArith(FMul, leftDouble, rightDouble)
           case Symbols.div => emitBinaryArith(FDiv, leftDouble, rightDouble)
-
-          case Symbols.mod =>
-            val divRes = emitBinaryArith(SDiv, leftDouble, rightDouble)
-            val divResInt = emit(new CastInsn(IrOpcode.DoubleToSInt64, divRes, _))
-            val divResFloor = emit(new CastInsn(IrOpcode.SInt64ToDouble, divResInt, _))
-            val mulRes = emitBinaryArith(SMul, divResFloor, rightDouble)
-            emitBinaryArith(FSub, leftDouble, mulRes)
         }
 
       case (Symbols.add | Symbols.sub, PtrTy(baseTy)) =>

@@ -1,7 +1,8 @@
 package tinycc.cli
 
 import tinycc.backend.BasicBlockScheduling
-import tinycc.backend.t86.{T86AsmPrinter, T86InstructionSelection, T86LabelProcessor}
+import tinycc.backend.t86.insel.T86InstructionSelection
+import tinycc.backend.t86.{T86AsmPrinter, T86LabelProcessor}
 import tinycc.common.ir.IrPrinter
 import tinycc.frontend.analysis.{SemanticAnalysis, TypeAnalysis}
 import tinycc.frontend.ast.{AstPrinter, AstPrinterC}

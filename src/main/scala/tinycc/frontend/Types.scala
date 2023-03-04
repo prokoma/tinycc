@@ -88,7 +88,7 @@ object Types {
     })
 
     override def isExplicitlyCastableFrom(other: Ty): Boolean = super.isExplicitlyCastableFrom(other) || (other match {
-      case IndexableTy(VoidTy) => true
+      case _: IndexableTy => true
       case _ => false
     })
 
