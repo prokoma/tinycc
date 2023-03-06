@@ -258,7 +258,7 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
 case class IrFunSignature(returnType: IrTy, argTypes: Seq[IrTy])
 
 class IrFun(val name: String, val returnTy: IrTy, val argTys: IndexedSeq[IrTy], val program: IrProgram) extends IrObject with UseTracking[IrFunRef, IrFun] {
-  var basicBlocks: mutable.IndexedBuffer[BasicBlock] = mutable.IndexedBuffer.empty
+  val basicBlocks: mutable.IndexedBuffer[BasicBlock] = mutable.IndexedBuffer.empty
 
   def signature: IrFunSignature = IrFunSignature(returnTy, argTys)
 

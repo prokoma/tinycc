@@ -1,5 +1,7 @@
 package tinycc.backend.t86
 
+import scala.collection.mutable
+
 sealed trait Operand extends Product with Serializable
 
 object Operand {
@@ -112,17 +114,17 @@ object Operand {
   }
 }
 
-sealed trait T86ProgramElement extends Product with Serializable
+sealed trait T86ListingElement extends Product with Serializable
 
-case class T86Comment(value: String) extends T86ProgramElement
+case class T86Comment(value: String) extends T86ListingElement
 
-case class T86SectionLabel(symbol: Symbol) extends T86ProgramElement
+case class T86SectionLabel(symbol: Symbol) extends T86ListingElement
 
 object T86SectionLabel {
   def apply(name: String): T86SectionLabel = T86SectionLabel(Symbol(name))
 }
 
-case class T86Label(symbol: Symbol) extends T86ProgramElement {
+case class T86Label(symbol: Symbol) extends T86ListingElement {
   def toOperand: Operand.Label = Operand.Label(symbol)
 }
 
@@ -130,7 +132,7 @@ object T86Label {
   def apply(name: String): T86Label = T86Label(Symbol(name))
 }
 
-sealed trait T86Insn extends T86ProgramElement {
+sealed trait T86Insn extends T86ListingElement {
   def op: T86Opcode
 
   def validate(): Unit = {}
@@ -139,19 +141,59 @@ sealed trait T86Insn extends T86ProgramElement {
 }
 
 object T86Insn {
-  def apply(op: T86Opcode): NullaryT86Insn = NullaryT86Insn(op)
+  def unapply(insn: T86Insn): Option[T86Opcode] = Some(insn.op)
 
-  def apply(op: T86Opcode, operand: Operand): UnaryT86Insn = UnaryT86Insn(op, operand)
+  def apply(op: T86Opcode.NullaryOp): NullaryT86Insn = NullaryT86Insn(op)
 
-  def apply(op: T86Opcode, left: Operand, right: Operand): BinaryT86Insn = BinaryT86Insn(op, left, right)
+  def apply(op: T86Opcode.UnaryOp, operand: Operand): UnaryT86Insn = UnaryT86Insn(op, operand)
+
+  def apply(op: T86Opcode.BinaryOp, left: Operand, right: Operand): BinaryT86Insn = BinaryT86Insn(op, left, right)
 }
 
-case class NullaryT86Insn(op: T86Opcode) extends T86Insn
+case class NullaryT86Insn(op: T86Opcode.NullaryOp) extends T86Insn
 
-case class UnaryT86Insn(op: T86Opcode, operand0: Operand) extends T86Insn {
+case class UnaryT86Insn(op: T86Opcode.UnaryOp, operand0: Operand) extends T86Insn {
   override def operands: Seq[Operand] = Seq(operand0)
 }
 
-case class BinaryT86Insn(op: T86Opcode, operand0: Operand, operand1: Operand) extends T86Insn {
+case class BinaryT86Insn(op: T86Opcode.BinaryOp, operand0: Operand, operand1: Operand) extends T86Insn {
   override def operands: Seq[Operand] = Seq(operand0, operand1)
+}
+
+class T86Program() {
+  val funs: mutable.IndexedBuffer[T86Fun] = mutable.IndexedBuffer.empty
+}
+
+object T86Program {
+  def apply(funs: Iterable[T86Fun]): T86Program = {
+    val res = new T86Program
+    res.funs ++= funs
+    res
+  }
+}
+
+class T86Fun() {
+  val basicBlocks: mutable.IndexedBuffer[T86BasicBlock] = mutable.IndexedBuffer.empty
+}
+
+object T86Fun {
+  def apply(basicBlocks: Iterable[T86BasicBlock]): T86Fun = {
+    val res = new T86Fun
+    res.basicBlocks ++= basicBlocks
+    res
+  }
+}
+
+class T86BasicBlock(val fun: T86Fun) {
+  val body: mutable.IndexedBuffer[T86ListingElement] = mutable.IndexedBuffer.empty
+
+  def insns: Seq[T86Insn] = body.collect({ case insn: T86Insn => insn }).toSeq
+}
+
+object T86BasicBlock {
+  def apply(body: Iterable[T86ListingElement], fun: T86Fun): T86BasicBlock = {
+    val res = new T86BasicBlock(fun)
+    res.body ++= body
+    res
+  }
 }

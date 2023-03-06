@@ -30,7 +30,7 @@ class T86LabelProcessor(program: T86Program) {
       case _ =>
     })
 
-    val newProgram = Seq.newBuilder[T86ProgramElement]
+    val newProgram = Seq.newBuilder[T86ListingElement]
     program.foreach({
       case insn: NullaryT86Insn => newProgram += insn
 

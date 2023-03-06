@@ -11,13 +11,13 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
   trait Context {
     def resolveVar[T](v: Var[AsmEmitter[T]], insn: Insn): T
 
-    def emit(el: T86ProgramElement): Unit
+    def emit(el: T86ListingElement): Unit
 
-    def emit(op: T86Opcode): Unit = emit(T86Insn(op))
+    def emit(op: T86Opcode.NullaryOp): Unit = emit(T86Insn(op))
 
-    def emit(op: T86Opcode, operand: Operand): Unit = emit(T86Insn(op, operand))
+    def emit(op: T86Opcode.UnaryOp, operand: Operand): Unit = emit(T86Insn(op, operand))
 
-    def emit(op: T86Opcode, operand0: Operand, operand1: Operand): Unit = emit(T86Insn(op, operand0, operand1))
+    def emit(op: T86Opcode.BinaryOp, operand0: Operand, operand1: Operand): Unit = emit(T86Insn(op, operand0, operand1))
 
     def freshLabel(): T86Label
 
@@ -156,7 +156,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
   lazy val cmpInsn: AsmPat[CondJmpOp] = icmpInsn | fcmpInsn
 
-  protected def emitFloatBinArithInsn(op: T86Opcode): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.FReg] = {
+  protected def emitFloatBinArithInsn(op: T86Opcode.BinaryOp): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.FReg] = {
     case (_, left, right) =>
       (ctx: Context) => {
         val res = ctx.copyToFreshFReg(left(ctx))
@@ -172,7 +172,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       Pat(FDiv, regOrFregOrFimm, fregOrFimm) ^^ emitFloatBinArithInsn(T86Opcode.FDIV)
     )
 
-  protected def emitBinArithInsn(op: T86Opcode): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.Reg] = {
+  protected def emitBinArithInsn(op: T86Opcode.BinaryOp): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.Reg] = {
     case (_, left, right) =>
       (ctx: Context) => {
         val res = ctx.copyToFreshReg(left(ctx))
@@ -332,6 +332,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
         res
       }
     }),
+
     GenRule(RegVar, Pat(DoubleToSInt64, freg) ^^ { case (_, freg) =>
       (ctx: Context) => {
         val res = ctx.freshReg()
@@ -339,12 +340,18 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
         res
       }
     }),
-
-    // Cast
+    GenRule(RegVar, Pat(BitcastDoubleToInt64, regOrFregOrFimm) ^^ { case (_, value) =>
+      (ctx: Context) => ctx.copyToFreshReg(value(ctx))
+    }),
     GenRule(FRegVar, castSInt64ToDouble),
     GenRule(RegVar, castSInt64ToDouble ^^ fregToReg),
+    GenRule(FRegVar, Pat(BitcastInt64ToDouble, RegVar) ^^ { case (_, reg) =>
+      (ctx: Context) => ctx.copyToFreshFReg(reg(ctx))
+    }),
+    GenRule(RegVar, Pat(BitcastInt64ToDouble, RegVar) ^^ { case (_, reg) => reg }),
 
-    // Phi
+    // TODO: Phi
+
     GenRule(RegVar, Pat(Ret, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(MOV, ctx.resolveRetValueCallee(), reg(ctx))

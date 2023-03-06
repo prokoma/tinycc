@@ -8,7 +8,7 @@ class T86AsmPrinter extends IndentPrinter[T86Program] {
     obj.foreach(printElement(_, out))
   }
 
-  private def printElement(el: T86ProgramElement, out: IndentWriter): Unit = el match {
+  private def printElement(el: T86ListingElement, out: IndentWriter): Unit = el match {
     case T86Comment(value) =>
       out.write(s"# $value\n")
 

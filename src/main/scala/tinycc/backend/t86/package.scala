@@ -4,7 +4,9 @@ import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 package object t86 {
-  type T86Program = Seq[T86ProgramElement]
+  type T86Listing = Seq[T86ListingElement]
 
-  type T86ProgramBuilder = mutable.ListBuffer[T86ProgramElement]
+//  def T86Listing: Seq.type = Seq
+
+//  type T86ListingBuilder = mutable.ListBuffer[T86ListingElement]
 }

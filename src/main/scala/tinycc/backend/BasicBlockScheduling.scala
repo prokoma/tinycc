@@ -28,6 +28,7 @@ class BasicBlockScheduling {
     }
 
     dfs(fun.entryBlock)
-    fun.basicBlocks = sortedBasicBlocks
+    fun.basicBlocks.clear()
+    fun.basicBlocks ++= sortedBasicBlocks
   }
 }

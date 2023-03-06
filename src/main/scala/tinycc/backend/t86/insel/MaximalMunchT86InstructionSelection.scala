@@ -38,7 +38,7 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
   private var globalsSize: Long = 0
   private val globalsMap = mutable.Map.empty[AllocGInsn, Long]
 
-  lazy val result: Either[BackendException, T86Program] = {
+  lazy val result: Either[BackendException, T86Listing] = {
     val textSection = T86SectionLabel("text") +: program.funs.map(tileIrFun).reduce(_ ++ _)
     Right(textSection)
   }
@@ -48,8 +48,8 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
 
   private lazy val sortedRules = rules.sortBy(r => -r.rhs.size)
 
-  def tileIrFun(fun: IrFun): T86Program = {
-    val codeBuilder = Seq.newBuilder[T86ProgramElement]
+  def tileIrFun(fun: IrFun): T86Listing = {
+    val codeBuilder = Seq.newBuilder[T86ListingElement]
 
     var localsSize: Long = 0
     val localsMap = mutable.Map.empty[AllocLInsn, Long]
@@ -71,7 +71,7 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
 
       override def resolveVar[T](v: Var[AsmEmitter[T]], insn: Insn): T = tileResults((v, insn)).asInstanceOf[T]
 
-      override def emit(el: T86ProgramElement): Unit =
+      override def emit(el: T86ListingElement): Unit =
         codeBuilder += el
 
       override def freshReg(): Operand.Reg = {
@@ -129,7 +129,7 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
 
     fun.basicBlocks.foreach(bb => tileBasicBlock(bb, ctx))
 
-    val prologueBuilder = Seq.newBuilder[T86ProgramElement]
+    val prologueBuilder = Seq.newBuilder[T86ListingElement]
     prologueBuilder += T86Label(fun.name)
     prologueBuilder += T86Insn(PUSH, Operand.BP)
     prologueBuilder += T86Insn(MOV, Operand.BP, Operand.SP)
@@ -144,7 +144,7 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
         throw new IllegalArgumentException(op.toString)
     })
 
-    val epilogueBuilder = Seq.newBuilder[T86ProgramElement]
+    val epilogueBuilder = Seq.newBuilder[T86ListingElement]
     backupRegs.reverse.foreach({
       case reg: Operand.Reg =>
         epilogueBuilder += T86Insn(POP, reg)

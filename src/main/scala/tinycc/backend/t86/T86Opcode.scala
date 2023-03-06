@@ -3,61 +3,50 @@ package tinycc.backend.t86
 sealed trait T86Opcode extends Product with Serializable
 
 object T86Opcode {
-  case object MOV extends T86Opcode
 
-  case object LEA extends T86Opcode
+  sealed trait NullaryOp extends T86Opcode
 
-  case object NOP extends T86Opcode
+  case object NOP extends NullaryOp
 
-  case object HALT extends T86Opcode
+  case object HALT extends NullaryOp
 
-  case object DBG extends T86Opcode
+  case object DBG extends NullaryOp
 
-  case object BREAK extends T86Opcode
+  case object BREAK extends NullaryOp
 
-  case object ADD extends T86Opcode
+  case object CLF extends NullaryOp
 
-  case object SUB extends T86Opcode
+  case object RET extends NullaryOp
 
-  case object INC extends T86Opcode
+  sealed trait UnaryOp extends T86Opcode
 
-  case object DEC extends T86Opcode
+  case object NOT extends UnaryOp
 
-  case object NEG extends T86Opcode
+  case object NEG extends UnaryOp
 
-  case object MUL extends T86Opcode
+  case object INC extends UnaryOp
 
-  case object DIV extends T86Opcode
+  case object DEC extends UnaryOp
 
-  case object MOD extends T86Opcode
+  case object JMP extends UnaryOp
 
-  case object IMUL extends T86Opcode
+  case object CALL extends UnaryOp
 
-  case object IDIV extends T86Opcode
+  case object PUSH extends UnaryOp
 
-  case object AND extends T86Opcode
+  case object FPUSH extends UnaryOp
 
-  case object OR extends T86Opcode
+  case object POP extends UnaryOp
 
-  case object XOR extends T86Opcode
+  case object FPOP extends UnaryOp
 
-  case object NOT extends T86Opcode
+  case object PUTCHAR extends UnaryOp
 
-  case object LSH extends T86Opcode
+  case object PUTNUM extends UnaryOp
 
-  case object RSH extends T86Opcode
+  case object GETCHAR extends UnaryOp
 
-  case object CLF extends T86Opcode
-
-  case object CMP extends T86Opcode
-
-  case object FCMP extends T86Opcode
-
-  case object JMP extends T86Opcode
-
-  case object LOOP extends T86Opcode
-
-  sealed trait CondJmpOp extends T86Opcode {
+  sealed trait CondJmpOp extends UnaryOp {
     def neg: CondJmpOp
   }
 
@@ -125,33 +114,51 @@ object T86Opcode {
     override def neg: CondJmpOp = JS
   }
 
-  case object CALL extends T86Opcode
+  sealed trait BinaryOp extends T86Opcode
 
-  case object RET extends T86Opcode
+  case object MOV extends BinaryOp
 
-  case object PUSH extends T86Opcode
+  case object LEA extends BinaryOp
 
-  case object FPUSH extends T86Opcode
+  case object ADD extends BinaryOp
 
-  case object POP extends T86Opcode
+  case object SUB extends BinaryOp
 
-  case object FPOP extends T86Opcode
+  case object MUL extends BinaryOp
 
-  case object PUTCHAR extends T86Opcode
+  case object DIV extends BinaryOp
 
-  case object PUTNUM extends T86Opcode
+  case object MOD extends BinaryOp
 
-  case object GETCHAR extends T86Opcode
+  case object IMUL extends BinaryOp
 
-  case object FADD extends T86Opcode
+  case object IDIV extends BinaryOp
 
-  case object FSUB extends T86Opcode
+  case object AND extends BinaryOp
 
-  case object FMUL extends T86Opcode
+  case object OR extends BinaryOp
 
-  case object FDIV extends T86Opcode
+  case object XOR extends BinaryOp
 
-  case object EXT extends T86Opcode
+  case object LSH extends BinaryOp
 
-  case object NRW extends T86Opcode
+  case object RSH extends BinaryOp
+
+  case object FADD extends BinaryOp
+
+  case object FSUB extends BinaryOp
+
+  case object FMUL extends BinaryOp
+
+  case object FDIV extends BinaryOp
+
+  case object CMP extends BinaryOp
+
+  case object FCMP extends BinaryOp
+
+  case object EXT extends BinaryOp
+
+  case object NRW extends BinaryOp
+
+  case object LOOP extends BinaryOp
 }
