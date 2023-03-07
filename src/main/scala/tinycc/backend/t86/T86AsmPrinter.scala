@@ -12,6 +12,9 @@ class T86AsmPrinter extends IndentPrinter[T86Listing] {
     case T86Comment(value) =>
       out.write(s"# $value\n")
 
+    case el: T86SpecialLabel =>
+      out.write(s"# $el\n")
+
     case T86SectionLabel(symbol) =>
       out.dedent()
       out.write("." + symbol.name + "\n")

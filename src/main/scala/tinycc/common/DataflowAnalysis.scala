@@ -59,7 +59,7 @@ trait DataflowAnalysis {
   def forward: Boolean
 
   /** We join over those dependencies. */
-  def getNodeDependencies(node: CfgNode): Iterable[CfgNode]
+  protected def getNodeDependencies(node: CfgNode): Iterable[CfgNode]
 
   def join(node: CfgNode, cfgState: CfgState): NodeState = {
     val prevStates = getNodeDependencies(node).map(w => cfgState(w)) // state of all preds (forward) or succ (reverse)

@@ -27,8 +27,6 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
     def getFunLabel(fun: IrFun): T86Label = getBasicBlockLabel(fun.entryBlock)
 
-    def voidReg(): Operand.Reg = Operand.BasicReg(0)
-
     def freshReg(): Operand.Reg
 
     def copyToFreshReg(op: Operand): Operand.Reg = {
@@ -250,7 +248,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
         val jmpOp = cmpInsn(ctx)
         ctx.emit(jmpOp, ctx.getBasicBlockLabel(condBrInsn.trueBlock.get).toOperand)
         ctx.emit(JMP, ctx.getBasicBlockLabel(condBrInsn.falseBlock.get).toOperand)
-        ctx.voidReg()
+        ctx.freshReg()
       }
     }),
 
@@ -277,7 +275,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     GenRule(RegVar, Pat(Store, memAddr, regOrImm | freg) ^^ { case (_, memAddr, value) =>
       (ctx: Context) =>
         ctx.emit(MOV, memAddr(ctx), value(ctx))
-        ctx.voidReg()
+        ctx.freshReg()
     }),
     GenRule(RegVar, Pat(IImm) ^^ { case insn: IImmInsn =>
       (ctx: Context) => ctx.copyToFreshReg(Operand.Imm(insn.value))
@@ -309,13 +307,13 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     GenRule(RegVar, Pat(PutChar, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(PUTCHAR, reg(ctx))
-        ctx.voidReg()
+        ctx.freshReg()
       }
     }),
     GenRule(RegVar, Pat(PutNum, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(PUTNUM, reg(ctx))
-        ctx.voidReg()
+        ctx.freshReg()
       }
     }),
     GenRule(RegVar, Pat(GetChar) ^^ { insn =>
@@ -349,24 +347,24 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       (ctx: Context) => {
         ctx.emit(MOV, Operand.BasicReg(0), reg(ctx))
         ctx.emit(T86SpecialLabel.FunEpilogueMarker)
-        ctx.voidReg()
+        ctx.freshReg()
       }
     }),
     GenRule(RegVar, Pat(RetVoid) ^^ { _ =>
       (ctx: Context) =>
         ctx.emit(T86SpecialLabel.FunEpilogueMarker)
-        ctx.voidReg()
+        ctx.freshReg()
     }),
     GenRule(RegVar, Pat(Halt) ^^ { _ =>
       (ctx: Context) => {
         ctx.emit(HALT)
-        ctx.voidReg()
+        ctx.freshReg()
       }
     }),
     GenRule(RegVar, Pat(Br) ^^ { case insn: BrInsn =>
       (ctx: Context) => {
         ctx.emit(JMP, ctx.getBasicBlockLabel(insn.succBlock.get).toOperand)
-        ctx.voidReg()
+        ctx.freshReg()
       }
     }),
 
@@ -375,7 +373,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
         ctx.emit(CMP, reg(ctx), Operand.Imm(0))
         ctx.emit(JZ, ctx.getBasicBlockLabel(insn.falseBlock.get).toOperand)
         ctx.emit(JMP, ctx.getBasicBlockLabel(insn.trueBlock.get).toOperand)
-        ctx.voidReg()
+        ctx.freshReg()
       }
     }),
 

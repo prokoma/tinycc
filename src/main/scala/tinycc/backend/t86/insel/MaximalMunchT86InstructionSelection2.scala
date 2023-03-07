@@ -55,6 +55,8 @@ class MaximalMunchT86InstructionSelection2(program: IrProgram) extends T86Instru
     val funBuilder = new T86FunBuilder(Some(fun))
     val argsMap = buildArgsMap(fun.argTys, 2)
 
+    funBuilder.appendBlock(new T86BasicBlock(IndexedSeq(T86SectionLabel("text"))))
+
     fun.basicBlocks.foreach(bb => tileBasicBlock(bb, funBuilder, argsMap))
 
     //    val epilogueMarker = T86Comment("EPILOGUE_HERE")
@@ -162,7 +164,7 @@ class MaximalMunchT86InstructionSelection2(program: IrProgram) extends T86Instru
     programBuilder.appendFun(funBuilder.result())
   }
 
-  def tileBasicBlock(bb: BasicBlock, funBuilder: T86FunBuilder, argsMap: IndexedSeq[Operand.RegImm]): Unit = {
+  def tileBasicBlock(bb: BasicBlock, funBuilder: T86FunBuilder, argsMap: IndexedSeq[Operand.MemRegImm]): Unit = {
     val bodyBuilder = IndexedSeq.newBuilder[T86ListingElement]
 
     val ctx = new Context {
@@ -191,9 +193,8 @@ class MaximalMunchT86InstructionSelection2(program: IrProgram) extends T86Instru
     val tileMap = mutable.Map.empty[(Var[_], Insn), GenRule.Match[_]]
 
     ctx.emit(ctx.getBasicBlockLabel(bb))
-    if (bb.isFunEntryBlock) {
+    if (bb.isFunEntryBlock)
       ctx.emit(T86SpecialLabel.FunPrologueMarker)
-    }
 
     // instructions in a basic block are topologically sorted
     // greedily cover instructions with tiles
