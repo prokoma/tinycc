@@ -1,0 +1,4 @@
+[submodule "t86"]
+	path = t86
+	url = git@gitlab.fit.cvut.cz:prokoma7/t86.git
+	branch = dev
