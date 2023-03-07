@@ -5,7 +5,7 @@ import tinycc.backend.BackendException
 import scala.collection.mutable
 
 /** Resolves labels to instruction addresses. */
-class T86LabelProcessor(program: T86Program) {
+class T86LabelProcessor(listing: T86Listing) {
   protected val labelAddressMap: mutable.Map[Symbol, Long] = mutable.Map.empty
 
   protected def resolveLabelsInOperand(operand: Operand): (Operand, List[T86Comment]) = operand match {
@@ -16,9 +16,9 @@ class T86LabelProcessor(program: T86Program) {
     case operand => (operand, Nil)
   }
 
-  lazy val result: Either[BackendException, T86Program] = {
+  def result(): Either[BackendException, T86Listing] = {
     var address = 0
-    program.foreach({
+    listing.foreach({
       case _: T86Insn =>
         address += 1
 
@@ -31,7 +31,7 @@ class T86LabelProcessor(program: T86Program) {
     })
 
     val newProgram = Seq.newBuilder[T86ListingElement]
-    program.foreach({
+    listing.foreach({
       case insn: NullaryT86Insn => newProgram += insn
 
       case UnaryT86Insn(op, operand0) =>

@@ -1,5 +1,7 @@
 package tinycc.backend.t86
 
+import tinycc.common.ir.{BasicBlock, IrFun, IrProgram}
+
 import scala.collection.mutable
 
 sealed trait Operand extends Product with Serializable
@@ -120,6 +122,14 @@ case class T86Comment(value: String) extends T86ListingElement
 
 case class T86SectionLabel(symbol: Symbol) extends T86ListingElement
 
+sealed trait T86SpecialLabel extends T86ListingElement
+
+object T86SpecialLabel {
+  case object FunPrologueMarker extends T86SpecialLabel
+
+  case object FunEpilogueMarker extends T86SpecialLabel
+}
+
 object T86SectionLabel {
   def apply(name: String): T86SectionLabel = T86SectionLabel(Symbol(name))
 }
@@ -160,40 +170,16 @@ case class BinaryT86Insn(op: T86Opcode.BinaryOp, operand0: Operand, operand1: Op
   override def operands: Seq[Operand] = Seq(operand0, operand1)
 }
 
-class T86Program() {
-  val funs: mutable.IndexedBuffer[T86Fun] = mutable.IndexedBuffer.empty
+class T86Program(var funs: IndexedSeq[T86Fun], var globalsSize: Long = 0, val irProgram: Option[IrProgram] = None) {
+  def flatten: T86Listing = funs.flatMap(_.flatten)
 }
 
-object T86Program {
-  def apply(funs: Iterable[T86Fun]): T86Program = {
-    val res = new T86Program
-    res.funs ++= funs
-    res
-  }
+class T86Fun(var basicBlocks: IndexedSeq[T86BasicBlock], var localsSize: Long = 0, val irFun: Option[IrFun] = None) {
+  def flatten: T86Listing = basicBlocks.flatMap(_.flatten)
 }
 
-class T86Fun() {
-  val basicBlocks: mutable.IndexedBuffer[T86BasicBlock] = mutable.IndexedBuffer.empty
-}
+class T86BasicBlock(var body: IndexedSeq[T86ListingElement], val irBasicBlock: Option[BasicBlock] = None) {
+  def insns: Seq[T86Insn] = body.collect({ case insn: T86Insn => insn })
 
-object T86Fun {
-  def apply(basicBlocks: Iterable[T86BasicBlock]): T86Fun = {
-    val res = new T86Fun
-    res.basicBlocks ++= basicBlocks
-    res
-  }
-}
-
-class T86BasicBlock(val fun: T86Fun) {
-  val body: mutable.IndexedBuffer[T86ListingElement] = mutable.IndexedBuffer.empty
-
-  def insns: Seq[T86Insn] = body.collect({ case insn: T86Insn => insn }).toSeq
-}
-
-object T86BasicBlock {
-  def apply(body: Iterable[T86ListingElement], fun: T86Fun): T86BasicBlock = {
-    val res = new T86BasicBlock(fun)
-    res.body ++= body
-    res
-  }
+  def flatten: T86Listing = body
 }

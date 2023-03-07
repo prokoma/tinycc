@@ -2,8 +2,8 @@ package tinycc.backend.t86
 
 import tinycc.util.{IndentPrinter, IndentWriter, IterableForeachSep}
 
-class T86AsmPrinter extends IndentPrinter[T86Program] {
-  override def print(obj: T86Program, out: IndentWriter): Unit = {
+class T86AsmPrinter extends IndentPrinter[T86Listing] {
+  override def print(obj: T86Listing, out: IndentWriter): Unit = {
     out.indent()
     obj.foreach(printElement(_, out))
   }

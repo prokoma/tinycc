@@ -1,7 +1,5 @@
 package tinycc.common
 
-import tinycc.backend.t86.regalloc.T86RegisterAllocation.Graph
-
 trait Lattice[T] {
   type Inst = T
 

@@ -19,13 +19,13 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
     def emit(op: T86Opcode.BinaryOp, operand0: Operand, operand1: Operand): Unit = emit(T86Insn(op, operand0, operand1))
 
-    def freshLabel(): T86Label
+    def freshLabel(): T86Label = freshLabel("asm")
 
-    def getFunLabel(fun: IrFun): T86Label =
-      T86Label(fun.name)
+    def freshLabel(prefix: String): T86Label
 
-    def getBasicBlockLabel(bb: BasicBlock): T86Label =
-      T86Label(bb.uniqueName)
+    def getBasicBlockLabel(bb: BasicBlock): T86Label = T86Label(bb.uniqueName)
+
+    def getFunLabel(fun: IrFun): T86Label = getBasicBlockLabel(fun.entryBlock)
 
     def voidReg(): Operand.Reg = Operand.BasicReg(0)
 
@@ -57,13 +57,6 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
     /** Can return either MemRegImm or Reg depending on calling conventions. */
     def resolveLoadArg(insn: LoadArgInsn): Operand
-
-    def emitFunEpilogue(): Unit
-
-    /** Can return either MemRegImm or Reg depending on calling conventions. */
-    def resolveRetValueCallee(): Operand
-
-    def resolveRetValueCaller(): Operand
   }
 
   trait T86Var[T] extends Var[AsmEmitter[T]] {
@@ -205,7 +198,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       })
       ctx.emit(CALL, ctx.getFunLabel(insn.targetFun.get).toOperand)
       ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
-      ctx.resolveRetValueCaller()
+      Operand.BasicReg(0)
     }
   }
 
@@ -216,7 +209,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       })
       ctx.emit(CALL, ptr(ctx))
       ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
-      ctx.resolveRetValueCaller()
+      Operand.BasicReg(0)
     }
   }
 
@@ -354,14 +347,14 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
     GenRule(RegVar, Pat(Ret, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
-        ctx.emit(MOV, ctx.resolveRetValueCallee(), reg(ctx))
-        ctx.emitFunEpilogue()
+        ctx.emit(MOV, Operand.BasicReg(0), reg(ctx))
+        ctx.emit(T86SpecialLabel.FunEpilogueMarker)
         ctx.voidReg()
       }
     }),
     GenRule(RegVar, Pat(RetVoid) ^^ { _ =>
       (ctx: Context) =>
-        ctx.emitFunEpilogue()
+        ctx.emit(T86SpecialLabel.FunEpilogueMarker)
         ctx.voidReg()
     }),
     GenRule(RegVar, Pat(Halt) ^^ { _ =>

@@ -69,12 +69,12 @@ object Action {
 
           _ = (new BasicBlockScheduling).transformProgram(irProg)
           _ = irProg.validate()
-          t86Asm <- T86InstructionSelection(irProg).result
-          _ = Console.out.println(new T86AsmPrinter().printToString(t86Asm))
+          t86Prog <- T86InstructionSelection(irProg).result()
+          _ = Console.out.println(new T86AsmPrinter().printToString(t86Prog.flatten))
 
-          t86ProccesedAsm <- new T86LabelProcessor(t86Asm).result
+          t86Listing <- new T86LabelProcessor(t86Prog.flatten).result()
         } yield {
-          out.print(new T86AsmPrinter().printToString(t86ProccesedAsm))
+          out.print(new T86AsmPrinter().printToString(t86Listing))
         }
 
         chain match {

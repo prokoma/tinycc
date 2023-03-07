@@ -8,6 +8,7 @@ import scala.collection.mutable
 import scala.language.implicitConversions
 
 object T86RegisterAllocation {
+  /** Wrapper type over all register types. */
   case class Temp(op: Operand) {
     require(op.isInstanceOf[Operand.Reg] || op.isInstanceOf[Operand.FReg]) // union types are complicated in scala
   }
@@ -89,51 +90,6 @@ object T86RegisterAllocation {
     case BinaryT86Insn(MOV, _: Operand.Reg, _: Operand.Reg) => true
     case BinaryT86Insn(MOV, _: Operand.FReg, _: Operand.FReg) => true
     case _ => false
-  }
-
-  trait Graph[T] {
-    def nodes: Seq[T]
-
-    def getSucc(node: T): Seq[T]
-
-    def getPred(node: T): Seq[T]
-
-    def getOutDegree(node: T): Int = getSucc(node).size
-
-    def getInDegree(node: T): Int = getPred(node).size
-
-    def getDegree(node: T): Int = getOutDegree(node) + getInDegree(node)
-  }
-
-  // allows us to get entry node, exit nodes, successors and predecessors
-  trait T86BasicBlockCfg extends Graph[T86BasicBlock] {
-    def nodes: Seq[T86BasicBlock]
-
-    def entry: T86BasicBlock
-
-    def exit: Seq[T86BasicBlock]
-
-    def getSucc(block: T86BasicBlock): Seq[T86BasicBlock]
-
-    def getPred(block: T86BasicBlock): Seq[T86BasicBlock]
-  }
-
-  object T86BasicBlockCfg {
-    def apply(fun: T86Fun, irFun: ir.IrFun, basicBlockMap: Map[ir.BasicBlock, T86BasicBlock]): T86BasicBlockCfg = {
-      val invBasicBlockMap = basicBlockMap.map(_.swap)
-      // TODO: maybe build the graph beforehand, so map lookups and converting to seq are not necessary
-      new T86BasicBlockCfg {
-        override def nodes: Seq[T86BasicBlock] = fun.basicBlocks.toSeq
-
-        override def entry: T86BasicBlock = basicBlockMap(irFun.entryBlock)
-
-        override def exit: Seq[T86BasicBlock] = irFun.exitPoints.map(insn => basicBlockMap(insn.basicBlock))
-
-        override def getSucc(block: T86BasicBlock): Seq[T86BasicBlock] = invBasicBlockMap(block).succ.map(basicBlockMap(_))
-
-        override def getPred(block: T86BasicBlock): Seq[T86BasicBlock] = invBasicBlockMap(block).pred.map(basicBlockMap(_))
-      }
-    }
   }
 
   //  implicit class T86BasicBlockCfgOps(that: T86BasicBlock)(implicit cfg: T86BasicBlockCfg) {
@@ -224,11 +180,11 @@ object T86RegisterAllocation {
     fun.basicBlocks.foreach(bb => {
       var live = livenessAnalysisResult.getLiveOut(bb)
 
-      for (insn: T86Insn <- bb.body.reverseIterator) {
+      for (insn <- bb.insns.reverse) {
         val DefUse(defines, uses) = getInsnDefUse(insn)
 
         if (isRegRegMove(insn)) {
-          live -= uses
+          live --= uses
           // TODO: add to move worklist
         }
 
