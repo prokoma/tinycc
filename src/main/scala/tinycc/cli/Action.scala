@@ -2,7 +2,7 @@ package tinycc.cli
 
 import tinycc.backend.BasicBlockScheduling
 import tinycc.backend.t86.insel.T86InstructionSelection
-import tinycc.backend.t86.regalloc.T86RegisterAllocation.NaiveRegisterAllocator
+import tinycc.backend.t86.regalloc.T86RegisterAllocator
 import tinycc.backend.t86.{T86AsmPrinter, T86FunProcessor, T86LabelProcessor}
 import tinycc.common.ir.IrPrinter
 import tinycc.frontend.analysis.{SemanticAnalysis, TypeAnalysis}
@@ -73,7 +73,7 @@ object Action {
           t86Prog <- T86InstructionSelection(irProg).result()
           _ = Console.out.println(new T86AsmPrinter().printToString(t86Prog.flatten))
 
-          _ = new NaiveRegisterAllocator(t86Prog).result()
+          _ = T86RegisterAllocator(t86Prog).result()
           _ = new T86FunProcessor(t86Prog).result()
           t86Listing <- new T86LabelProcessor(t86Prog.flatten).result()
         } yield {

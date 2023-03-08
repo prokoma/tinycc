@@ -8,7 +8,11 @@ import tinycc.common._
 import scala.collection.mutable
 import scala.language.implicitConversions
 
-object T86RegisterAllocation {
+abstract class T86RegisterAllocator(program: T86Program) extends RegisterAllocator[T86Program](program) {
+  def result(): T86Program
+}
+
+object T86RegisterAllocator {
   /** Wrapper type over all register types. */
   case class Temp(op: Operand) {
     require(op.isInstanceOf[Operand.Reg] || op.isInstanceOf[Operand.FReg]) // union types are complicated in scala
@@ -103,91 +107,15 @@ object T86RegisterAllocation {
     case _ => false
   }
 
+  def isSpecialTemp(temp: Temp): Boolean = temp match {
+    case Temp(reg: Operand.Reg) => T86Utils.specialRegs.contains(reg)
+    case _ => false
+  }
+
   def isMachineOrSpecialTemp(temp: Temp): Boolean = temp match {
     case Temp(reg: Operand.Reg) => T86Utils.machineRegs.contains(reg) || T86Utils.specialRegs.contains(reg)
     case Temp(freg: Operand.FReg) => T86Utils.machineFRegs.contains(freg)
     case _ => false
-  }
-
-  //  implicit class T86BasicBlockCfgOps(that: T86BasicBlock)(implicit cfg: T86BasicBlockCfg) {
-  //    def pred: Seq[T86BasicBlock] = cfg.getPred(that)
-  //
-  //    def succ: Seq[T86BasicBlock] = cfg.getSucc(that)
-  //  }
-
-  // backwards must dataflow analysis
-  //  class T86BasicBlockLivenessAnalysis(cfg: T86BasicBlockCfg)
-  //    extends DataflowAnalysis.Builder[T86BasicBlock](cfg, forward = false)
-  //      with FixpointComputation.Naive {
-  //
-  //    import T86BasicBlockLivenessAnalysis._
-  //
-  //    type NodeState = Set[Temp] // set of live-in variables for a basic block
-  //
-  //    override protected def nodeStateLattice: Lattice[NodeState] = PowersetLattice(() => ???)
-  //
-  //    override def cfgNodes: Seq[T86BasicBlock] = cfg.nodes
-  //
-  //    private val bbDefUse: Map[CfgNode, DefUse] = Map.from(cfg.nodes.map(bb => bb -> getBasicBlockDefUse(bb)))
-  //
-  //    /** Returns live-in variables for this basic block. */
-  //    override def transfer(bb: T86BasicBlock, liveOutVars: Set[Temp]): Set[Temp] = {
-  //      val DefUse(defines, uses) = bbDefUse(bb)
-  //      (liveOutVars -- defines) ++ uses
-  //    }
-  //
-  //    def result(): Result = Result(fixpoint(), join)
-  //  }
-  //
-  //  object T86BasicBlockLivenessAnalysis {
-  //    type NodeState = Set[Temp]
-  //    type CfgState = Map[T86BasicBlock, NodeState]
-  //
-  //    case class Result(cfgState: CfgState, join: (T86BasicBlock, CfgState) => NodeState) {
-  //      def getLiveOut(bb: T86BasicBlock): Set[Temp] = join(bb, cfgState)
-  //
-  //      def getLiveIn(bb: T86BasicBlock): Set[Temp] = cfgState(bb)
-  //    }
-  //  }
-
-  trait InterferenceGraph extends Graph[Temp] {
-    def edges: Seq[(Temp, Temp)]
-  }
-
-  object InterferenceGraph {
-    class Builder {
-      val adjMap: mutable.Map[Temp, mutable.Set[Temp]] = mutable.Map.empty
-
-      val edgeSet: mutable.Set[(Temp, Temp)] = mutable.Set.empty
-
-      def addEdge(u: Temp, v: Temp): Unit = {
-        if (u != v) {
-          adjMap(u).addOne(v)
-          adjMap(v).addOne(u)
-          edgeSet.addOne((u, v))
-          edgeSet.addOne((v, u))
-        }
-      }
-
-      def result(): InterferenceGraph = new InterferenceGraph {
-
-        override val edges: Seq[(Temp, Temp)] = edgeSet.toSeq
-
-        override val nodes: Seq[Temp] = adjMap.keySet.toSeq
-
-        override def getSucc(node: Temp): Seq[Temp] = adjMap(node).toSeq
-
-        override def getPred(node: Temp): Seq[Temp] = adjMap(node).toSeq
-
-        override def getDegree(node: Temp): Int = adjMap(node).size
-
-        override def getInDegree(node: Temp): Int = throw new UnsupportedOperationException()
-
-        override def getOutDegree(node: Temp): Int = throw new UnsupportedOperationException()
-      }
-    }
-
-    def newBuilder: Builder = new Builder
   }
 
   def remapRegisters(operand: Operand, regMap: Map[Temp, Temp]): Operand = operand match {
@@ -219,98 +147,5 @@ object T86RegisterAllocation {
     case BinaryT86Insn(op, operand0, operand1) => BinaryT86Insn(op, remapRegisters(operand0, regMap), remapRegisters(operand1, regMap))
   }
 
-  class NaiveRegisterAllocator(program: T86Program) extends RegisterAllocator(program: T86Program) {
-    def result(): T86Program = {
-      program.funs.foreach(processFun)
-      program
-    }
-
-    def processFun(fun: T86Fun): Unit = {
-      // remap all non-machine registers into machine regs
-      val regMap = mutable.Map.empty[Temp, Temp]
-
-      val availableRegs = mutable.Queue.from(T86Utils.machineRegs)
-      val availableFRegs = mutable.Queue.from(T86Utils.machineFRegs)
-
-      fun.flatten.foreach({
-        case insn: T86Insn => {
-          val DefUse(defines, uses) = getInsnDefUse(insn)
-          (defines ++ uses).foreach({
-            case temp@Temp(reg: Operand.Reg) if !T86Utils.machineRegs.contains(reg) && !T86Utils.specialRegs.contains(reg) =>
-              regMap.getOrElseUpdate(temp, availableRegs.dequeue())
-
-            case temp@Temp(freg: Operand.FReg) if !T86Utils.machineFRegs.contains(freg) =>
-              regMap.getOrElseUpdate(temp, availableFRegs.dequeue())
-
-            case _ =>
-          })
-        }
-
-        case _ =>
-      })
-
-      val regMap2 = regMap.toMap.withDefault(reg => reg) // default mapping for machine and special registers
-      fun.basicBlocks.foreach(bb => {
-        bb.body = bb.body.map({
-          case insn: T86Insn => remapRegisters(insn, regMap2)
-          case elem => elem
-        })
-      })
-
-      // insert PUSH and POP insns to backup and restore them in the fun prologue and epilogue
-      val usedRegs = regMap.values.toSeq // convert to seq, so order is deterministic
-      val backupCode = usedRegs.collect({
-        case Temp(reg: Operand.Reg) => T86Insn(PUSH, reg)
-        case Temp(freg: Operand.FReg) => T86Insn(FPUSH, freg)
-      })
-      val restoreCode = usedRegs.reverse.collect({
-        case Temp(reg: Operand.Reg) => T86Insn(POP, reg)
-        case Temp(freg: Operand.FReg) => T86Insn(FPOP, freg)
-      })
-
-      fun.basicBlocks.foreach(bb => {
-        bb.body = bb.body.flatMap({
-          case T86SpecialLabel.FunPrologueMarker => T86SpecialLabel.FunPrologueMarker +: backupCode
-          case T86SpecialLabel.FunEpilogueMarker => restoreCode :+ T86SpecialLabel.FunEpilogueMarker
-
-          case elem => Seq(elem)
-        })
-      })
-    }
-  }
-
-  class GraphColoringRegisterAllocator(program: T86Program) extends RegisterAllocator(program: T86Program) {
-    def result(): T86Program = {
-      program.funs.foreach(processFun)
-      program
-    }
-
-    def processFun(fun: T86Fun): Unit = {}
-  }
-
-  //  def allocateRegisters(fun: T86Fun, cfg: T86BasicBlockCfg): Unit = {
-  //    val livenessAnalysisResult = new T86BasicBlockLivenessAnalysis(cfg).result
-  //
-  //    val interfBuilder = InterferenceGraph.newBuilder
-  //    fun.basicBlocks.foreach(bb => {
-  //      var live = livenessAnalysisResult.getLiveOut(bb)
-  //
-  //      for (insn <- bb.insns.reverse) {
-  //        val DefUse(defines, uses) = getInsnDefUse(insn)
-  //
-  //        if (isRegRegMove(insn)) {
-  //          live --= uses
-  //          // TODO: add to move worklist
-  //        }
-  //
-  //        live ++= defines
-  //        for (d <- defines; l <- live)
-  //          interfBuilder.addEdge(d, l)
-  //        live = (live -- defines) ++ uses
-  //      }
-  //    })
-  //    val interf = interfBuilder.result()
-  //
-  //    Console.out.println(interf.edges)
-  //  }
+  def apply(program: T86Program): T86RegisterAllocator = new GraphColoringRegisterAllocator(program)
 }

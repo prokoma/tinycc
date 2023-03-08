@@ -55,112 +55,7 @@ class MaximalMunchT86InstructionSelection2(program: IrProgram) extends T86Instru
     val funBuilder = new T86FunBuilder(Some(fun))
     val argsMap = buildArgsMap(fun.argTys, 2)
 
-    funBuilder.appendBlock(new T86BasicBlock(IndexedSeq(T86SectionLabel("text"))))
-
     fun.basicBlocks.foreach(bb => tileBasicBlock(bb, funBuilder, argsMap))
-
-    //    val epilogueMarker = T86Comment("EPILOGUE_HERE")
-    //    val backupRegs: mutable.Buffer[Operand] = mutable.Buffer.empty
-    //
-    //    val ctx = new Context {
-    //      private var nextReg: Long = 1 // 0 is reserved for return value
-    //      private var nextFreg: Long = 0
-    //      private var nextLabel = 0
-    //
-    //      override def resolveVar[T](v: Var[AsmEmitter[T]], insn: Insn): T = tileResults((v, insn)).asInstanceOf[T]
-    //
-    //      override def emit(el: T86ListingElement): Unit =
-    //        codeBuilder += el
-    //
-    //      override def freshReg(): Operand.Reg = {
-    //        nextReg += 1
-    //        val reg = Operand.BasicReg(nextReg - 1)
-    //        backupRegs += reg
-    //        reg
-    //      }
-    //
-    //      override def freshFReg(): Operand.FReg = {
-    //        nextFreg += 1
-    //        val reg = Operand.BasicFReg(nextFreg - 1)
-    //        backupRegs += reg
-    //        reg
-    //      }
-    //
-    //      override def resolveAllocL(insn: AllocLInsn): Operand.MemRegImm = {
-    //        val offset = localsMap.getOrElseUpdate(insn, {
-    //          localsSize += getSizeWords(insn.varTy)
-    //          localsSize
-    //        })
-    //        Operand.MemRegImm(Operand.BP, -offset)
-    //      }
-    //
-    //      override def resolveAllocG(insn: AllocGInsn): Operand.MemImm = {
-    //        val offset = globalsMap.getOrElseUpdate(insn, {
-    //          val oldSize = globalsSize
-    //          globalsSize += getSizeWords(insn.varTy)
-    //          oldSize
-    //        })
-    //        Operand.MemImm(offset)
-    //      }
-    //
-    //      /** Can return either MemRegImm or Reg depending on calling conventions. */
-    //      override def resolveLoadArg(insn: LoadArgInsn): Operand = {
-    //        val offset = argsMap(insn.index)
-    //        Operand.MemRegImm(Operand.BP, offset + 2) // return address + stored BP
-    //      }
-    //
-    //      override def emitFunEpilogue(): Unit =
-    //        codeBuilder += epilogueMarker
-    //
-    //      /** Can return either MemRegImm or Reg depending on calling conventions. */
-    //      override def resolveRetValueCallee(): Operand =
-    //        Operand.BasicReg(0)
-    //
-    //      override def resolveRetValueCaller(): Operand =
-    //        Operand.BasicReg(0)
-    //
-    //      override def freshLabel(): T86Label = {
-    //        nextLabel += 1
-    //        T86Label(fun.name + "$tmp" + (nextLabel - 1))
-    //      }
-    //    }
-    //
-    //    fun.basicBlocks.foreach(bb => tileBasicBlock(bb, ctx))
-    //
-    //    val prologueBuilder = Seq.newBuilder[T86ListingElement]
-    //    prologueBuilder += T86Label(fun.name)
-    //    prologueBuilder += T86Insn(PUSH, Operand.BP)
-    //    prologueBuilder += T86Insn(MOV, Operand.BP, Operand.SP)
-    //    prologueBuilder += T86Insn(SUB, Operand.SP, Operand.Imm(localsSize))
-    //    // TODO: if arguments are passed via registers, copy them to fresh registers
-    //    backupRegs.foreach({
-    //      case reg: Operand.Reg =>
-    //        prologueBuilder += T86Insn(PUSH, reg)
-    //      case freg: Operand.FReg =>
-    //        prologueBuilder += T86Insn(FPUSH, freg)
-    //      case op =>
-    //        throw new IllegalArgumentException(op.toString)
-    //    })
-    //
-    //    val epilogueBuilder = Seq.newBuilder[T86ListingElement]
-    //    backupRegs.reverse.foreach({
-    //      case reg: Operand.Reg =>
-    //        epilogueBuilder += T86Insn(POP, reg)
-    //      case freg: Operand.FReg =>
-    //        epilogueBuilder += T86Insn(FPOP, freg)
-    //      case op =>
-    //        throw new IllegalArgumentException(op.toString)
-    //    })
-    //    epilogueBuilder += T86Insn(MOV, Operand.SP, Operand.BP)
-    //    epilogueBuilder += T86Insn(POP, Operand.BP)
-    //    epilogueBuilder += T86Insn(RET)
-    //
-    //    val epilogue = epilogueBuilder.result()
-    //    prologueBuilder.result() ++ codeBuilder.result().flatMap {
-    //      case elem if elem == epilogueMarker => epilogue
-    //      case elem => Seq(elem)
-    //    }
-
     programBuilder.appendFun(funBuilder.result())
   }
 
@@ -192,6 +87,8 @@ class MaximalMunchT86InstructionSelection2(program: IrProgram) extends T86Instru
     val allRequiredInsns = mutable.Set.empty[(Var[_], Insn)]
     val tileMap = mutable.Map.empty[(Var[_], Insn), GenRule.Match[_]]
 
+    if (bb.isFunEntryBlock)
+      ctx.emit(T86SectionLabel("text"))
     ctx.emit(ctx.getBasicBlockLabel(bb))
     if (bb.isFunEntryBlock)
       ctx.emit(T86SpecialLabel.FunPrologueMarker)
