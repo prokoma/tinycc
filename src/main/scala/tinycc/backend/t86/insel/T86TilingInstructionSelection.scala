@@ -2,6 +2,7 @@ package tinycc.backend.t86.insel
 
 import tinycc.backend.TilingInstructionSelection
 import tinycc.backend.t86.T86Opcode._
+import tinycc.backend.t86.T86SpecialLabel.{CallEpilogueMarker, CallPrologueMarker}
 import tinycc.backend.t86._
 import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
@@ -194,8 +195,10 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       args.reverse.foreach(arg => {
         ctx.emit(PUSH, arg(ctx))
       })
+      ctx.emit(CallPrologueMarker)
       ctx.emit(CALL, ctx.getFunLabel(insn.targetFun.get).toOperand)
       ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
+      ctx.emit(CallEpilogueMarker)
       Operand.BasicReg(0)
     }
   }
@@ -205,8 +208,10 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       args.reverse.foreach(arg => {
         ctx.emit(PUSH, arg(ctx))
       })
+      ctx.emit(CallPrologueMarker)
       ctx.emit(CALL, ptr(ctx))
       ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
+      ctx.emit(CallEpilogueMarker)
       Operand.BasicReg(0)
     }
   }

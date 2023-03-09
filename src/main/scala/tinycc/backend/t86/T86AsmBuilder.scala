@@ -57,5 +57,5 @@ class T86FunBuilder(irFun: Option[IrFun] = None) {
   def appendBlock(bb: T86BasicBlock): Unit =
     basicBlocks += bb
 
-  def result(): T86Fun = new T86Fun(basicBlocks.result(), localsSize, irFun)
+  def result(): T86Fun = new T86Fun(basicBlocks.result(), localsSize, nextReg, nextFreg, irFun)
 }

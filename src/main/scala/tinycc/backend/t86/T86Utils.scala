@@ -31,4 +31,8 @@ object T86Utils {
   val specialRegs: Set[Operand.Reg] = Set(Operand.BP, Operand.SP, Operand.IP)
 
   val returnValueReg: Operand.BasicReg = Operand.BasicReg(0)
+
+  val calleeSaveRegs: Set[Operand.Reg] = machineRegs - returnValueReg
+
+  val callerSaveFRegs: Set[Operand.FReg] = machineFRegs
 }

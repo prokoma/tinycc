@@ -3,9 +3,7 @@ package tinycc.backend.t86.regalloc
 import tinycc.backend.RegisterAllocator
 import tinycc.backend.t86.T86Opcode._
 import tinycc.backend.t86._
-import tinycc.common._
 
-import scala.collection.mutable
 import scala.language.implicitConversions
 
 abstract class T86RegisterAllocator(program: T86Program) extends RegisterAllocator[T86Program](program) {
@@ -20,11 +18,23 @@ object T86RegisterAllocator {
     def toReg: Operand.Reg = op.asInstanceOf[Operand.Reg]
 
     def toFReg: Operand.FReg = op.asInstanceOf[Operand.FReg]
+
+    def isSameType(other: Temp): Boolean = (op, other.op) match {
+      case (_: Operand.Reg, _: Operand.Reg) => true
+      case (_: Operand.FReg, _: Operand.FReg) => true
+      case _ => false
+    }
   }
 
   implicit def reg2tmp(reg: Operand.Reg): Temp = Temp(reg)
 
   implicit def freg2tmp(freg: Operand.FReg): Temp = Temp(freg)
+
+  val machineRegs: Set[Temp] = (T86Utils.machineRegs ++ T86Utils.machineFRegs).map(Temp)
+  // special registers which are not handled by the register allocator (SP, BP, IP)
+  val specialRegs: Set[Temp] = T86Utils.specialRegs.map(Temp)
+  val callerSaveRegs: Set[Temp] = T86Utils.callerSaveFRegs.map(Temp)
+  val calleeSaveRegs: Set[Temp] = T86Utils.calleeSaveRegs.map(Temp)
 
   /**
    * @param defines kill set
@@ -32,6 +42,12 @@ object T86RegisterAllocator {
    */
   case class DefUse(defines: Set[Temp], uses: Set[Temp]) {
     def ++(that: DefUse): DefUse = DefUse(defines.union(that.defines), uses.union(that.uses))
+
+    def exclSpecialRegs: DefUse = DefUse(defines.filter(!specialRegs.contains(_)), uses.filter(!specialRegs.contains(_)))
+
+    def isEmpty: Boolean = defines.isEmpty && uses.isEmpty
+
+    def nonEmpty: Boolean = defines.nonEmpty || uses.nonEmpty
   }
 
   object DefUse {
@@ -76,6 +92,7 @@ object T86RegisterAllocator {
   def getInsnDefUse(insn: T86Insn): DefUse = insn match {
     case NullaryT86Insn(op) => DefUse.empty
 
+    case UnaryT86Insn(CALL, operand0) => getOperandReadDefUse(operand0) ++ DefUse(Set.empty, T86Utils.callerSaveFRegs.map(Temp))
     case UnaryT86Insn(JMP | CALL | PUSH | FPUSH | POP | FPOP | PUTCHAR | PUTNUM | _: CondJmpOp, operand0) => getOperandReadDefUse(operand0)
     case UnaryT86Insn(POP | FPOP | GETCHAR, operand0) => getOperandWriteDefUse(operand0)
     case UnaryT86Insn(INC | DEC | NOT | NEG, operand0) => getOperandReadWriteDefUse(operand0)
@@ -98,23 +115,6 @@ object T86RegisterAllocator {
   def isRegRegMove(insn: T86Insn): Boolean = insn match {
     case BinaryT86Insn(MOV, _: Operand.Reg, _: Operand.Reg) => true
     case BinaryT86Insn(MOV, _: Operand.FReg, _: Operand.FReg) => true
-    case _ => false
-  }
-
-  def isMachineTemp(temp: Temp): Boolean = temp match {
-    case Temp(reg: Operand.Reg) => T86Utils.machineRegs.contains(reg)
-    case Temp(freg: Operand.FReg) => T86Utils.machineFRegs.contains(freg)
-    case _ => false
-  }
-
-  def isSpecialTemp(temp: Temp): Boolean = temp match {
-    case Temp(reg: Operand.Reg) => T86Utils.specialRegs.contains(reg)
-    case _ => false
-  }
-
-  def isMachineOrSpecialTemp(temp: Temp): Boolean = temp match {
-    case Temp(reg: Operand.Reg) => T86Utils.machineRegs.contains(reg) || T86Utils.specialRegs.contains(reg)
-    case Temp(freg: Operand.FReg) => T86Utils.machineFRegs.contains(freg)
     case _ => false
   }
 
@@ -145,6 +145,15 @@ object T86RegisterAllocator {
     case insn: NullaryT86Insn => insn
     case UnaryT86Insn(op, operand0) => UnaryT86Insn(op, remapRegisters(operand0, regMap))
     case BinaryT86Insn(op, operand0, operand1) => BinaryT86Insn(op, remapRegisters(operand0, regMap), remapRegisters(operand1, regMap))
+  }
+
+  def remapRegistersInFun(fun: T86Fun, regMap: Map[Temp, Temp]): Unit = {
+    fun.basicBlocks.foreach(bb => {
+      bb.body = bb.body.map({
+        case insn: T86Insn => remapRegisters(insn, regMap)
+        case elem => elem
+      })
+    })
   }
 
   def apply(program: T86Program): T86RegisterAllocator = new GraphColoringRegisterAllocator(program)

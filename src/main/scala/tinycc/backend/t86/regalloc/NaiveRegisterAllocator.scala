@@ -38,13 +38,7 @@ class NaiveRegisterAllocator(program: T86Program) extends T86RegisterAllocator(p
       case _ =>
     })
 
-    val regMap2 = regMap.toMap.withDefault(reg => reg) // default mapping for machine and special registers
-    fun.basicBlocks.foreach(bb => {
-      bb.body = bb.body.map({
-        case insn: T86Insn => remapRegisters(insn, regMap2)
-        case elem => elem
-      })
-    })
+    remapRegistersInFun(fun, regMap.toMap.withDefault(reg => reg)) // default mapping for machine and special registers
 
     // insert PUSH and POP insns to backup and restore them in the fun prologue and epilogue
     val usedRegs = regMap.values.toSeq // convert to seq, so order is deterministic

@@ -128,6 +128,10 @@ object T86SpecialLabel {
   case object FunPrologueMarker extends T86SpecialLabel
 
   case object FunEpilogueMarker extends T86SpecialLabel
+
+  case object CallPrologueMarker extends T86SpecialLabel
+
+  case object CallEpilogueMarker extends T86SpecialLabel
 }
 
 object T86SectionLabel {
@@ -174,8 +178,25 @@ class T86Program(var funs: IndexedSeq[T86Fun], var globalsSize: Long = 0, val ir
   def flatten: T86Listing = funs.flatMap(_.flatten)
 }
 
-class T86Fun(var basicBlocks: IndexedSeq[T86BasicBlock], var localsSize: Long = 0, val irFun: Option[IrFun] = None) {
+class T86Fun(var basicBlocks: IndexedSeq[T86BasicBlock], var localsSize: Long = 0, var nextReg: Long = 0, var nextFreg: Long = 0, val irFun: Option[IrFun] = None) {
+  def insns: Seq[T86Insn] = basicBlocks.flatMap(_.insns)
+
   def flatten: T86Listing = basicBlocks.flatMap(_.flatten)
+
+  def freshReg(): Operand.Reg = {
+    nextReg += 1
+    Operand.BasicReg(nextReg - 1)
+  }
+
+  def freshFReg(): Operand.FReg = {
+    nextFreg += 1
+    Operand.BasicFReg(nextFreg - 1)
+  }
+
+  def freshLocal(size: Long): Operand.MemRegImm = {
+    localsSize += size
+    Operand.MemRegImm(Operand.BP, -localsSize)
+  }
 }
 
 class T86BasicBlock(var body: IndexedSeq[T86ListingElement], val irBasicBlock: Option[BasicBlock] = None) {
