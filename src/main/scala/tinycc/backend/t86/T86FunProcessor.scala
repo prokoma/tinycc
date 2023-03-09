@@ -20,7 +20,6 @@ class T86FunProcessor(program: T86Program) {
     val epilogueBuilder = Seq.newBuilder[T86Insn]
     epilogueBuilder += T86Insn(MOV, Operand.SP, Operand.BP)
     epilogueBuilder += T86Insn(POP, Operand.BP)
-    epilogueBuilder += T86Insn(RET)
     val epilogue = epilogueBuilder.result()
 
     fun.basicBlocks.foreach(bb => {

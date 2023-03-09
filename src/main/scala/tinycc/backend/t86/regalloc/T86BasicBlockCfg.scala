@@ -14,6 +14,8 @@ trait T86BasicBlockCfg extends Graph[T86BasicBlock] {
   def getSucc(block: T86BasicBlock): Seq[T86BasicBlock]
 
   def getPred(block: T86BasicBlock): Seq[T86BasicBlock]
+
+  def isInLoop(block: T86BasicBlock): Boolean
 }
 
 object T86BasicBlockCfg {
@@ -32,6 +34,8 @@ object T86BasicBlockCfg {
       override def getSucc(block: T86BasicBlock): Seq[T86BasicBlock] = block.irBasicBlock.get.succ.map(basicBlockMap)
 
       override def getPred(block: T86BasicBlock): Seq[T86BasicBlock] = block.irBasicBlock.get.pred.map(basicBlockMap)
+
+      override def isInLoop(block: T86BasicBlock): Boolean = getPred(block).size > 1 // TODO: DFS
     }
   }
 }

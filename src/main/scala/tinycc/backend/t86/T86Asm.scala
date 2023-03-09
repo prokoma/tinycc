@@ -202,5 +202,13 @@ class T86Fun(var basicBlocks: IndexedSeq[T86BasicBlock], var localsSize: Long = 
 class T86BasicBlock(var body: IndexedSeq[T86ListingElement], val irBasicBlock: Option[BasicBlock] = None) {
   def insns: Seq[T86Insn] = body.collect({ case insn: T86Insn => insn })
 
+  def insnRefs: Seq[T86InsnRef] = body.zipWithIndex.collect({ case (_: T86Insn, index) => T86InsnRef(this, index) })
+
+  def insnsWithRefs: Seq[(T86Insn, T86InsnRef)] = body.zipWithIndex.collect({ case (insn: T86Insn, index) => (insn, T86InsnRef(this, index)) })
+
   def flatten: T86Listing = body
+}
+
+case class T86InsnRef(bb: T86BasicBlock, index: Int) {
+  def apply(): T86Insn = bb.body(index).asInstanceOf[T86Insn]
 }

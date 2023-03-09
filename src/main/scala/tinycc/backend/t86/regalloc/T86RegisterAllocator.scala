@@ -6,94 +6,58 @@ import tinycc.backend.t86._
 
 import scala.language.implicitConversions
 
-abstract class T86RegisterAllocator(program: T86Program) extends RegisterAllocator[T86Program](program) {
-  def result(): T86Program
-}
+trait T86GenericRegisterAllocator[T <: Operand] {
+  type RegMap = Map[T, T]
 
-object T86RegisterAllocator {
-  /** Wrapper type over all register types. */
-  case class Temp(op: Operand) {
-    require(op.isInstanceOf[Operand.Reg] || op.isInstanceOf[Operand.FReg]) // union types are complicated in scala
+  case class DefUse(defines: Set[T], uses: Set[T]) {
+    def regs: Set[T] = defines ++ uses
 
-    def toReg: Operand.Reg = op.asInstanceOf[Operand.Reg]
+    def withoutIgnoredRegs: DefUse = DefUse(defines.diff(ignoredRegs), uses.diff(ignoredRegs))
 
-    def toFReg: Operand.FReg = op.asInstanceOf[Operand.FReg]
-
-    def isSameType(other: Temp): Boolean = (op, other.op) match {
-      case (_: Operand.Reg, _: Operand.Reg) => true
-      case (_: Operand.FReg, _: Operand.FReg) => true
-      case _ => false
-    }
-  }
-
-  implicit def reg2tmp(reg: Operand.Reg): Temp = Temp(reg)
-
-  implicit def freg2tmp(freg: Operand.FReg): Temp = Temp(freg)
-
-  val machineRegs: Set[Temp] = (T86Utils.machineRegs ++ T86Utils.machineFRegs).map(Temp)
-  // special registers which are not handled by the register allocator (SP, BP, IP)
-  val specialRegs: Set[Temp] = T86Utils.specialRegs.map(Temp)
-  val callerSaveRegs: Set[Temp] = T86Utils.callerSaveFRegs.map(Temp)
-  val calleeSaveRegs: Set[Temp] = T86Utils.calleeSaveRegs.map(Temp)
-
-  /**
-   * @param defines kill set
-   * @param uses    gen set
-   */
-  case class DefUse(defines: Set[Temp], uses: Set[Temp]) {
     def ++(that: DefUse): DefUse = DefUse(defines.union(that.defines), uses.union(that.uses))
-
-    def exclSpecialRegs: DefUse = DefUse(defines.filter(!specialRegs.contains(_)), uses.filter(!specialRegs.contains(_)))
-
-    def isEmpty: Boolean = defines.isEmpty && uses.isEmpty
-
-    def nonEmpty: Boolean = defines.nonEmpty || uses.nonEmpty
   }
 
   object DefUse {
     val empty: DefUse = DefUse(Set.empty, Set.empty)
   }
 
-  /** Return which registers the operand defines and uses when used as a destination. */
-  def getOperandWriteDefUse(op: Operand): DefUse = op match {
-    case op: Operand.Reg => DefUse(Set(op), Set.empty)
-    case op: Operand.FReg => DefUse(Set(op), Set.empty)
-    case Operand.MemImm(addr) => DefUse.empty
-    case Operand.MemReg(addrReg) => DefUse(Set.empty, Set(addrReg))
-    case Operand.MemRegImm(addrReg, addrOffset) => DefUse(Set.empty, Set(addrReg))
-    case Operand.MemRegReg(addrReg, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
-    case Operand.MemRegScaled(addrReg, addrScale) => DefUse(Set.empty, Set(addrReg))
-    case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
-    case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse(Set.empty, Set(addrReg, addrScaledReg))
+  /** General purpose registers available for allocation. */
+  def machineRegs: Set[T]
 
-    case op => throw new IllegalArgumentException(s"Operand $op cannot be used as a destination.")
-  }
+  /** Special registers, which should be ignored by the register allocator. */
+  def ignoredRegs: Set[T]
 
-  def getOperandReadDefUse(op: Operand): DefUse = op match {
-    case _: Operand.Imm | _: Operand.Label | _: Operand.MemImm | _: Operand.FImm => DefUse.empty
-    case reg: Operand.Reg => DefUse(Set.empty, Set(reg))
-    case Operand.RegImm(reg, offset) => DefUse(Set.empty, Set(reg))
-    case Operand.RegReg(reg, reg2) => DefUse(Set.empty, Set(reg, reg2))
-    case Operand.RegScaled(reg, scale) => DefUse(Set.empty, Set(reg))
-    case Operand.RegImmReg(reg, offset, reg2) => DefUse(Set.empty, Set(reg, reg2))
-    case Operand.RegRegScaled(reg, scaledReg, scale) => DefUse(Set.empty, Set(reg, scaledReg))
-    case Operand.RegImmRegScaled(reg, offset, scaledReg, scale) => DefUse(Set.empty, Set(reg, scaledReg))
-    case Operand.MemReg(addrReg) => DefUse(Set.empty, Set(addrReg))
-    case Operand.MemRegImm(addrReg, addrOffset) => DefUse(Set.empty, Set(addrReg))
-    case Operand.MemRegReg(addrReg, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
-    case Operand.MemRegScaled(addrReg, addrScale) => DefUse(Set.empty, Set(addrReg))
-    case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
-    case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse(Set.empty, Set(addrReg, addrScaledReg))
-    case reg: Operand.FReg => DefUse(Set.empty, Set(reg))
-  }
+  /** Registers which are defined by a call instruction. A subset of [[machineRegs]]. */
+  def returnValueRegs: Set[T]
+
+  /** Registers which should be live during any function call. A subset of [[machineRegs]]. */
+  def callerSaveRegs: Set[T]
+
+  /** Registers which should be live inside whole function body. A subset of [[machineRegs]]. */
+  def calleeSaveRegs: Set[T]
+
+  /** Returns what the operand defines and uses when it is used as write target (no read). Defines and uses are subset of [[machineRegs]]. */
+  def getOperandWriteDefUse(op: Operand): DefUse
+
+  /** Returns what the operand defines and uses when it is used as read target. Defines and uses are subset of [[machineRegs]]. */
+  def getOperandReadDefUse(op: Operand): DefUse
+
+  /** Returns true for MOV Rx, Ry where Rx and Ry are members of [[machineRegs]]. */
+  def isRegRegMove(insn: T86Insn): Boolean
+
+  /** Size of register (used for spilling) */
+  def regSize: Long
 
   def getOperandReadWriteDefUse(op: Operand): DefUse = getOperandReadDefUse(op) ++ getOperandWriteDefUse(op)
 
+  def remapRegistersInOperand(operand: Operand, regMap: RegMap): Operand
+
   def getInsnDefUse(insn: T86Insn): DefUse = insn match {
+    case NullaryT86Insn(RET) => DefUse(Set.empty, calleeSaveRegs ++ returnValueRegs)
     case NullaryT86Insn(op) => DefUse.empty
 
-    case UnaryT86Insn(CALL, operand0) => getOperandReadDefUse(operand0) ++ DefUse(Set.empty, T86Utils.callerSaveFRegs.map(Temp))
-    case UnaryT86Insn(JMP | CALL | PUSH | FPUSH | POP | FPOP | PUTCHAR | PUTNUM | _: CondJmpOp, operand0) => getOperandReadDefUse(operand0)
+    case UnaryT86Insn(CALL, operand0) => getOperandReadDefUse(operand0) ++ DefUse(callerSaveRegs ++ returnValueRegs, Set.empty)
+    case UnaryT86Insn(JMP | PUSH | FPUSH | POP | FPOP | PUTCHAR | PUTNUM | _: CondJmpOp, operand0) => getOperandReadDefUse(operand0)
     case UnaryT86Insn(POP | FPOP | GETCHAR, operand0) => getOperandWriteDefUse(operand0)
     case UnaryT86Insn(INC | DEC | NOT | NEG, operand0) => getOperandReadWriteDefUse(operand0)
 
@@ -104,57 +68,181 @@ object T86RegisterAllocator {
   }
 
   def getBasicBlockDefUse(bb: T86BasicBlock): DefUse =
-    bb.body.foldLeft(DefUse.empty)((prev, elem) => elem match {
-      case insn: T86Insn =>
-        val cur = getInsnDefUse(insn)
-        DefUse(prev.defines ++ cur.defines, (prev.uses -- cur.defines) ++ cur.uses)
-
-      case _ => prev
+    bb.insns.reverse.foldLeft(DefUse.empty)((prev, insn) => {
+      val cur = getInsnDefUse(insn)
+      DefUse(prev.defines ++ cur.defines, (prev.uses -- cur.defines) ++ cur.uses)
     })
 
-  def isRegRegMove(insn: T86Insn): Boolean = insn match {
-    case BinaryT86Insn(MOV, _: Operand.Reg, _: Operand.Reg) => true
-    case BinaryT86Insn(MOV, _: Operand.FReg, _: Operand.FReg) => true
-    case _ => false
-  }
-
-  def remapRegisters(operand: Operand, regMap: Map[Temp, Temp]): Operand = operand match {
-    case imm: Operand.Imm => imm
-    case label: Operand.Label => label
-
-    case reg: Operand.Reg => regMap(reg).op
-    case Operand.RegImm(reg, offset) => Operand.RegImm(regMap(reg).toReg, offset)
-    case Operand.RegReg(reg, reg2) => Operand.RegReg(regMap(reg).toReg, reg2)
-    case Operand.RegScaled(reg, scale) => Operand.RegScaled(regMap(reg).toReg, scale)
-    case Operand.RegImmReg(reg, offset, reg2) => Operand.RegImmReg(regMap(reg).toReg, offset, regMap(reg2).toReg)
-    case Operand.RegRegScaled(reg, scaledReg, scale) => Operand.RegRegScaled(regMap(reg).toReg, regMap(scaledReg).toReg, scale)
-    case Operand.RegImmRegScaled(reg, offset, scaledReg, scale) => Operand.RegImmRegScaled(regMap(reg).toReg, offset, regMap(scaledReg).toReg, scale)
-
-    case Operand.MemImm(addr) => Operand.MemImm(addr)
-    case Operand.MemReg(addrReg) => Operand.MemReg(regMap(addrReg).toReg)
-    case Operand.MemRegImm(addrReg, addrOffset) => Operand.MemRegImm(regMap(addrReg).toReg, addrOffset)
-    case Operand.MemRegReg(addrReg, addrReg2) => Operand.MemRegReg(regMap(addrReg).toReg, regMap(addrReg2).toReg)
-    case Operand.MemRegScaled(addrReg, addrScale) => Operand.MemRegScaled(regMap(addrReg).toReg, addrScale)
-    case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => Operand.MemRegImmReg(regMap(addrReg).toReg, addrOffset, regMap(addrReg2).toReg)
-    case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => Operand.MemRegRegScaled(regMap(addrReg).toReg, regMap(addrScaledReg).toReg, addrScale)
-    case imm: Operand.FImm => imm
-    case reg: Operand.FReg => regMap(reg).toFReg
-  }
-
-  def remapRegisters(insn: T86Insn, regMap: Map[Temp, Temp]): T86Insn = insn match {
+  def remapRegistersInInsn(insn: T86Insn, regMap: RegMap): T86Insn = insn match {
     case insn: NullaryT86Insn => insn
-    case UnaryT86Insn(op, operand0) => UnaryT86Insn(op, remapRegisters(operand0, regMap))
-    case BinaryT86Insn(op, operand0, operand1) => BinaryT86Insn(op, remapRegisters(operand0, regMap), remapRegisters(operand1, regMap))
+    case UnaryT86Insn(op, operand0) => UnaryT86Insn(op, remapRegistersInOperand(operand0, regMap))
+    case BinaryT86Insn(op, operand0, operand1) => BinaryT86Insn(op, remapRegistersInOperand(operand0, regMap), remapRegistersInOperand(operand1, regMap))
   }
 
-  def remapRegistersInFun(fun: T86Fun, regMap: Map[Temp, Temp]): Unit = {
+  def remapRegistersInFun(fun: T86Fun, regMap: RegMap): Unit = {
     fun.basicBlocks.foreach(bb => {
       bb.body = bb.body.map({
-        case insn: T86Insn => remapRegisters(insn, regMap)
+        case insn: T86Insn => remapRegistersInInsn(insn, regMap)
         case elem => elem
       })
     })
   }
+}
 
+trait T86RegRegisterAllocator extends T86GenericRegisterAllocator[Operand.Reg] {
+  /** General purpose registers available for allocation. */
+  override def machineRegs: Set[Operand.Reg] = T86Utils.machineRegs
+
+  override def ignoredRegs: Set[Operand.Reg] = T86Utils.specialRegs
+
+  override def returnValueRegs: Set[Operand.Reg] = Set(T86Utils.returnValueReg)
+
+  /** Registers which should be live during any function call. A subset of [[machineRegs]]. */
+  override def callerSaveRegs: Set[Operand.Reg] = Set.empty
+
+  /** Registers which should be live inside whole function body. A subset of [[machineRegs]]. */
+  override def calleeSaveRegs: Set[Operand.Reg] = T86Utils.calleeSaveRegs
+
+  /** Returns what the operand defines and uses when it is used as write target (no read). Defines and uses are subset of [[machineRegs]]. */
+  override def getOperandWriteDefUse(op: Operand): DefUse = (op match {
+    case reg: Operand.Reg => DefUse(Set(reg), Set.empty)
+
+    case Operand.MemImm(addr) => DefUse.empty
+    case Operand.MemReg(addrReg) => DefUse(Set.empty, Set(addrReg))
+    case Operand.MemRegImm(addrReg, addrOffset) => DefUse(Set.empty, Set(addrReg))
+    case Operand.MemRegReg(addrReg, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
+    case Operand.MemRegScaled(addrReg, addrScale) => DefUse(Set.empty, Set(addrReg))
+    case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
+    case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse(Set.empty, Set(addrReg, addrScaledReg))
+
+    case freg: Operand.FReg => DefUse.empty
+
+    case op => throw new IllegalArgumentException(s"Operand $op cannot be used as a destination.")
+  }).withoutIgnoredRegs
+
+  /** Returns what the operand defines and uses when it is used as read target. Defines and uses are subset of [[machineRegs]]. */
+  override def getOperandReadDefUse(op: Operand): DefUse = (op match {
+    case _: Operand.Imm | _: Operand.Label | _: Operand.MemImm | _: Operand.FImm => DefUse.empty
+    case reg: Operand.Reg => DefUse(Set.empty, Set(reg))
+
+    case Operand.RegImm(reg, offset) => DefUse(Set.empty, Set(reg))
+    case Operand.RegReg(reg, reg2) => DefUse(Set.empty, Set(reg, reg2))
+    case Operand.RegScaled(reg, scale) => DefUse(Set.empty, Set(reg))
+    case Operand.RegImmReg(reg, offset, reg2) => DefUse(Set.empty, Set(reg, reg2))
+    case Operand.RegRegScaled(reg, scaledReg, scale) => DefUse(Set.empty, Set(reg, scaledReg))
+    case Operand.RegImmRegScaled(reg, offset, scaledReg, scale) => DefUse(Set.empty, Set(reg, scaledReg))
+
+    case Operand.MemReg(addrReg) => DefUse(Set.empty, Set(addrReg))
+    case Operand.MemRegImm(addrReg, addrOffset) => DefUse(Set.empty, Set(addrReg))
+    case Operand.MemRegReg(addrReg, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
+    case Operand.MemRegScaled(addrReg, addrScale) => DefUse(Set.empty, Set(addrReg))
+    case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
+    case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse(Set.empty, Set(addrReg, addrScaledReg))
+
+    case freg: Operand.FReg => DefUse.empty
+  }).withoutIgnoredRegs
+
+  /** Returns true for MOV Rx, Ry where Rx and Ry are members of [[machineRegs]]. */
+  override def isRegRegMove(insn: T86Insn): Boolean = insn match {
+    case BinaryT86Insn(MOV, r1: Operand.Reg, r2: Operand.Reg) if machineRegs.contains(r1) && machineRegs.contains(r2) => true
+    case _ => false
+  }
+
+  override def remapRegistersInOperand(op: Operand, regMap: RegMap): Operand = op match {
+    case _: Operand.Imm | _: Operand.Label | _: Operand.MemImm | _: Operand.FImm => op
+    case reg: Operand.Reg => regMap(reg)
+
+    case Operand.RegImm(reg, offset) => Operand.RegImm(regMap(reg), offset)
+    case Operand.RegReg(reg, reg2) => Operand.RegReg(regMap(reg), reg2)
+    case Operand.RegScaled(reg, scale) => Operand.RegScaled(regMap(reg), scale)
+    case Operand.RegImmReg(reg, offset, reg2) => Operand.RegImmReg(regMap(reg), offset, regMap(reg2))
+    case Operand.RegRegScaled(reg, scaledReg, scale) => Operand.RegRegScaled(regMap(reg), regMap(scaledReg), scale)
+    case Operand.RegImmRegScaled(reg, offset, scaledReg, scale) => Operand.RegImmRegScaled(regMap(reg), offset, regMap(scaledReg), scale)
+
+    case Operand.MemReg(addrReg) => Operand.MemReg(regMap(addrReg))
+    case Operand.MemRegImm(addrReg, addrOffset) => Operand.MemRegImm(regMap(addrReg), addrOffset)
+    case Operand.MemRegReg(addrReg, addrReg2) => Operand.MemRegReg(regMap(addrReg), regMap(addrReg2))
+    case Operand.MemRegScaled(addrReg, addrScale) => Operand.MemRegScaled(regMap(addrReg), addrScale)
+    case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => Operand.MemRegImmReg(regMap(addrReg), addrOffset, regMap(addrReg2))
+    case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => Operand.MemRegRegScaled(regMap(addrReg), regMap(addrScaledReg), addrScale)
+
+    case freg: Operand.FReg => freg
+  }
+
+  override def regSize: Long = 1
+}
+
+trait T86FRegRegisterAllocator extends T86GenericRegisterAllocator[Operand.FReg] {
+  /** General purpose registers available for allocation. */
+  override def machineRegs: Set[Operand.FReg] = T86Utils.machineFRegs
+
+  override def ignoredRegs: Set[Operand.FReg] = Set.empty
+
+  override def returnValueRegs: Set[Operand.FReg] = Set.empty
+
+  /** Registers which should be live during any function call. A subset of [[machineRegs]]. */
+  override def callerSaveRegs: Set[Operand.FReg] = T86Utils.callerSaveFRegs
+
+  /** Registers which should be live inside whole function body. A subset of [[machineRegs]]. */
+  override def calleeSaveRegs: Set[Operand.FReg] = Set.empty
+
+  /** Returns what the operand defines and uses when it is used as write target (no read). Defines and uses are subset of [[machineRegs]]. */
+  override def getOperandWriteDefUse(op: Operand): DefUse = (op match {
+    case op: Operand.Reg => DefUse.empty
+
+    case Operand.MemImm(addr) => DefUse.empty
+    case Operand.MemReg(addrReg) => DefUse.empty
+    case Operand.MemRegImm(addrReg, addrOffset) => DefUse.empty
+    case Operand.MemRegReg(addrReg, addrReg2) => DefUse.empty
+    case Operand.MemRegScaled(addrReg, addrScale) => DefUse.empty
+    case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => DefUse.empty
+    case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse.empty
+
+    case freg: Operand.FReg => DefUse(Set(freg), Set.empty)
+
+    case op => throw new IllegalArgumentException(s"Operand $op cannot be used as a destination.")
+  }).withoutIgnoredRegs
+
+  /** Returns what the operand defines and uses when it is used as read target. Defines and uses are subset of [[machineRegs]]. */
+  override def getOperandReadDefUse(op: Operand): DefUse = (op match {
+    case _: Operand.Imm | _: Operand.Label | _: Operand.MemImm | _: Operand.FImm => DefUse.empty
+    case reg: Operand.Reg => DefUse.empty
+
+    case Operand.RegImm(reg, offset) => DefUse.empty
+    case Operand.RegReg(reg, reg2) => DefUse.empty
+    case Operand.RegScaled(reg, scale) => DefUse.empty
+    case Operand.RegImmReg(reg, offset, reg2) => DefUse.empty
+    case Operand.RegRegScaled(reg, scaledReg, scale) => DefUse.empty
+    case Operand.RegImmRegScaled(reg, offset, scaledReg, scale) => DefUse.empty
+
+    case Operand.MemReg(addrReg) => DefUse.empty
+    case Operand.MemRegImm(addrReg, addrOffset) => DefUse.empty
+    case Operand.MemRegReg(addrReg, addrReg2) => DefUse.empty
+    case Operand.MemRegScaled(addrReg, addrScale) => DefUse.empty
+    case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => DefUse.empty
+    case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse.empty
+
+    case freg: Operand.FReg => DefUse(Set.empty, Set(freg))
+  }).withoutIgnoredRegs
+
+  /** Returns true for MOV Rx, Ry where Rx and Ry are members of [[machineRegs]]. */
+  override def isRegRegMove(insn: T86Insn): Boolean = insn match {
+    case BinaryT86Insn(MOV, r1: Operand.FReg, r2: Operand.FReg) if machineRegs.contains(r1) && machineRegs.contains(r2) => true
+    case _ => false
+  }
+
+  override def remapRegistersInOperand(op: Operand, regMap: RegMap): Operand = op match {
+    case freg: Operand.FReg => regMap(freg)
+    case _ => op
+  }
+
+  override def regSize: Long = 1
+}
+
+abstract class T86RegisterAllocator(program: T86Program) extends RegisterAllocator[T86Program](program) {
+  def result(): T86Program
+}
+
+object T86RegisterAllocator {
   def apply(program: T86Program): T86RegisterAllocator = new GraphColoringRegisterAllocator(program)
 }

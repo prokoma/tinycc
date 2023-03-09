@@ -3,29 +3,337 @@ package tinycc.backend.t86.regalloc
 import tinycc.backend.BackendException
 import tinycc.backend.t86.T86Opcode.MOV
 import tinycc.backend.t86._
-import tinycc.backend.t86.regalloc.GraphColoringRegisterAllocator.InterferenceGraph
 import tinycc.common._
 
 import scala.collection.mutable
 
 class GraphColoringRegisterAllocator(program: T86Program) extends T86RegisterAllocator(program: T86Program) {
 
-  import T86RegisterAllocator._
+  private val regRegisterAllocator = new GenericGraphColoringRegisterAllocator[Operand.Reg] with T86RegRegisterAllocator {
+    override def rewriteFunWithSpilledNodes(fun: T86Fun, spilledNodes: Set[Operand.Reg]): Set[Operand.Reg] = {
+      val allocMap = spilledNodes.map(node => (node -> fun.freshLocal(regSize))).toMap // maps spilled temporaries to memory locations
+      var newRegs = Set.empty[Operand.Reg]
+
+      fun.basicBlocks.foreach(bb => {
+        val newBody = IndexedSeq.newBuilder[T86ListingElement]
+        bb.body.foreach({
+          case insn: T86Insn =>
+            val DefUse(defines, uses) = getInsnDefUse(insn)
+            var regMap = Map.empty[Operand.Reg, Operand.Reg]
+
+            // load used spilled registers from memory
+            uses.intersect(spilledNodes).foreach(reg => {
+              val newReg = fun.freshReg()
+              newRegs += newReg
+              Console.err.println(s"Spilling $reg into $newReg")
+              regMap += (reg -> newReg)
+              newBody += T86Insn(MOV, newReg, allocMap(reg))
+            })
+
+            newBody += remapRegistersInInsn(insn, regMap.withDefault(reg => reg))
+
+            // store defined spilled registers into memory
+            defines.intersect(spilledNodes).foreach(reg => {
+              newBody += T86Insn(MOV, allocMap(reg), regMap.getOrElse(reg, reg))
+            })
+
+          case elem => newBody += elem
+        })
+        bb.body = newBody.result()
+      })
+      newRegs
+    }
+  }
+
+  private val fregRegisterAllocator = new GenericGraphColoringRegisterAllocator[Operand.FReg] with T86FRegRegisterAllocator {
+    override def rewriteFunWithSpilledNodes(fun: T86Fun, spilledNodes: Set[Operand.FReg]): Set[Operand.FReg] = {
+      val allocMap = spilledNodes.map(node => (node -> fun.freshLocal(regSize))).toMap // maps spilled temporaries to memory locations
+      var newRegs = Set.empty[Operand.FReg]
+
+      fun.basicBlocks.foreach(bb => {
+        val newBody = IndexedSeq.newBuilder[T86ListingElement]
+        bb.body.foreach({
+          case insn: T86Insn =>
+            val DefUse(defines, uses) = getInsnDefUse(insn)
+            var regMap = Map.empty[Operand.FReg, Operand.FReg]
+
+            // load used spilled registers from memory
+            uses.intersect(spilledNodes).foreach(freg => {
+              // cannot load to freg directly from MemRegImm, need to go through normal reg
+              val tmpReg = fun.freshReg()
+              newBody += T86Insn(MOV, tmpReg, allocMap(freg))
+              val newFreg = fun.freshFReg()
+              newRegs += newFreg
+              regMap += (freg -> newFreg)
+              newBody += T86Insn(MOV, newFreg, tmpReg)
+            })
+
+            newBody += remapRegistersInInsn(insn, regMap.withDefault(reg => reg))
+
+            defines.intersect(spilledNodes).foreach(freg => {
+              // store defined spilled registers into memory
+              newBody += T86Insn(MOV, allocMap(freg), regMap.getOrElse(freg, freg))
+            })
+
+          case elem => newBody += elem
+        })
+        bb.body = newBody.result()
+      })
+      newRegs
+    }
+  }
 
   override def result(): T86Program = {
     program.funs.foreach(processFun)
     program
   }
 
+  def processFun(fun: T86Fun): Unit = {
+    // handle float regs first, because to spill them we need regular regs because of MOV operand limitations
+    Console.err.println("FReg")
+    fregRegisterAllocator.processFun(fun)
+//    Console.err.println("Reg")
+    regRegisterAllocator.processFun(fun)
+  }
+}
+
+trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegisterAllocator[T] {
+
+  // backwards must dataflow analysis
+  class LivenessAnalysis(cfg: T86BasicBlockCfg)
+    extends DataflowAnalysis.Builder[T86BasicBlock](cfg, forward = false)
+      with FixpointComputation.Naive {
+
+    import LivenessAnalysis._
+
+    type NodeState = Set[T] // set of live-in variables for a basic block
+
+    override def nodeStateLattice: Lattice[NodeState] = Lattice.powersetLat(???)
+
+    override def cfgNodes: Seq[T86BasicBlock] = cfg.nodes
+
+    private val bbDefUse: Map[CfgNode, DefUse] = cfg.nodes.map(bb => bb -> getBasicBlockDefUse(bb)).toMap
+
+    /** Returns live-in variables for this basic block. */
+    override def transfer(bb: T86BasicBlock, liveOutVars: Set[T]): Set[T] = {
+      val DefUse(defines, uses) = bbDefUse(bb)
+      (liveOutVars -- defines) ++ uses
+    }
+
+    def result(): Result = Result(fixpoint(), join)
+  }
+
+  object LivenessAnalysis {
+    type NodeState = Set[T]
+    type CfgState = Map[T86BasicBlock, NodeState]
+
+    case class Result(cfgState: CfgState, join: (T86BasicBlock, CfgState) => NodeState) {
+      def getLiveOut(bb: T86BasicBlock): Set[T] = join(bb, cfgState)
+
+      def getLiveIn(bb: T86BasicBlock): Set[T] = cfgState(bb)
+    }
+  }
+
+  trait InterferenceGraph {
+    def nodes: Set[T]
+
+    def edgeSet: Set[(T, T)]
+
+    def adjList: Map[T, Set[T]]
+
+    def regRegMoveInsns: Set[T86InsnRef]
+
+    def regRegMoveList: Map[T, Set[T86InsnRef]]
+
+    def getDefUseCount(node: T): Int
+
+    def getLiveRangeSize(node: T): Int
+  }
+
+  object InterferenceGraph {
+    def apply(cfg: T86BasicBlockCfg): InterferenceGraph =
+      apply(cfg, new LivenessAnalysis(cfg).result())
+
+    def apply(cfg: T86BasicBlockCfg, livenessResult: LivenessAnalysis.Result): InterferenceGraph = {
+      val _regRegMoveList = mutable.Map.empty[T, Set[T86InsnRef]].withDefaultValue(Set.empty)
+      var _regRegMoveInsns = Set.empty[T86InsnRef]
+      var _edgeSet = Set.empty[(T, T)]
+      val _adjList = mutable.Map.empty[T, Set[T]].withDefaultValue(Set.empty)
+      var _nodes = machineRegs
+
+      def addEdge(u: T, v: T): Unit = {
+        if (u != v && !_edgeSet.contains((u, v))) {
+          _edgeSet += ((u, v))
+          _edgeSet += ((v, u))
+          if (!machineRegs.contains(u)) {
+            _adjList(u) += v
+          }
+          if (!machineRegs.contains(v)) {
+            _adjList(v) += u
+          }
+        }
+      }
+
+      val _defUseCounts = mutable.Map.empty[T, Int].withDefaultValue(0)
+      val _liveRangeSizes = mutable.Map.empty[T, Int].withDefaultValue(0)
+
+      cfg.nodes.foreach(bb => {
+        var live = livenessResult.getLiveOut(bb)
+        val inLoop = cfg.isInLoop(bb)
+
+        for ((insn, insnRef) <- bb.insnsWithRefs.reverse) {
+          val DefUse(defines, uses) = getInsnDefUse(insn)
+          _nodes ++= defines ++ uses
+
+          (defines ++ uses).foreach(node => {
+            _defUseCounts(node) = _defUseCounts(node) + (if (inLoop) 10 else 1)
+          })
+
+          if (isRegRegMove(insn)) {
+            // We just copy one register to another of the same type
+            // The live ranges don't overlap, because if we color the temps with the same color, the move is redundant
+            live --= uses
+            for (temp <- defines ++ uses) {
+              _regRegMoveList(temp) += insnRef
+            }
+            _regRegMoveInsns += insnRef
+          }
+
+          live ++= defines
+          for(l <- live) {
+            for (d <- defines) addEdge(d, l)
+          }
+          live = (live -- defines) ++ uses
+          for(l <- live) {
+            _liveRangeSizes(l) = _liveRangeSizes(l) + 1
+          }
+        }
+      })
+
+      for (temp <- _nodes)
+        if (!_adjList.contains(temp))
+          _adjList(temp) = Set.empty
+
+      Console.err.println(_liveRangeSizes)
+
+      new InterferenceGraph {
+        override def nodes: Set[T] = _nodes
+
+        override def edgeSet: Set[(T, T)] = _edgeSet
+
+        override def adjList: Map[T, Set[T]] = _adjList.toMap
+
+        override def regRegMoveInsns: Set[T86InsnRef] = _regRegMoveInsns
+
+        override def regRegMoveList: Map[T, Set[T86InsnRef]] = _regRegMoveList.toMap
+
+        override def getDefUseCount(node: T): Int = _defUseCounts(node)
+
+        override def getLiveRangeSize(node: T): Int = _liveRangeSizes(node)
+      }
+    }
+  }
+
+  trait InterferenceGraphColoring {
+    def colorMap: Map[T, T]
+
+    def spilledNodes: Set[T]
+  }
+
+  object InterferenceGraphColoring {
+    def apply(interf: InterferenceGraph): InterferenceGraphColoring = {
+      var _selectStack = List.empty[T]
+      var _simplifyWorklist = List.empty[T]
+
+      var _spillWorklist = Set.empty[T]
+      var _spilledNodes = Set.empty[T]
+
+      var _initial = interf.nodes -- machineRegs // set of nodes excluding precolored nodes
+      val _origAdjList = interf.adjList
+      val _adjList = mutable.Map.from(_origAdjList)
+      val _regRegMoveList = interf.regRegMoveList
+
+      def isMoveRelated(node: T): Boolean = _regRegMoveList.contains(node)
+
+      def getSpillCost(node: T): Double = {
+        if(interf.getLiveRangeSize(node) == 1)
+          Double.PositiveInfinity
+        else
+         interf.getDefUseCount(node) / _origAdjList(node).size
+      }
+
+      for (node <- _initial) {
+        if (_adjList(node).size >= machineRegs.size)
+          _spillWorklist += node
+        //        else if(isMoveRelated(node))
+        //          freezeWorklist ::= node
+        else
+          _simplifyWorklist ::= node
+      }
+      _initial = Set.empty
+
+      while (_simplifyWorklist.nonEmpty || _spillWorklist.nonEmpty) {
+        if (_simplifyWorklist.nonEmpty) {
+          val node = _simplifyWorklist.head
+          _simplifyWorklist = _simplifyWorklist.tail
+
+          _selectStack ::= node // mark node for coloring
+          for (adj <- _adjList(node)) {
+            _adjList(adj) -= node // decrement degree
+            if (_adjList(adj).size == machineRegs.size) { // this condition ensures that there are no dupes in _simplifyWorklist
+              _spillWorklist -= adj
+              //            if(isMoveRelated(adj))
+              //              freezeWorklist ::= adj
+              //            else
+              _simplifyWorklist ::= adj
+            }
+          }
+        } else if (_spillWorklist.nonEmpty) {
+          val node = _spillWorklist.minBy(getSpillCost)
+          _spillWorklist -= node
+
+          Console.err.println(s"Candidate for spill: $node")
+
+          _simplifyWorklist ::= node
+        }
+      }
+
+      val _colorMap = mutable.Map.from(machineRegs.map(r => (r -> r)))
+      for (node <- _selectStack) {
+        var okColors = machineRegs
+        for (adj <- _origAdjList(node)) {
+          _colorMap.get(adj).foreach(color => okColors -= color)
+        }
+        if (okColors.isEmpty) {
+          _spilledNodes += node
+        } else {
+          val newColor = okColors.head
+          _colorMap(node) = newColor
+        }
+      }
+
+      new InterferenceGraphColoring {
+        override def colorMap: Map[T, T] = _colorMap.toMap
+
+        override def spilledNodes: Set[T] = _spilledNodes
+      }
+    }
+  }
+
   def remapCalleeSaveRegs(fun: T86Fun): Unit = {
-    val regMap = mutable.Map.empty[Operand.Reg, Operand.Reg]
-    val backupCode = T86Utils.calleeSaveRegs.toSeq.map(reg => {
-      val newReg = fun.freshReg()
-      regMap(reg) = newReg
+    val _calleeSaveRegs = calleeSaveRegs.toSeq
+    val _regMap = mutable.Map.empty[T, T]
+
+    val backupCode = _calleeSaveRegs.map(reg => {
+      val newReg = reg match {
+        case reg: Operand.Reg => fun.freshReg()
+        case freg: Operand.FReg => fun.freshFReg()
+      }
+      _regMap(reg) = newReg.asInstanceOf[T]
       T86Insn(MOV, newReg, reg)
     })
-    val restoreCode = T86Utils.calleeSaveRegs.toSeq.map(reg => {
-      T86Insn(MOV, reg, regMap(reg))
+    val restoreCode = _calleeSaveRegs.map(reg => {
+      T86Insn(MOV, reg, _regMap(reg))
     })
 
     fun.basicBlocks.foreach(bb => {
@@ -38,321 +346,34 @@ class GraphColoringRegisterAllocator(program: T86Program) extends T86RegisterAll
     })
   }
 
-//  def remapCallerSaveRegs(fun: T86Fun): Unit = {
-//    val fregMap = mutable.Map.empty[Operand.FReg, Operand.FReg]
-//
-//    fun.basicBlocks.foreach(bb => {
-//      bb.body = bb.body.flatMap({
-//        case T86SpecialLabel.CallPrologueMarker => {
-//          fregMap.clear()
-//          T86SpecialLabel.FunPrologueMarker +: T86Utils.callerSaveFRegs.toSeq.map(reg => {
-//            val newReg = fun.freshFReg()
-//            fregMap(reg) = newReg
-//            T86Insn(MOV, newReg, reg)
-//          })
-//        }
-//        case T86SpecialLabel.CallEpilogueMarker => T86Utils.callerSaveFRegs.toSeq.map(reg => {
-//          T86Insn(MOV, reg, fregMap(reg))
-//        }) :+ T86SpecialLabel.FunEpilogueMarker
-//
-//        case elem => Seq(elem)
-//      })
-//    })
-//  }
+  /**
+   * @return newly created registers
+   */
+  def rewriteFunWithSpilledNodes(fun: T86Fun, spilledNodes: Set[T]): Set[T]
 
   def processFun(fun: T86Fun): Unit = {
     // insert code to backup and restore all callee save registers
-//    remapCalleeSaveRegs(fun)
-//    remapCallerSaveRegs(fun)
+    remapCalleeSaveRegs(fun)
 
     val cfg = T86BasicBlockCfg(fun)
-    val interferenceGraph = InterferenceGraph(cfg, machineRegs)
 
-    Console.err.println(s"Interfering registers for ${fun.irFun.get.name}: ${interferenceGraph.edgeSet}")
+    var hasSpilledNodes = false
+    do {
+      Console.err.println(new T86AsmPrinter().printToString(fun.flatten))
 
-    def colorInterfGraph(interf: InterferenceGraph): Map[Temp, Temp] = {
-      var selectStack = List.empty[Temp]
-      var simplifyWorklist = List.empty[Temp]
-      val K = machineRegs.size
+      val interferenceGraph = InterferenceGraph(cfg)
+//      Console.err.println(s"Interfering registers for ${fun.irFun.get.name}: ${interferenceGraph.edgeSet}")
 
-      var initial = interf.nodes -- machineRegs // set of nodes excluding precolored nodes
-      val origAdjList = interf.adjList
-      val adjList = mutable.Map.from(origAdjList)
+      val coloring = InterferenceGraphColoring(interferenceGraph)
+      Console.err.println(s"Registers to spill: ${coloring.spilledNodes}")
 
-      for(temp <- initial) {
-        if(adjList(temp).size >= K)
-          throw new BackendException(s"Node degree too high: $temp.")
-        else
-          simplifyWorklist ::= temp
+      if (coloring.spilledNodes.nonEmpty) {
+        hasSpilledNodes = true
+        rewriteFunWithSpilledNodes(fun, coloring.spilledNodes)
+      } else {
+        hasSpilledNodes = false
+        remapRegistersInFun(fun, coloring.colorMap.withDefault(reg => reg))
       }
-      initial = Set.empty
-
-      while(simplifyWorklist.nonEmpty) {
-        val temp = simplifyWorklist.head
-        simplifyWorklist = simplifyWorklist.tail
-
-        selectStack ::= temp // mark node for coloring
-        for(adj <- adjList(temp)) {
-          adjList(adj) -= temp // decrement degree
-          if(adjList(adj).size == K)
-            simplifyWorklist ::= adj
-        }
-      }
-
-      val colorMap = mutable.Map.from(machineRegs.map(r => (r -> r)))
-      for(temp <- selectStack) {
-        var okColors = machineRegs.filter(_.isSameType(temp))
-        for(adj <- origAdjList(temp)) {
-          colorMap.get(adj).foreach(color => okColors -= color)
-        }
-        if(okColors.isEmpty)
-          throw new BackendException(s"No colors available for $temp.")
-        val newColor = okColors.head
-        colorMap(temp) = newColor
-      }
-
-      colorMap.toMap
-    }
-
-    val regMap = colorInterfGraph(interferenceGraph).withDefault(reg => reg)
-    remapRegistersInFun(fun, regMap)
-  }
-
-//    // 1. construct CFG
-//    val cfg = T86BasicBlockCfg(fun)
-//
-//    // 2. run liveness analysis on basic blocks
-//    val
-//
-//    // 3. compute live temporaries for each instruction in basic block and build interference graph
-//    val initial = mutable.Set.empty[Temp] // set of all virtual registers, which we need to remap to machine registers
-//
-//
-//    val simplifyWorklist = mutable.Buffer.from(initial)
-//    val nodeDegrees = mutable.Map.from(interf.nodes.map(node => (node -> interf.getDegree(node))))
-//
-//    val coloredNodes = mutable.Map.empty[Temp, Temp]
-//    val selectStack = mutable.Stack.empty[Temp]
-//
-//    // 4. iteratively search for nodes with small degree and push them onto coloring stack
-//    while (simplifyWorklist.nonEmpty) {
-//      if (simplifyWorklist.nonEmpty)
-//        simplify();
-//    }
-//
-//
-//    // 5. pop from the coloring stack and assign colors
-//
-//    // 6. rewrite program with the assigned registers
-//
-//    Console.out.println(interf.edges)
-//  }
-//
-//  final class FunImpl(fun: T86Fun, cfg: T86BasicBlockCfg) {
-//    type Node = Temp
-//
-//    var livenessResult: T86BasicBlockLivenessAnalysis.Result = _
-//    var interf: InterferenceGraph = _
-//    val initial: mutable.Set[Temp] = mutable.Set.empty
-//    val simplifyWorklist: mutable.Buffer[Temp] = mutable.Buffer.empty
-//    val moveWorklist: mutable.Buffer[Temp] = mutable.Buffer.empty
-//    // nodes removed from the graph to be assigned a color
-//    val selectStack: mutable.Stack[Temp] = mutable.Stack.empty
-//
-//    initial ++= collectTempsToColor()
-//    main()
-//
-//    private def collectTempsToColor(): Set[Temp] =
-//      fun.insns.flatMap(insn => {
-//        val DefUse(defines, uses) = getInsnDefUse(insn)
-//        (defines ++ uses).filter(!isMachineOrSpecialTemp(_))
-//      }).toSet
-//
-//    @tailrec
-//    private def main(): Unit = {
-//      livenessAnalysis()
-//      build()
-//      makeWorklist()
-//      while (simplifyWorklist.nonEmpty) {
-//        if (simplifyWorklist.nonEmpty)
-//          simplify()
-//      }
-//      assignColors()
-//    }
-//
-//    private def livenessAnalysis(): Unit = {
-//      livenessResult = new T86BasicBlockLivenessAnalysis(cfg).result()
-//    }
-//
-//    private def build(): Unit = {
-//      val interfBuilder = InterferenceGraph.newBuilder
-//      fun.basicBlocks.foreach(bb => {
-//        var live = livenessResult.getLiveOut(bb)
-//
-//        for (insn <- bb.insns.reverse) {
-//          val DefUse(defines, uses) = getInsnDefUse(insn)
-//
-//          if (isRegRegMove(insn)) {
-//            // We just copy one register to another of the same type
-//            // The live ranges don't overlap, because if we color the temps with the same color, the move is redundant
-//            live --= uses
-////            for (temp <- defines ++ uses) {
-////              moveList(temp) += insn
-////            }
-//            moveWorklist += insn
-//          }
-//
-//          live ++= defines
-//          for (d <- defines if !isSpecialTemp(d); l <- live if !isSpecialTemp(l))
-//            interfBuilder.addEdge(d, l)
-//          live = (live -- defines) ++ uses
-//        }
-//      })
-//      interf = interfBuilder.result()
-//    }
-//
-//    private def makeWorklist(): Unit = {
-//      for(temp <- initial) {
-//        if (degree(temp) > K)
-//          spillWorklist += temp
-//        else if(isRegRegMove(temp))
-//          freezeWorklist += temp
-//        else
-//          simplifyWorklist += temp
-//      }
-//    }
-//
-//    private def simplify(): Unit = {
-//      val temp = simplifyWorklist.remove(0)
-//      selectStack.push(temp)
-//      for (m <- adjacent(temp)) {
-//        decrementDegree(m)
-//      }
-//    }
-//
-//    private def decrementDegree(node: Temp): Unit = {
-//
-//    }
-//  }
-}
-
-object GraphColoringRegisterAllocator {
-
-  import T86RegisterAllocator._
-
-  // backwards must dataflow analysis
-  class T86BasicBlockLivenessAnalysis(cfg: T86BasicBlockCfg)
-    extends DataflowAnalysis.Builder[T86BasicBlock](cfg, forward = false)
-      with FixpointComputation.Naive {
-
-    import T86BasicBlockLivenessAnalysis._
-
-    type NodeState = Set[Temp] // set of live-in variables for a basic block
-
-    override def nodeStateLattice: Lattice[NodeState] = Lattice.powersetLat(???)
-
-    override def cfgNodes: Seq[T86BasicBlock] = cfg.nodes
-
-    private val bbDefUse: Map[CfgNode, DefUse] = cfg.nodes.map(bb => bb -> getBasicBlockDefUse(bb).exclSpecialRegs).toMap
-
-    /** Returns live-in variables for this basic block. */
-    override def transfer(bb: T86BasicBlock, liveOutVars: Set[Temp]): Set[Temp] = {
-      val DefUse(defines, uses) = bbDefUse(bb)
-      (liveOutVars -- defines) ++ uses
-    }
-
-    def result(): Result = Result(fixpoint(), join)
-  }
-
-  object T86BasicBlockLivenessAnalysis {
-    type NodeState = Set[Temp]
-    type CfgState = Map[T86BasicBlock, NodeState]
-
-    case class Result(cfgState: CfgState, join: (T86BasicBlock, CfgState) => NodeState) {
-      def getLiveOut(bb: T86BasicBlock): Set[Temp] = join(bb, cfgState)
-
-      def getLiveIn(bb: T86BasicBlock): Set[Temp] = cfgState(bb)
-    }
-  }
-
-  trait InterferenceGraph {
-    def nodes: Set[Temp]
-
-    def edgeSet: Set[(Temp, Temp)]
-
-    def adjList: Map[Temp, Set[Temp]]
-
-    def regRegMoves: Set[T86InsnRef]
-  }
-
-  case class T86InsnRef(bb: T86BasicBlock, index: Int) {
-    def apply(): T86Insn = bb.body(index).asInstanceOf[T86Insn]
-  }
-
-  object InterferenceGraph {
-    def apply(cfg: T86BasicBlockCfg, machineRegs: Set[Temp]): InterferenceGraph =
-      apply(cfg.nodes, new T86BasicBlockLivenessAnalysis(cfg).result(), machineRegs)
-
-    def apply(basicBlocks: Iterable[T86BasicBlock], livenessResult: T86BasicBlockLivenessAnalysis.Result, machineRegs: Set[Temp]): InterferenceGraph = {
-      val _regRegMoveMap = mutable.Map.empty[Temp, mutable.Set[T86InsnRef]].withDefaultValue(mutable.Set.empty)
-      var _regRegMoves = Set.empty[T86InsnRef]
-      var _edgeSet = Set.empty[(Temp, Temp)]
-      val _adjList = mutable.Map.empty[Temp, Set[Temp]].withDefaultValue(Set.empty)
-      var _nodes = machineRegs
-
-      def addEdge(u: Temp, v: Temp): Unit = {
-        if(u != v && !_edgeSet.contains((u, v))) {
-          _edgeSet += ((u, v))
-          _edgeSet += ((v, u))
-          if(!machineRegs.contains(u)) {
-            _adjList(u) += v
-          }
-          if(!machineRegs.contains(v)) {
-            _adjList(v) += u
-          }
-        }
-      }
-
-      basicBlocks.foreach(bb => {
-        var live = livenessResult.getLiveOut(bb)
-        val insnsWithIndex = bb.body.zipWithIndex.collect({ case (insn: T86Insn, i) => (insn, i) })
-
-        for ((insn, i) <- insnsWithIndex.reverse) {
-          val DefUse(defines, uses) = getInsnDefUse(insn).exclSpecialRegs
-
-          _nodes ++= defines
-          _nodes ++= uses
-
-          if (isRegRegMove(insn)) {
-            // We just copy one register to another of the same type
-            // The live ranges don't overlap, because if we color the temps with the same color, the move is redundant
-            live --= uses
-            val insnRef = T86InsnRef(bb, i)
-            for (temp <- defines ++ uses) {
-              _regRegMoveMap(temp) += insnRef
-            }
-            _regRegMoves += insnRef
-          }
-
-          live ++= defines
-          for (d <- defines; l <- live) addEdge(d, l)
-          live = (live -- defines) ++ uses
-        }
-      })
-
-      for(temp <- _nodes)
-        if(!_adjList.contains(temp))
-          _adjList(temp) = Set.empty
-
-      new InterferenceGraph {
-        override def nodes: Set[Temp] = _nodes
-
-        override def edgeSet: Set[(Temp, Temp)] = _edgeSet
-
-        override def adjList: Map[Temp, Set[Temp]] = _adjList.toMap
-
-        override def regRegMoves: Set[T86InsnRef] = _regRegMoves
-      }
-    }
+    } while (hasSpilledNodes)
   }
 }

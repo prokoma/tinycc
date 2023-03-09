@@ -197,7 +197,8 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       })
       ctx.emit(CallPrologueMarker)
       ctx.emit(CALL, ctx.getFunLabel(insn.targetFun.get).toOperand)
-      ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
+      if(args.nonEmpty)
+        ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
       ctx.emit(CallEpilogueMarker)
       Operand.BasicReg(0)
     }
@@ -210,7 +211,8 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       })
       ctx.emit(CallPrologueMarker)
       ctx.emit(CALL, ptr(ctx))
-      ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
+      if(args.nonEmpty)
+        ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
       ctx.emit(CallEpilogueMarker)
       Operand.BasicReg(0)
     }
@@ -352,12 +354,14 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       (ctx: Context) => {
         ctx.emit(MOV, Operand.BasicReg(0), reg(ctx))
         ctx.emit(T86SpecialLabel.FunEpilogueMarker)
+        ctx.emit(RET)
         ctx.freshReg()
       }
     }),
     GenRule(RegVar, Pat(RetVoid) ^^ { _ =>
       (ctx: Context) =>
         ctx.emit(T86SpecialLabel.FunEpilogueMarker)
+        ctx.emit(RET)
         ctx.freshReg()
     }),
     GenRule(RegVar, Pat(Halt) ^^ { _ =>
