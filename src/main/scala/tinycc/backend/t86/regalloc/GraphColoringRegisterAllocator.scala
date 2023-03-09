@@ -200,13 +200,12 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
           }
 
           live ++= defines
-          for(l <- live) {
-            for (d <- defines) addEdge(d, l)
-          }
+          for(l <- live; d <- defines)
+            addEdge(d, l)
           live = (live -- defines) ++ uses
-          for(l <- live) {
+
+          for(l <- live)
             _liveRangeSizes(l) = _liveRangeSizes(l) + 1
-          }
         }
       })
 
@@ -346,6 +345,37 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
     })
   }
 
+  def removeRedundantMoves(cfg: T86BasicBlockCfg): Unit = {
+    val livenessResult = new LivenessAnalysis(cfg).result()
+
+    cfg.nodes.foreach(bb => {
+      val newBodyReversed = IndexedSeq.newBuilder[T86ListingElement]
+      var live = livenessResult.getLiveOut(bb)
+
+      bb.body.reverse.foreach({
+        case insn: T86Insn =>
+          val DefUse(defines, uses) = getInsnDefUse(insn)
+          // live now contains registers that can be read after this instruction
+
+          if(isRegRegMove(insn)) {
+            val BinaryT86Insn(_, dest: T, src: T) = insn
+            if(dest != src && live.contains(dest))
+              newBodyReversed += insn
+            else
+              Console.err.println(s"Removed redundant move $insn")
+          } else {
+            newBodyReversed += insn
+          }
+
+          live = (live -- defines) ++ uses
+
+        case elem => newBodyReversed += elem
+      })
+
+      bb.body = newBodyReversed.result().reverse
+    })
+  }
+
   /**
    * @return newly created registers
    */
@@ -375,5 +405,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
         remapRegistersInFun(fun, coloring.colorMap.withDefault(reg => reg))
       }
     } while (hasSpilledNodes)
+
+    removeRedundantMoves(cfg)
   }
 }
