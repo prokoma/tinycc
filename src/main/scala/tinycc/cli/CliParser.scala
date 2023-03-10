@@ -19,23 +19,23 @@ object CliParser extends CliParsers {
     val optOutFile = output ^^ { outFile => (a: TranspileToC) => a.copy(outFile = Some(outFile)) }
     val optPrefix = prefix ^^ { prefix => (a: TranspileToC) => a.copy(prefix = a.prefix :+ prefix) }
 
-    "transpile-to-c" ~> commit(rep(optOutFile | optPrefix) ~ path) ^^ { case opts ~ file => applyOpts(TranspileToC(file), opts) } described "transpile-to-c action"
+    "transpile-to-c" ~> commit(rep(optOutFile | optPrefix) ~ path) ^^ { case opts ~ file => applyOpts(TranspileToC(file), opts) } described "transpile-to-c"
   }
 
   lazy val COMPILE: Parser[Action.Compile] = {
     val optOutFile = output ^^ { outFile => (a: Compile) => a.copy(outFile = Some(outFile)) }
 
-    "compile" ~> commit(rep(optOutFile) ~ path) ^^ { case opts ~ file => applyOpts(Compile(file), opts) } described "compile action"
+    "compile" ~> commit(rep(optOutFile) ~ path) ^^ { case opts ~ file => applyOpts(Compile(file), opts) } described "compile"
   }
 
   lazy val HELP: Parser[Action] = {
-    "help" ^^ (_ => Help)
+    "help" ^^ (_ => Help) described "help"
   }
 
-  lazy val ACTION: Parser[Action] = (TRANSPILE_TO_C | COMPILE | HELP) described "action"
+  lazy val ACTION: Parser[Action] = (TRANSPILE_TO_C | COMPILE | HELP)
 
   def parseArgs(args: Seq[String]): Action = parse(ACTION <~ EOI, SeqReader(args)) match {
     case Accept(action, _, _) => action
-    case Reject(expectation, reminding, _) => throw new CliException(s"Cli error: " + formatErrorMessage(expectation, reminding))
+    case Reject(expectation, reminding, _) => throw new CliException(s"cli error: " + formatErrorMessage(expectation, reminding))
   }
 }

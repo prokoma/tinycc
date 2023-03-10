@@ -24,8 +24,10 @@ trait SeqParsers[T] extends Parsers {
 
   def elem[R](message: String, fn: PartialFunction[T, R]): Parser[R] = (in: Input) => in.headOption match {
     case Some(tok) => fn.andThen(Accept(_, in.tail)).applyOrElse(tok, (_: T) => Reject(message, in))
-    case None => Reject(in)
+    case None => Reject(message, in)
   }
 
-  implicit def elem(e: T): Parser[T] = elem(e.toString, { case c if e == c => c })
+  def elemToString(e: T): String = e.toString
+
+  implicit def elem(e: T): Parser[T] = elem(elemToString(e), { case c if e == c => c })
 }

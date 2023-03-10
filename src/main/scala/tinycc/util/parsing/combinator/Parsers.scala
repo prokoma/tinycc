@@ -15,8 +15,6 @@ trait Parsers {
     /** Runs the parser returned by f(value) on [[remainder]]. In case of rejection, returns the last reject. */
     def flatMap[R](f: T => Parser[R]): Result[R]
 
-    def filter(f: T => Boolean): Result[T]
-
     def orElse[U >: T](other: => Result[U]): Result[U]
   }
 
@@ -29,8 +27,6 @@ trait Parsers {
       case reject: Reject => getLastReject(lastReject, reject)
     }
 
-    override def filter(f: T => Boolean): Result[T] = if (f(value)) this else Reject(remainder)
-
     override def orElse[U >: T](other: => Result[U]): Result[U] = this
   }
 
@@ -38,8 +34,6 @@ trait Parsers {
     override def map[R](f: Nothing => R): Result[R] = this
 
     override def flatMap[R](f: Nothing => Parser[R]): Result[R] = this
-
-    override def filter(f: Nothing => Boolean): Result[Nothing] = this
 
     override def orElse[U >: Nothing](other: => Result[U]): Result[U] = {
       if (fatal)
@@ -78,7 +72,11 @@ trait Parsers {
 
     def flatMap[R](f: T => Parser[R]): Parser[R] = (in: Input) => this (in).flatMap(f)
 
-    def filter(f: T => Boolean): Parser[T] = (in: Input) => this (in).filter(f)
+    def filter(f: T => Boolean): Parser[T] = (in: Input) => this (in) match {
+      case accept@Accept(value, _, _) if f(value) => accept
+      case Accept(_, _, lastReject) => Reject(in)
+      case reject: Reject => reject
+    }
 
     def described(message: String): Parser[T] = (in: Input) => this (in) match {
       case Accept(value, remainder, lastReject) =>
@@ -199,10 +197,10 @@ trait Parsers {
     if (context.message != "")
       message += s"while parsing ${context.message}, "
     if (expected.nonEmpty) {
-      message += "expected " + expected.tail.mkString(", ")
+      message += "expected " + expected.dropRight(1).mkString(", ")
       if (expected.tail.nonEmpty)
         message += " or "
-      message += expected.head
+      message += expected.last
       message += ", but "
     }
     message += s"got unexpected ${remainderToString(remainder)}"

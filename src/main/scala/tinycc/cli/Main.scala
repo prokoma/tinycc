@@ -1,5 +1,7 @@
 package tinycc.cli
 
+import tinycc.cli.Action.Help
+
 object Main extends App {
   try {
     val action = CliParser.parseArgs(args)
@@ -8,6 +10,7 @@ object Main extends App {
   } catch {
     case ex: CliException =>
       Console.err.println(ex.getMessage)
+      Help.execute()
       System.exit(1)
   }
 }

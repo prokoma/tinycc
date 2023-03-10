@@ -97,16 +97,16 @@ object Action {
            |   ${BOLD}tinycc${RESET} - Modular TinyC compiler written in Scala
            |
            |${BOLD}SYNOPSIS${RESET}
-           |   ${BOLD}tinycc${RESET} [-p <string> | --prefix=<string>] [-o <file> | --output=<file>] ${BOLD}transpile-to-c${RESET} <file>
-           |   ${BOLD}tinycc${RESET} [-o <file> | --output=<file>] ${BOLD}compile${RESET} <file>
+           |   ${BOLD}tinycc${RESET} ${BOLD}transpile-to-c${RESET} [-p <string> | --prefix=<string>] [-o <file> | --output=<file>] <file>
+           |   ${BOLD}tinycc${RESET} ${BOLD}compile${RESET} [-o <file> | --output=<file>] <file>
            |   ${BOLD}tinycc help${RESET}
            |
            |${BOLD}DESCRIPTION${RESET}
-           |   ${BOLD}tinycc${RESET} [-p <string> | --prefix=<string>] [-o <file> | --output=<file>] ${BOLD}transpile-to-c${RESET} <file>
+           |   ${BOLD}tinycc${RESET} ${BOLD}transpile-to-c${RESET} [-p <string> | --prefix=<string>] [-o <file> | --output=<file>] <file>
            |      Transpile the given TinyC source <file> to C66 source code with optional prefix. The
            |      result is either written to a file, or printed to the standard output.
            |
-           |   ${BOLD}tinycc${RESET} [-o <file> | --output=<file>] ${BOLD}compile${RESET} <file>
+           |   ${BOLD}tinycc${RESET} ${BOLD}compile${RESET} [-o <file> | --output=<file>] <file>
            |      Compile the given TinyC source <file> to Tiny86 assembly listing. The result is either
            |      written to a file, or printed to the standard output.
            |
