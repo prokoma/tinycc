@@ -2,7 +2,7 @@ package tinycc.util.parsing.combinator
 
 import tinycc.util.parsing.SourceLocation
 
-trait Reader[T] {
+trait Reader[T] extends IterableOnce[T] {
   def headOption: Option[T]
 
   def tail: Reader[T]

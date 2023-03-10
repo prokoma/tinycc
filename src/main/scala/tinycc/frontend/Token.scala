@@ -21,7 +21,3 @@ case class DoubleLiteral(value: Double) extends Token
 case class StringLiteral(value: String, quote: Char) extends Token {
   override def toString: String = s"StringLiteral($quote$value$quote)"
 }
-
-case object EOF extends Token
-
-case class ErrorToken(msg: String) extends Token

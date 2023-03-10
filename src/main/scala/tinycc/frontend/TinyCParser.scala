@@ -1,62 +1,55 @@
 package tinycc.frontend
 
 import tinycc.cli.Reporter
-import tinycc.{ErrorLevel, ProgramException}
 import tinycc.frontend.Symbols._
 import tinycc.frontend.ast._
 import tinycc.util.parsing.SourceLocation
 import tinycc.util.parsing.combinator.{CharReader, Parsers, Reader}
+import tinycc.{ErrorLevel, ProgramException}
 
 import scala.language.implicitConversions
 
-class TinyCParserException(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(message) {
-  override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
+class TinyCParserException(message: String, val loc: SourceLocation) extends ProgramException(message) {
+  override def format(reporter: Reporter): String = reporter.formatError(ErrorLevel.Error, message, loc)
 }
 
 object TinyCParser extends Parsers {
-  import ErrorLevel._
 
   type Elem = Token
   type Input = ScannerAdapter
 
-  def unexpectedEndOfInput(in: Input): Reject = Reject("unexpected end of input", in)
+  def elem[R](message: String, fn: PartialFunction[Elem, R]): Parser[R] = (in: Input) => in.headOption match {
+    case Some(tok) => fn.andThen(Accept(_, in.tail)).applyOrElse(tok, (_: Elem) => Reject(message, in))
+    case None => Reject(message, in)
+  }
 
-  lazy val loc: Parser[SourceLocation] = in => Accept(in.loc, in)
+  implicit def symbol2parser(symbol: Symbol): Parser[Symbol] = elem(s"'${symbol.name}'", { case t: Special if t.value == symbol => t.value })
 
-  def elem[R](fn: PartialFunction[Elem, R], msgFn: Elem => String): Parser[R] =
-    in => in.headOption match {
-      case None => unexpectedEndOfInput(in)
-      case Some(tok) => fn.andThen(Accept(_, in.tail)).applyOrElse(tok, (tok: Elem) => Reject(msgFn(tok), in))
-    }
-
-  def tokenToString(tok: Token): String = tok.toString
-
-  implicit def symbolParser(symbol: Symbol): Parser[Symbol] = elem({ case t: Special if t.value == symbol => t.value }, tok => s"expected $symbol, got ${tokenToString(tok)}")
-
-  lazy val identifier: Parser[Symbol] = elem({ case Identifier(value) => value }, tok => s"expected identifier, got ${tokenToString(tok)}")
-  lazy val integer: Parser[Long] = elem({ case IntLiteral(value) => value }, tok => s"expected int literal, got ${tokenToString(tok)}")
-  lazy val double: Parser[Double] = elem({ case DoubleLiteral(value) => value }, tok => s"expected double literal, got ${tokenToString(tok)}")
-  lazy val char: Parser[Char] = elem({ case StringLiteral(value, '\'') if value.length == 1 => value(0) }, tok => s"expected char literal, got ${tokenToString(tok)}")
-  lazy val string: Parser[String] = elem({ case StringLiteral(value, '"') => value }, tok => s"expected string literal, got ${tokenToString(tok)}")
+  lazy val identifier: Parser[Symbol] = elem("identifier", { case Identifier(value) => value })
+  lazy val integer: Parser[Long] = elem("integer literal", { case IntLiteral(value) => value })
+  lazy val double: Parser[Double] = elem("double literal", { case DoubleLiteral(value) => value })
+  lazy val char: Parser[Char] = elem("char literal", { case StringLiteral(value, '\'') if value.length == 1 => value(0) })
+  lazy val string: Parser[String] = elem("string literal", { case StringLiteral(value, '"') => value })
 
   /** PROGRAM := { FUN_DECL | VAR_DECLS ';' | STRUCT_DECL | FUNPTR_DECL } */
   lazy val PROGRAM: Parser[AstProgram] = loc ~ rep[AstNode](FUN_DECL | (VAR_DECLS <~ semicolon) | STRUCT_DECL | FUNPTR_DECL) ^^ {
     case loc ~ decls => new AstProgram(decls, loc)
-  }
+  } described "program"
 
   /** FUN_DECL := TYPE_FUN_RET identifier '(' [ FUN_ARG { ',' FUN_ARG } ] ')' FUN_DECL_BODY */
   lazy val FUN_DECL: Parser[AstFunDecl] = loc ~ TYPE_FUN_RET ~ identifier ~ (parOpen ~> repsep(FUN_ARG, comma)) ~ (parClose ~> FUN_BODY) ^^ {
     case loc ~ returnTy ~ name ~ args ~ body => new AstFunDecl(name, returnTy, args, body, loc)
-  }
+  } described "function declaration"
 
   /** FUN_ARG := TYPE identifier */
   lazy val FUN_ARG: Parser[(AstType, Symbol)] = TYPE ~ identifier ^^ { case argTy ~ name => (argTy, name) }
 
   /** FUN_BODY := BLOCK_STMT | ';' */
-  lazy val FUN_BODY: Parser[Option[AstBlock]] = (BLOCK_STMT ^^ Some.apply) | (semicolon ^^ { _ => None })
+  lazy val FUN_BODY: Parser[Option[AstBlock]] = (BLOCK_STMT ^^ Some.apply) | (semicolon ^^ { _ => None }) described "function body"
 
   /** STATEMENT := BLOCK_STMT | IF_STMT | SWITCH_STMT | WHILE_STMT | DO_WHILE_STMT | FOR_STMT | BREAK_STMT | CONTINUE_STMT | RETURN_STMT | EXPR_STMT */
-  lazy val STATEMENT: Parser[AstNode] = BLOCK_STMT | IF_STMT | SWITCH_STMT | WHILE_STMT | DO_WHILE_STMT | FOR_STMT | BREAK_STMT | CONTINUE_STMT | RETURN_STMT | WRITE_STMT | WRITE_NUM_STMT | EXPR_STMT
+  lazy val STATEMENT: Parser[AstNode] =
+    (BLOCK_STMT | IF_STMT | SWITCH_STMT | WHILE_STMT | DO_WHILE_STMT | FOR_STMT | BREAK_STMT | CONTINUE_STMT | RETURN_STMT | WRITE_STMT | WRITE_NUM_STMT | EXPR_STMT) described "statement"
 
   /** BLOCK_STMT := '{' { STATEMENT } '}' */
   lazy val BLOCK_STMT: Parser[AstBlock] = loc ~ (curlyOpen ~> rep(STATEMENT)) <~ curlyClose ^^ {
@@ -66,12 +59,12 @@ object TinyCParser extends Parsers {
   /** IF_STMT := if '(' EXPR ')' STATEMENT [ else STATEMENT ] */
   lazy val IF_STMT: Parser[AstIf] = loc ~ (kwIf ~> parOpen ~> EXPR) ~ (parClose ~> STATEMENT) ~ opt(kwElse ~> STATEMENT) ^^ {
     case loc ~ guard ~ trueCase ~ falseCase => new AstIf(guard, trueCase, falseCase, loc)
-  }
+  } described "if statement"
 
   /** SWITCH_STMT := switch '(' EXPR ')' '{' { CASE_STMT } [ default ':' CASE_BODY } ] '}' */
   lazy val SWITCH_STMT: Parser[AstSwitch] = loc ~ (kwSwitch ~> parOpen ~> EXPR) ~ (parClose ~> curlyOpen ~> rep(CASE_STMT)) ~ opt(kwDefault ~> colon ~> CASE_BODY) <~ curlyClose ^^ {
     case loc ~ guard ~ cases ~ defaultCase => new AstSwitch(guard, cases, defaultCase, loc)
-  }
+  } described "switch statement"
 
   /** CASE_STMT := case integer_literal ':' CASE_BODY */
   lazy val CASE_STMT: Parser[(Long, AstNode)] = (kwCase ~> integer) ~ (colon ~> CASE_BODY) ^^ {
@@ -84,17 +77,17 @@ object TinyCParser extends Parsers {
   /** WHILE_STMT := while '(' EXPR ')' STATEMENT */
   lazy val WHILE_STMT: Parser[AstWhile] = loc ~ (kwWhile ~> parOpen ~> EXPR) ~ (parClose ~> STATEMENT) ^^ {
     case loc ~ guard ~ body => new AstWhile(guard, body, loc)
-  }
+  } described "while statement"
 
   /** DO_WHILE_STMT := do STATEMENT while '(' EXPR ')' ';' */
   lazy val DO_WHILE_STMT: Parser[AstDoWhile] = loc ~ (kwDo ~> STATEMENT) ~ (kwWhile ~> parOpen ~> EXPR) <~ (parClose ~ semicolon) ^^ {
     case loc ~ body ~ guard => new AstDoWhile(guard, body, loc)
-  }
+  } described "do..while statement"
 
   /** FOR_STMT := for '(' [ EXPRS_OR_VAR_DECLS ] ';' [ EXPR ] ';' [ EXPR ] ')' STATEMENT */
   lazy val FOR_STMT: Parser[AstFor] = loc ~ (kwFor ~> parOpen ~> opt(EXPRS_OR_VAR_DECLS)) ~ (semicolon ~> opt(EXPR)) ~ (semicolon ~> opt(EXPR)) ~ (parClose ~> STATEMENT) ^^ {
     case loc ~ init ~ guard ~ increment ~ body => new AstFor(init, guard, increment, body, loc)
-  }
+  } described "for statement"
 
   /** BREAK_STMT := break ';' */
   lazy val BREAK_STMT: Parser[AstBreak] = loc <~ (kwBreak ~ semicolon) ^^ { loc => new AstBreak(loc) }
@@ -128,13 +121,13 @@ object TinyCParser extends Parsers {
   lazy val STRUCT_DECL: Parser[AstStructDecl] =
     loc ~ (kwStruct ~> declareNamedType(identifier)) ~ opt((curlyOpen ~> rep(TYPE ~ identifier <~ semicolon ^^ { case fieldTy ~ name => (fieldTy, name) })) <~ curlyClose) <~ semicolon ^^ {
       case loc ~ name ~ fields => new AstStructDecl(name, fields, loc)
-    }
+    } described "struct declaration"
 
   /** FUNPTR_DECL := typedef TYPE_FUN_RET '(' '*' identifier ')' '(' [ TYPE { ',' TYPE } ] ')' ';' */
   lazy val FUNPTR_DECL: Parser[AstFunPtrDecl] =
     loc ~ (kwTypedef ~> TYPE_FUN_RET) ~ (parOpen ~> mul ~> declareNamedType(identifier)) ~ (parClose ~> parOpen ~> repsep(TYPE, comma)) <~ (parClose ~ semicolon) ^^ {
       case loc ~ returnTy ~ name ~ argTys => new AstFunPtrDecl(name, returnTy, argTys, loc)
-    }
+    } described "function pointer declaration"
 
   /** F := integer | double | char | string | identifier | '(' EXPR ')' | E_CAST | scan '(' ')' */
   lazy val F: Parser[AstNode] = (
@@ -203,7 +196,7 @@ object TinyCParser extends Parsers {
   lazy val EXPR: Parser[AstNode] = E9 ~ opt((loc <~ assign) ~ EXPR) ^^ {
     case lvalue ~ Some(loc ~ value) => new AstAssignment(lvalue, value, loc)
     case expr ~ None => expr
-  }
+  } described "expression"
 
   /** EXPRS := EXPR { ',' EXPR } */
   lazy val EXPRS: Parser[AstSequence] = loc ~ rep1sep(EXPR, comma) ^^ { case loc ~ exprs => new AstSequence(exprs, loc) }
@@ -211,7 +204,7 @@ object TinyCParser extends Parsers {
   /** VAR_DECL := TYPE identifier [ '[' E9 ']' ] [ '=' EXPR ] */
   lazy val VAR_DECL: Parser[AstVarDecl] = loc ~ TYPE ~ identifier ~ opt((squareOpen ~> E9) <~ squareClose) ~ opt(assign ~> EXPR) ^^ {
     case loc ~ varTy ~ name ~ arrayLen ~ value => new AstVarDecl(name, varTy, value, loc) // TODO: array length
-  }
+  } described "variable declaration"
 
   /** VAR_DECLS := VAR_DECL { ',' VAR_DECL } */
   lazy val VAR_DECLS: Parser[AstSequence] = loc ~ rep1sep(VAR_DECL, comma) ^^ { case loc ~ decls => new AstSequence(decls, loc) }
@@ -241,14 +234,14 @@ object TinyCParser extends Parsers {
 
   private def declareNamedType(ty: Parser[Symbol]): Parser[Symbol] =
     in => ty(in) match {
-      case Accept(value, reminding) => Accept(value, reminding.withDeclaredType(value))
+      case Accept(value, reminding, lastRejection) => Accept(value, reminding.withDeclaredType(value), lastRejection)
       case r: Reject => r
     }
 
   private def isNamedType(ty: Parser[Symbol]): Parser[Symbol] =
     in => ty(in) match {
-      case Accept(value, reminding) if in.declaredNamedTypes.contains(value) => Accept(value, reminding)
-      case Accept(value, _) => Reject(s"expected named type, got $value", in)
+      case Accept(value, reminding, lastRejection) if in.declaredNamedTypes.contains(value) => Accept(value, reminding, lastRejection)
+      case Accept(_, _, _) => Reject(s"named type", in)
       case r: Reject => r
     }
 
@@ -262,13 +255,20 @@ object TinyCParser extends Parsers {
     def withDeclaredType(ty: Symbol): ScannerAdapter = ScannerAdapter(this, declaredNamedTypes + ty)
   }
 
-  def parseProgram(in: Reader[Elem]): Either[TinyCParserException, AstProgram] =
-    PROGRAM(ScannerAdapter(in)) match {
-      case Accept(value, reminding) if reminding.isEmpty => Right(value)
-      case Accept(_, reminding) => Left(new TinyCParserException(Error, s"expected end of input", reminding.loc))
-      case rej@Reject(message, reminding, _) => Left(throw new TinyCParserException(Error, rej.furthestRejection.message, rej.furthestRejection.reminding.loc))
+  override def remainderToString(in: ScannerAdapter): String = in.headOption.map({
+    case Special(value) => s"'${value.name}'"
+    case Identifier(value) => s"identifier '${value.name}'"
+    case IntLiteral(value) => s"integer literal $value"
+    case DoubleLiteral(value) => s"double literal $value"
+    case StringLiteral(value, quote) => s"string literal $quote$value$quote"
+  }).getOrElse("end of input")
+
+  def parseProgram(in: Reader[Elem]): AstProgram =
+    parse(PROGRAM <~ EOI, ScannerAdapter(in)) match {
+      case Accept(value, _, _) => value
+      case Reject(expectation, reminding, _) =>
+        throw new TinyCParserException(formatErrorMessage(expectation, reminding), reminding.loc)
     }
 
-  def parseProgram(s: String): Either[TinyCParserException, AstProgram] =
-    parseProgram(Lexer.TokenReader(CharReader(s)))
+  def parseProgram(s: String): AstProgram = parseProgram(Lexer.TokenReader(CharReader(s)))
 }

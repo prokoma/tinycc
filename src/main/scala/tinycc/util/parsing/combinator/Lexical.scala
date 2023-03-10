@@ -26,58 +26,24 @@ case class CharReader(string: String, loc: SourceLocation = SourceLocation(1, 1,
 trait Lexical extends Parsers {
   override type Input = CharReader
 
-  def unexpectedEndOfInput(in: Input): Reject = Reject("unexpected end of input", in)
-
-  def elem[R](fn: PartialFunction[Char, R], msgFn: Char => String): Parser[R] =
-    in => in.headOption match {
-      case None => unexpectedEndOfInput(in)
-      case Some(tok) => fn.andThen(Accept(_, in.tail)).applyOrElse(tok, (tok: Char) => Reject(msgFn(tok), in))
-    }
-
-  lazy val elem: Parser[Char] = in => in.headOption match {
-    case None => unexpectedEndOfInput(in)
-    case Some(tok) => Accept(tok, in.tail)
+  def elem[R](message: String, fn: PartialFunction[Char, R]): Parser[R] = (in: Input) => in.headOption match {
+    case Some(tok) => fn.andThen(Accept(_, in.tail)).applyOrElse(tok, (_: Char) => Reject(message, in))
+    case None => Reject(in)
   }
-  //
-  //
-  //
-  //  lazy val EOF: Parser[Unit] = in => if (in.isEmpty) Accept((), in) else Reject("expected end of input", in)
-  //
-  //  lazy val loc: Parser[SourceLocation] = in => Accept(in.pos, in)
 
-  def elem(compare: Char): Parser[Char] =
-    elem({ case c if compare == c => c }, c => s"expected $compare, got $c")
+  def elem(e: Char): Parser[Char] = elem(e.toString, { case c if e == c => c })
 
-  def elem(s: String): Parser[String] =
-    in => in.take(s.length) match {
-      case r if r == s => Accept(s, in.drop(s.length))
-      case "" => unexpectedEndOfInput(in)
-      case r => Reject(s"expected $s, got $r", in)
-    }
+  def elem(s: String): Parser[String] = (in: Input) => in.take(s.length) match {
+    case r if r == s => Accept(s, in.drop(s.length))
+    case _ => Reject(s, in)
+  }
 
-  def elem(s: Symbol): Parser[Symbol] =
-    in => in.take(s.name.length) match {
-      case r if r == s.name => Accept(s, in.drop(s.name.length))
-      case "" => unexpectedEndOfInput(in)
-      case r => Reject(s"expected $s, got $r", in)
-    }
-  //
-  //  def elem(allowed: Seq[String], msgFn: Char => String): Parser[String] = {
-  //    val sorted = allowed.sortBy(- _.length)
-  //    in => {
-  //      for(s <- sorted) {
-  //        if (s.nonEmpty && in.isEmpty)
-  //          return unexpectedEndOfInput(in)
-  //        if(in.take(s.length) == s)
-  //          return Accept(s, in.drop(s.length))
-  //      }
-  //      return Reject(s"expected one of $allowed", in)
-  //    }
+  def elem(s: Symbol): Parser[Symbol] = elem(s.name) ^^ { _ => s }
 
-  def oneOfChar(allowed: Seq[Char], msgFn: Char => String): Parser[Char] =
-    elem({ case c if allowed.contains(c) => c }, msgFn)
+  def oneOfChar(message: String, allowed: Seq[Char]): Parser[Char] =
+    elem(message, { case c if allowed.contains(c) => c })
 
-  def oneOfSymbol(allowed: Seq[Symbol], msgFn: CharReader => String): Parser[Symbol] = {
+  def oneOfSymbol(message: String, allowed: Seq[Symbol]): Parser[Symbol] = {
     val sorted = allowed.sortBy(-_.name.length)
 
     def parser(in: Input): Result[Symbol] = {
@@ -85,17 +51,21 @@ trait Lexical extends Parsers {
         if (in.take(s.name.length) == s.name)
           return Accept(s, in.drop(s.name.length))
         if (in.isEmpty)
-          return unexpectedEndOfInput(in)
+          return Reject(message, in)
       }
-      Reject(msgFn(in), in)
+      Reject(message, in)
     }
 
     parser
   }
 
-  lazy val NL: Parser[String] = in =>
+  lazy val letter: Parser[Char] = elem("letter", { case c if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') => c })
+
+  lazy val digit: Parser[Char] = elem("digit", { case c if c >= '0' && c <= '9' => c })
+
+  lazy val NL: Parser[String] = (in: Input) =>
     if (in.isEmpty) Accept("", in)
     else if (in.take(1) == "\n") Accept("\n", in.tail)
     else if (in.take(2) == "\r\n") Accept("\r\n", in.drop(2))
-    else Reject("expected end of line", in)
+    else Reject("end of line", in)
 }

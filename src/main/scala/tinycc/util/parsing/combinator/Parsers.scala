@@ -4,242 +4,214 @@ import tinycc.util.parsing.SourceLocation
 
 import scala.annotation.tailrec
 
-//trait FiniteInput {
-//  def isEmpty: Boolean
-//}
-
 trait Parsers {
   type Input <: Reader[_]
 
-  sealed trait Result[+A] {
-    def map[B](f: A => B): Result[B]
+  sealed trait Result[+T] {
+    def remainder: Input
 
-    def flatMap[B](f: A => Parser[B]): Result[B]
+    def map[R](f: T => R): Result[R]
 
-    def success: Boolean
+    /** Runs the parser returned by f(value) on [[remainder]]. In case of rejection, returns the last reject. */
+    def flatMap[R](f: T => Parser[R]): Result[R]
+
+    def filter(f: T => Boolean): Result[T]
+
+    def orElse[U >: T](other: => Result[U]): Result[U]
   }
 
-  case class Accept[+A](value: A, reminding: Input) extends Result[A] {
-    override def success: Boolean = true
+  case class Accept[+T](value: T, remainder: Input, lastReject: Option[Reject] = None) extends Result[T] {
+    override def map[R](f: T => R): Result[R] = Accept(f(value), remainder, lastReject)
 
-    override def map[B](f: A => B): Result[B] = Accept(f(value), reminding)
-
-    override def flatMap[B](f: A => Parser[B]): Result[B] = f(value)(reminding)
-  }
-
-  /** fatal = true stops parsing immediately and doesn't backtrack */
-  case class Reject(message: String, reminding: Input, fatal: Boolean = false) extends Result[Nothing] {
-    var furthestRejection: Reject = this
-
-    def updateFurthestRejection(v: Reject): this.type = {
-      if (v.reminding.loc > reminding.loc)
-        furthestRejection = v
-      this
+    override def flatMap[R](f: T => Parser[R]): Result[R] = f(value)(remainder) match {
+      case Accept(value, remainder, lastReject2) => Accept(value, remainder, getLastReject(lastReject, lastReject2))
+      case error@Reject(_, _, true) => error
+      case reject: Reject => getLastReject(lastReject, reject)
     }
 
-    override def success: Boolean = false
+    override def filter(f: T => Boolean): Result[T] = if (f(value)) this else Reject(remainder)
 
-    override def map[B](f: Nothing => B): Result[B] = this
+    override def orElse[U >: T](other: => Result[U]): Result[U] = this
+  }
 
-    override def flatMap[B](f: Nothing => Parser[B]): Result[B] = this
+  case class Reject(expected: ExpTree, remainder: Input, fatal: Boolean = false) extends Result[Nothing] {
+    override def map[R](f: Nothing => R): Result[R] = this
+
+    override def flatMap[R](f: Nothing => Parser[R]): Result[R] = this
+
+    override def filter(f: Nothing => Boolean): Result[Nothing] = this
+
+    override def orElse[U >: Nothing](other: => Result[U]): Result[U] = {
+      if (fatal)
+        this
+      else
+        other match {
+          case Accept(value, remainder, lastReject) => Accept(value, remainder, getLastReject(Some(this), lastReject))
+          case error@Reject(_, _, true) => error
+          case reject: Reject => getLastReject(this, reject)
+        }
+    }
+  }
+
+  object Reject {
+    def apply(remainder: Input): Reject = Reject(ExpTree(), remainder)
+
+    def apply(message: String, remainder: Input): Reject = Reject(ExpTree(message), remainder)
+
+    def apply(expected: List[ExpTree], remainder: Input): Reject = Reject(ExpTree(expected), remainder)
   }
 
   case class ~[+A, +B](a: A, b: B) {
     override def toString: String = s"$a~$b"
   }
 
-  abstract class Parser[+A] extends (Input => Result[A]) {
-    private var _label: () => String = () => ""
-
-    def label: String = _label()
-
-    def label(newLabel: => String): this.type = {
-      lazy val l = newLabel
-      this._label = () => l
-      this
-    }
-
-    override def toString(): String = s"Parser ($label)"
-
-    def flatMap[B](f: A => Parser[B]): Parser[B] = Parser(in => this (in) flatMap f)
-
-    // alternative flatMap (x => success(f(x)))
-    // alternative flatMap (x => success[B].compose(f))
-    def map[B](f: A => B): Parser[B] = Parser(in => this (in) map f)
-
-    def filter(p: A => Boolean): Parser[A] = withFilter(p)
-
-    def withFilter(p: A => Boolean): Parser[A] = filterWithMessage(p, "unexpected: " + _)
-
-    def filterWithMessage(p: A => Boolean, msg: A => String): Parser[A] = Parser { in =>
-      this (in) match {
-        case Accept(v, r) if p(v) => Accept(v, r)
-        case Accept(v, _) => Reject(msg(v), in)
-        case r: Reject => r
-      }
-    }
-
-    def withMessage(msg: Input => String): Parser[A] = Parser { in =>
-      this (in) match {
-        case Accept(v, r) => Accept(v, r)
-        case rej@Reject(_, r, b) => Reject(msg(r), r, b).updateFurthestRejection(rej)
-      }
-    }
-
-    def ^^[B](f: A => B): Parser[B] = map(f)
-
-    //    def ^?[B](f: A => Either[String, B]): Parser[B] = Parser { in =>
-    //      this(in) match {
-    //        case Accept(value, reminding) =>
-    //          f(value) match {
-    //            case Left(v)  => Reject(v, in)
-    //            case Right(v) => Accept(v, reminding)
-    //          }
-    //        case r: Reject => r
-    //      }
-    //    }
-    //
-    //    def ^!(f: A => String): Parser[Nothing] = Parser { in =>
-    //      this(in) match {
-    //        case Accept(value, reminding) => Reject(f(value), reminding)
-    //        case r: Reject                => r
-    //      }
-    //    }
-    //
-    //    def ^^^[B](v: => B): Parser[B] = {
-    //      lazy val v0 = v
-    //      map(_ => v0)
-    //    }
-    //
-    //    def ? : Parser[Option[A]] = opt(this)
-    //
-    //    def * : Parser[List[A]] = rep(this)
-    //
-    //    def + : Parser[List[A]] = rep1(this)
-
-    //    def unary_! : Parser[Unit] = not(this)
-
-    def ~[B](p: => Parser[B]): Parser[A ~ B] = seq(this, p)
-
-    def ~>[B](p: => Parser[B]): Parser[B] = {
-      lazy val p0 = p
-      (for (_ <- this; x <- p0) yield x) label (this.label + "~>" + p0.label)
-    }
-
-    def <~[B](p: => Parser[B]): Parser[A] = {
-      lazy val p0 = p
-      (for (x <- this; _ <- p0) yield x) label (this.label + "<~" + p0.label)
-    }
-
-    def |[B >: A](p: => Parser[B]): Parser[B] = or(this, p)
+  case class ExpTree(message: String = "", children: List[ExpTree] = Nil) {
+    def leaves: Seq[ExpTree] = if (children.isEmpty) Seq(this) else children.flatMap(_.leaves)
   }
 
-  def Parser[A](f: Input => Result[A]): Parser[A] = new Parser[A] {
-    override def apply(input: Input): Result[A] = f(input)
+  object ExpTree {
+    def apply(children: List[ExpTree]): ExpTree = ExpTree("", children)
   }
 
-  //  def attempt[A](p: => Parser[A]): Parser[A] = {
-  //    lazy val p0 = p
-  //
-  //    Parser { in =>
-  //      p0(in) match {
-  //        case r: Reject => r.copy(fatal = false)
-  //        case x         => x
-  //      }
-  //    } label ("attempt(" + p0.label + ")")
-  //  }
+  abstract class Parser[+T] extends (Input => Result[T]) {
+    def map[R](f: T => R): Parser[R] = (in: Input) => this (in).map(f)
 
-  def rep[A](p: => Parser[A]): Parser[List[A]] = rep1(p) | success(Nil)
+    def flatMap[R](f: T => Parser[R]): Parser[R] = (in: Input) => this (in).flatMap(f)
 
-  // alternative: for (x <- p; xs <- rep(p)) yield x :: xs
-  def rep1[A](p: => Parser[A]): Parser[List[A]] = {
-    lazy val p0 = p
+    def filter(f: T => Boolean): Parser[T] = (in: Input) => this (in).filter(f)
 
-    // TODO: check
-    Parser { in =>
-      @tailrec def loop(in2: Input, res: List[A]): Result[List[A]] = p0(in2) match {
-        case Accept(v, r) => loop(r, v :: res)
-        case r: Reject if res.isEmpty => r
-        case r: Reject if !r.fatal => Accept(res.reverse, in2)
-        case r: Reject if in2 != r.reminding => r
-        case r: Reject => Accept(res.reverse, in2)
-      }
+    def described(message: String): Parser[T] = (in: Input) => this (in) match {
+      case Accept(value, remainder, lastReject) =>
+        // Update information about lastReject with this message as a context.
+        Accept(value, remainder, lastReject.map(lastReject => Reject(ExpTree(message, List(lastReject.expected)), lastReject.remainder)))
 
-      loop(in, Nil)
-    } label ("(" + p0.label + ")+")
+      case Reject(expected, remainder, fatal) =>
+        // If the parser consumed some input, use its errors message as a context. Otherwise use just the provided message.
+        Reject(ExpTree(message, if (remainder.loc > in.loc) List(expected) else Nil), remainder, fatal)
+    }
+
+    /** Map the result of this parser. */
+    def ^^[R](f: T => R): Parser[R] = map(f)
+
+    /** Sequence of two parsers. Returns lhs~rhs. */
+    def ~[U](other: => Parser[U]): Parser[~[T, U]] = for (a <- this; b <- other) yield new~(a, b)
+
+    /** Run the two parsers in sequence, but keep only result of rhs. */
+    def ~>[U](other: => Parser[U]): Parser[U] = for (_ <- this; b <- other) yield b
+
+    /** Run the two parsers in sequence, but keep only result of lhs. */
+    def <~[U](other: => Parser[U]): Parser[T] = for (a <- this; _ <- other) yield a
+
+    /** Alternative - if the lhs parser fails, backtrack and run the rhs parser on the same input. */
+    def |[U >: T](other: => Parser[U]): Parser[U] = {
+      lazy val _other = other
+      (in: Input) => this (in).orElse(_other(in))
+    }
   }
 
-  def repsep[A, B](p: => Parser[A], s: => Parser[B]): Parser[List[A]] =
-    rep1sep(p, s) | success(Nil) label "*,"
-
-  def rep1sep[A](p: => Parser[A], s: => Parser[Any]): Parser[List[A]] =
-    p ~ rep(s ~> p) ^^ { case x ~ xs => x :: xs } label "+,"
-
-  //  def chainl1[A](p: => Parser[A], s: => Parser[(A, A) => A]): Parser[A] = chainl1(p, p, s)
-
-  //  def chainl1[A, B](first: => Parser[A], p: => Parser[B], s: => Parser[(A, B) => A]): Parser[A] = {
-  //    lazy val p0 = p
-  //    lazy val s0 = s
-  //
-  //    first ~ rep(s0 ~ p0) ^^ {
-  //      case x ~ xs => xs.foldLeft(x) { case (a, f ~ b) => f(a, b) }
-  //    } label "chainl1"
-  //  }
-
-  def opt[A](p: => Parser[A]): Parser[Option[A]] = (p ^^ Some.apply) | success(None) label (p.label + "?")
-
-  def seq[A, B](p1: => Parser[A], p2: => Parser[B]): Parser[A ~ B] = {
-    lazy val p10 = p1
-    lazy val p20 = p2
-
-    (for (a <- p10; b <- p20) yield new~(a, b)) label (p10.label + " ~ " + p20.label)
+  protected def getLastReject(a: Reject, b: Reject): Reject = {
+    if (a.remainder.loc == b.remainder.loc)
+      Reject(List(a.expected, b.expected), a.remainder)
+    else if (a.remainder.loc > b.remainder.loc) a
+    else b
   }
 
-  def or[A](p1: => Parser[A], p2: => Parser[A]): Parser[A] = {
-    lazy val p10 = p1
-    lazy val p20 = p2
+  protected def getLastReject(a: Option[Reject], b: Reject): Reject = a match {
+    case Some(a) => getLastReject(a, b)
+    case None => b
+  }
 
-    Parser { in =>
-      p10(in) match {
-        case Accept(v, r) => Accept(v, r)
-        case r: Reject if !r.fatal => p20(in) match {
-          case Accept(v, r) => Accept(v, r)
-          case newR: Reject => r.updateFurthestRejection(newR)
+  protected def getLastReject(a: Option[Reject], b: Option[Reject]): Option[Reject] = (a, b) match {
+    case (Some(a), Some(b)) => Some(getLastReject(a, b))
+    case _ => a.orElse(b)
+  }
+
+  def Parser[T](f: Input => Result[T]): Parser[T] = (in: Input) => f(in)
+
+  def success[T](value: T): Parser[T] = (in: Input) => Accept(value, in)
+
+  def failure(message: String = ""): Parser[Nothing] = (in: Input) => Reject(message, in)
+
+  def opt[T](parser: Parser[T]): Parser[Option[T]] = (parser ^^ Some.apply) | success(None)
+
+  /** Accept if the parser rejects, otherwise reject. Does not consume any input. */
+  def not[T](parser: Parser[T]): Parser[Unit] = (in: Input) => parser(in) match {
+    case _: Accept[T] => Reject(in)
+    case _: Reject => Accept((), in)
+  }
+
+  /** Run the parser in sequence while it matches and return the results as a list. Reject if the parser doesn't match at least once. */
+  def rep1[T](parser: => Parser[T]): Parser[List[T]] = {
+    lazy val _parser = parser
+    (in: Input) => {
+      @tailrec
+      def iter(acc: Result[List[T]]): Result[List[T]] = acc match {
+        case Accept(tail, remainder, lastReject) => _parser(remainder) match {
+          case Accept(head, remainder, lastReject2) => iter(Accept(head :: tail, remainder, getLastReject(lastReject, lastReject2)))
+          case error@Reject(_, _, true) => error
+
+          // Current iteration rejected, but previous succeeded - return the result from previous iteration.
+          case reject: Reject => Accept(tail, remainder, getLastReject(lastReject, Some(reject)))
         }
-        case r: Reject => r
-      }
-    } label (p10.label + " | " + p20.label)
-  }
 
-  def not(p: => Parser[_]): Parser[Unit] = {
-    lazy val p0 = p
-
-    Parser { in =>
-      p0(in) match {
-        case Accept(_, _) => Reject(s"unexpected ${p.label}", in)
-        case _ => Accept((), in)
+        case reject: Reject => reject
       }
+
+      iter(_parser(in).map(List(_))).map(_.reverse)
     }
   }
 
-  def failure(f: Input => String): Parser[Nothing] = Parser(in => Reject(f(in), in)) label "failure"
+  def rep[T](parser: => Parser[T]): Parser[List[T]] = rep1(parser) | success(Nil)
 
-  def failure(msg: => String): Parser[Nothing] = failure(_ => msg)
+  def rep1sep[T](parser: => Parser[T], sep: => Parser[Any]): Parser[List[T]] = parser ~ rep(sep ~> parser) ^^ { case head ~ tail => head :: tail }
 
-  def success[A](v: => A): Parser[A] = Parser(in => Accept(v, in)) label "success"
+  def repsep[T](parser: => Parser[T], sep: => Parser[Any]): Parser[List[T]] = rep1sep(parser, sep) | success(Nil)
 
-  //  def parseAll[A](p: Parser[A], in: Input)(implicit ev: Input => FiniteInput): Result[A] = {
-  //    val x = parse(p, in)
-  //    x match {
-  //      case Accept(v, r) if ev(r).isEmpty => Accept(v, r)
-  //      case Accept(_, r) => Reject("end of input expected", r)
-  //      case r: Reject => r
-  //    }
-  //  }
+  /** Convert rejection from the inner parser into fatal rejection, which doesn't backtrack. Something like cut in Prolog. */
+  def commit[T](parser: => Parser[T]): Parser[T] = (in: Input) => parser(in) match {
+    case accept: Accept[T] => accept
+    case Reject(expected, remainder, _) => Reject(expected, remainder, fatal = true)
+  }
 
-  def parse[A](p: Parser[A], in: Input): Result[A] = p(in)
+  def parse[T](parser: Parser[T], in: Input): Result[T] = parser(in)
 
-  //  implicit class IterableFiniteInput(xs: Iterable[_]) extends FiniteInput {
-  //    override def isEmpty: Boolean = xs.isEmpty
-  //  }
+  def remainderToString(in: Input): String = in.headOption.getOrElse("end of input").toString
+
+  def formatErrorMessage(tree: ExpTree, remainder: Input): String = {
+    def removeBlankNodes(tree: ExpTree): List[ExpTree] = tree match {
+      case ExpTree("", children) => children.flatMap(removeBlankNodes)
+      case ExpTree(message, children) => List(ExpTree(message, children.flatMap(removeBlankNodes)))
+    }
+
+    // Returns the first node, which is the ancestor of all leaves.
+    @tailrec
+    def findClosestContext(tree: ExpTree): ExpTree = tree match {
+      case ExpTree(_, Nil) => tree // leaf -> return itself (shouldn't happen)
+      case ExpTree(_, List(ExpTree(_, Nil))) => tree // has leaf as its only child -> return itself
+      case ExpTree(_, List(child)) => findClosestContext(child) // has only child, which is not leaf -> descend
+      case ExpTree(_, _) => tree // has multiple children (thus multiple leaves) -> return itself
+    }
+
+    val context = findClosestContext(ExpTree("", removeBlankNodes(tree)))
+    val expected = context.leaves.map(_.message)
+
+    var message = ""
+    if (context.message != "")
+      message += s"while parsing ${context.message}, "
+    if (expected.nonEmpty) {
+      message += "expected " + expected.tail.mkString(", ")
+      if (expected.tail.nonEmpty)
+        message += " or "
+      message += expected.head
+      message += ", but "
+    }
+    message += s"got unexpected ${remainderToString(remainder)}"
+    message
+  }
+
+  lazy val loc: Parser[SourceLocation] = (in: Input) => Accept(in.loc, in)
+
+  lazy val EOI: Parser[Unit] = (in: Input) =>
+    if (in.isEmpty) Accept((), in)
+    else Reject("end of input", in)
 }

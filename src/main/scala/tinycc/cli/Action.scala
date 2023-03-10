@@ -1,5 +1,6 @@
 package tinycc.cli
 
+import tinycc.ProgramException
 import tinycc.backend.BasicBlockScheduling
 import tinycc.backend.t86.insel.T86InstructionSelection
 import tinycc.backend.t86.regalloc.T86RegisterAllocator
@@ -35,19 +36,14 @@ object Action {
       val reporter = new Reporter(str, Some(file.getFileName.toString))
 
       withPrintStream(out => {
-        val chain = for {
-          ast <- TinyCParser.parseProgram(str)
-        } yield {
+        try {
+          val ast = TinyCParser.parseProgram(str)
           prefix.foreach(out.println)
           out.println(new AstPrinterC().printToString(ast))
-        }
-
-        chain match {
-          case Left(ex) =>
+        } catch {
+          case ex: ProgramException =>
             Console.err.println(ex.format(reporter))
             sys.exit(1)
-
-          case Right(_) =>
         }
       })
     }
@@ -59,35 +55,64 @@ object Action {
       val reporter = new Reporter(str, Some(file.getFileName.toString))
 
       withPrintStream(out => {
-        val chain = for {
-          ast <- TinyCParser.parseProgram(str)
-          _ = Console.out.println(new AstPrinter().printToString(ast))
+        try {
+          val ast = TinyCParser.parseProgram(str)
+          Console.out.println(new AstPrinter().printToString(ast))
 
-          decls <- new SemanticAnalysis(ast).result
-          typeMap <- new TypeAnalysis(ast, decls).result
-          irProg <- new TinyCCompiler(ast, decls, typeMap).result
-          _ = Console.out.println(new IrPrinter().printToString(irProg))
+          val chain = for {
+            decls <- new SemanticAnalysis(ast).result
+            typeMap <- new TypeAnalysis(ast, decls).result
+            irProg <- new TinyCCompiler(ast, decls, typeMap).result
+            _ = Console.out.println(new IrPrinter().printToString(irProg))
 
-          _ = (new BasicBlockScheduling).transformProgram(irProg)
-          _ = irProg.validate()
-          t86Prog <- T86InstructionSelection(irProg).result()
-          _ = Console.out.println(new T86AsmPrinter().printToString(t86Prog.flatten))
+            _ = (new BasicBlockScheduling).transformProgram(irProg)
+            _ = irProg.validate()
+            t86Prog <- T86InstructionSelection(irProg).result()
+            _ = Console.out.println(new T86AsmPrinter().printToString(t86Prog.flatten))
 
-          _ = T86RegisterAllocator(t86Prog).result()
-          _ = new T86FunProcessor(t86Prog).result()
-          t86Listing <- new T86LabelProcessor(t86Prog.flatten).result()
-        } yield {
-          out.print(new T86AsmPrinter().printToString(t86Listing))
-        }
+            _ = T86RegisterAllocator(t86Prog).result()
+            _ = new T86FunProcessor(t86Prog).result()
+            t86Listing <- new T86LabelProcessor(t86Prog.flatten).result()
+          } yield {
+            out.print(new T86AsmPrinter().printToString(t86Listing))
+          }
+          chain.toTry.get
 
-        chain match {
-          case Left(ex) =>
+        } catch {
+          case ex: ProgramException =>
             Console.err.println(ex.format(reporter))
             sys.exit(1)
-
-          case Right(_) =>
         }
       })
+    }
+  }
+
+  case object Help extends Action {
+    override def execute(): Unit = {
+      import Console.{BOLD, RESET}
+
+      Console.err.println(
+        s"""
+           |${BOLD}NAME${RESET}
+           |   ${BOLD}tinycc${RESET} - Modular TinyC compiler written in Scala
+           |
+           |${BOLD}SYNOPSIS${RESET}
+           |   ${BOLD}tinycc${RESET} [-p <string> | --prefix=<string>] [-o <file> | --output=<file>] ${BOLD}transpile-to-c${RESET} <file>
+           |   ${BOLD}tinycc${RESET} [-o <file> | --output=<file>] ${BOLD}compile${RESET} <file>
+           |   ${BOLD}tinycc help${RESET}
+           |
+           |${BOLD}DESCRIPTION${RESET}
+           |   ${BOLD}tinycc${RESET} [-p <string> | --prefix=<string>] [-o <file> | --output=<file>] ${BOLD}transpile-to-c${RESET} <file>
+           |      Transpile the given TinyC source <file> to C66 source code with optional prefix. The
+           |      result is either written to a file, or printed to the standard output.
+           |
+           |   ${BOLD}tinycc${RESET} [-o <file> | --output=<file>] ${BOLD}compile${RESET} <file>
+           |      Compile the given TinyC source <file> to Tiny86 assembly listing. The result is either
+           |      written to a file, or printed to the standard output.
+           |
+           |   ${BOLD}tinycc help${RESET}
+           |      Print this help and exit.
+           |""".stripMargin)
     }
   }
 }

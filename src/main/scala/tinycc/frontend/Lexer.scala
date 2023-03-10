@@ -7,23 +7,20 @@ import tinycc.util.parsing.combinator.{CharReader, Lexical, Reader}
 import scala.language.implicitConversions
 
 object Lexer extends Lexical {
-  implicit def charParser(c: Char): Parser[Char] = elem(c)
+  implicit def char2parser(c: Char): Parser[Char] = elem(c)
 
-  implicit def stringParser(s: String): Parser[String] = elem(s)
-
-  //  def errorToken(msg: String): Token[_] = ErrorToken(msg)
+  implicit def string2parser(s: String): Parser[String] = elem(s)
 
   lazy val WHITESPACE: Parser[Any] = rep[Any](
     whitespaceChar
-      | ("//" ~ rep(not(NL) ~> elem))
-      | ("/*" ~ (blockCommentEnd | failure("unclosed comment")))
+      | ("//" ~ rep(not(NL) ~> elem("", { case c => c })))
+      | ("/*" ~ commit(blockCommentEnd.described("block comment end ('*/')")))
   )
 
-  lazy val whitespaceChar: Parser[Char] =
-    oneOfChar(Seq('\r', '\n', '\t', ' '), c => s"expected whitespace, got '$c'")
+  lazy val whitespaceChar: Parser[Char] = oneOfChar("whitespace", Seq('\r', '\n', '\t', ' '))
 
   def blockCommentEnd: Parser[Any] =
-    rep(elem({ case c if c != '*' => () }, _ => "")) ~ '*' ~ (elem('/') | blockCommentEnd)
+    rep(elem("", { case c if c != '*' => () })) ~ '*' ~ (elem('/') | blockCommentEnd)
 
   // Token
 
@@ -32,7 +29,7 @@ object Lexer extends Lexical {
 
   // Operator
 
-  lazy val OPERATOR: Parser[Special] = oneOfSymbol(Seq(
+  lazy val OPERATOR: Parser[Special] = oneOfSymbol("operator", Seq(
     Symbols.inc,
     Symbols.dec,
     Symbols.add,
@@ -68,7 +65,7 @@ object Lexer extends Lexical {
     Symbols.curlyClose,
     Symbols.assign,
     Symbols.backtick,
-  ), (_: CharReader) => "expected operator") ^^ Special
+  )) ^^ Special
 
   private val keywords: Seq[Symbol] = Seq(
     Symbols.kwBreak,
@@ -98,10 +95,6 @@ object Lexer extends Lexical {
     if (keywords.contains(ident.value)) Special(ident.value) else ident
   }
 
-  lazy val letter: Parser[Char] = elem({ case c if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') => c }, c => s"expected letter, got $c")
-
-  lazy val digit: Parser[Char] = elem({ case c if c >= '0' && c <= '9' => c }, c => s"expected digit, got $c")
-
   // Identifier
 
   lazy val identifierStart: Parser[Char] =
@@ -111,8 +104,7 @@ object Lexer extends Lexical {
     identifierStart | digit
 
   lazy val IDENTIFIER: Parser[Identifier] =
-    (identifierStart ~ rep(identifierMid)) ^^ { case head ~ tail => Identifier(Symbol((head :: tail).mkString)) } |
-      failure("expected identifier")
+    (identifierStart ~ rep(identifierMid)) ^^ { case head ~ tail => Identifier(Symbol((head :: tail).mkString)) } described "identifier"
 
 
   // IntLiteral or DoubleLiteral
@@ -121,41 +113,38 @@ object Lexer extends Lexical {
     rep1(digit) ~ opt('.' ~ rep(digit) ^^ { case dot ~ digits => dot + digits.mkString }) ^^ {
       case intPart ~ None => IntLiteral(intPart.mkString.toLong)
       case intPart ~ Some(fracPart) => DoubleLiteral((intPart.mkString + fracPart).toDouble)
-    }
+    } described "numeric literal"
 
   // StringLiteral
 
   private def charInString(quote: Char): Parser[Char] =
     ('\\' ~> (
-      oneOfChar(Seq('\'', '\"', '\\'), (_: Char) => "")
+      oneOfChar("", Seq('\'', '\"', '\\'))
         | ('r' ^^ { _ => '\r' })
         | ('n' ^^ { _ => '\n' })
         | ('t' ^^ { _ => '\t' })
-        | failure("invalid escape sequence")
-      )) | elem({ case c if c != quote => c }, _ => "unexpected quote")
+      )).described("escape sequence") | elem("", { case c if c != quote => c })
 
   private def stringQuotedHelper(quote: Char): Parser[StringLiteral] =
     (quote ~> rep(charInString(quote)) <~ quote) ^^ { c => StringLiteral(c.mkString, quote) }
 
-  lazy val STRING_SINGLE_QUOTED: Parser[StringLiteral] = stringQuotedHelper('\'')
+  lazy val STRING_SINGLE_QUOTED: Parser[StringLiteral] = stringQuotedHelper('\'') described "single quoted string"
 
-  lazy val STRING_DOUBLE_QUOTED: Parser[StringLiteral] = stringQuotedHelper('\"')
+  lazy val STRING_DOUBLE_QUOTED: Parser[StringLiteral] = stringQuotedHelper('\"') described "double quoted string"
 
   case class TokenReader(in: CharReader) extends Reader[Token] {
     def this(in: String) = this(CharReader(in))
 
     private val (afterWs, tokOption, afterTok) = parse(WHITESPACE, in) match {
-      case Accept(_, afterWs) if afterWs.isEmpty => (afterWs, None, afterWs)
-      case Accept(_, afterWs) =>
+      case Accept(_, afterWs, _) if afterWs.isEmpty => (afterWs, None, afterWs)
+      case Accept(_, afterWs, _) =>
         parse(TOKEN, afterWs) match {
-          case Accept(tok, afterTok) => (afterWs, Some(tok), afterTok)
-          case Reject(msg, _, _) =>
-            throw new RuntimeException(s"token lexing failed: $msg")
-          //            (afterWs, errorToken(msg), afterWs.drop(afterWs.length))
+          case Accept(tok, afterTok, _) => (afterWs, Some(tok), afterTok)
+          case Reject(msg, remainder, _) =>
+            throw new TinyCParserException(formatErrorMessage(msg, remainder), remainder.loc)
         }
-      case Reject(msg, _, _) =>
-        throw new RuntimeException(s"whitespace lexing failed: $msg")
-      //        (in, errorToken(msg), in.drop(in.length))
+      case Reject(msg, remainder, _) =>
+        throw new TinyCParserException(formatErrorMessage(msg, remainder), remainder.loc)
     }
 
     override def headOption: Option[Token] = tokOption
