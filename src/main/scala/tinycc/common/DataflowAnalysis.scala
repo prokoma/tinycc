@@ -61,7 +61,6 @@ case class InvLattice[T](subLattice: Lattice[T]) extends Lattice[T] {
 trait DataflowAnalysis {
   type NodeState
   type CfgNode
-  type Cfg <: Graph[CfgNode]
   type CfgState = Map[CfgNode, NodeState]
 
   def nodeStateLattice: Lattice[NodeState]
@@ -79,7 +78,7 @@ trait DataflowAnalysis {
 
 object DataflowAnalysis {
   // TODO: maybe remove this class
-  abstract class Builder[T](cfg: Graph[T], val forward: Boolean) extends DataflowAnalysis {
+  abstract class Builder[T](cfg: Cfg[T], val forward: Boolean) extends DataflowAnalysis {
     type CfgNode = T
 
     lazy val cfgStateLattice = new MapLattice[CfgNode, NodeState](cfg.nodes, nodeStateLattice)
