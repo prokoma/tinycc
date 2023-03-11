@@ -134,11 +134,17 @@ trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
 
   def resultTy: IrTy
 
-  protected var _name: String = fun.nameGen()
+  def parentNameGen: NameGen = fun.nameGen
+
+  // Name is local to the function by default and automatically set.
+  protected var _name: String = parentNameGen.apply()
 
   def name: String = _name
 
-  def name(newName: String): this.type = { _name = fun.nameGen(newName); this }
+  def name(newName: String): this.type = {
+    parentNameGen.releaseName(_name)
+    _name = fun.nameGen(newName); this
+  }
 
   override def validate(): Unit = () // TODO: check if all operands are defined
 
@@ -157,7 +163,8 @@ trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
 /* === BasicBlock & IrFun === */
 
 class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTracking[BasicBlockRef, BasicBlock] {
-  val name: String = fun.nameGen(_name + "$")
+  val name: String = fun.bbNameGen(_name)
+
   val body: mutable.IndexedBuffer[Insn] = mutable.IndexedBuffer.empty[Insn]
 
   def uniqueName: String = fun.name + "$" + name
@@ -257,7 +264,9 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
 
 case class IrFunSignature(returnType: IrTy, argTypes: Seq[IrTy])
 
-class IrFun(val name: String, val returnTy: IrTy, val argTys: IndexedSeq[IrTy], val program: IrProgram) extends IrObject with UseTracking[IrFunRef, IrFun] {
+class IrFun(val _name: String, val returnTy: IrTy, val argTys: IndexedSeq[IrTy], val program: IrProgram) extends IrObject with UseTracking[IrFunRef, IrFun] {
+  val name: String = program.nameGen(_name)
+
   val basicBlocks: mutable.IndexedBuffer[BasicBlock] = mutable.IndexedBuffer.empty
 
   def signature: IrFunSignature = IrFunSignature(returnTy, argTys)
@@ -274,7 +283,9 @@ class IrFun(val name: String, val returnTy: IrTy, val argTys: IndexedSeq[IrTy], 
 
   def locals: Iterable[AllocLInsn] = insns.collect({ case al: AllocLInsn => al })
 
-  val nameGen: NameGen = new NameGen
+  val nameGen: NameGen = program.nameGen.newChild()
+
+  val bbNameGen: NameGen = new NameGen
 
   def append(basicBlock: BasicBlock): BasicBlock = {
     if (!basicBlocks.contains(basicBlock))
@@ -285,7 +296,7 @@ class IrFun(val name: String, val returnTy: IrTy, val argTys: IndexedSeq[IrTy], 
   }
 
   override def validate(): Unit = {
-    if(basicBlocks.toSet.size != basicBlocks.size)
+    if (basicBlocks.toSet.size != basicBlocks.size)
       throw new IrException(s"$this: Function contains duplicate basic blocks.")
     basicBlocks.foreach(_.validate())
     if (entryBlockRef.isEmpty)
@@ -344,6 +355,8 @@ class IrFun(val name: String, val returnTy: IrTy, val argTys: IndexedSeq[IrTy], 
 
 class IrProgram extends IrObject {
   val funs: mutable.IndexedBuffer[IrFun] = mutable.IndexedBuffer.empty[IrFun]
+
+  val nameGen: NameGen = new NameGen
 
   def basicBlocks: Iterable[BasicBlock] = funs.flatMap(_.basicBlocks)
 

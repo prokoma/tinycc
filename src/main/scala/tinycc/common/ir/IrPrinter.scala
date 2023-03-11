@@ -164,7 +164,7 @@ class IrPrinter extends IndentPrinter[IrObject] {
   }
 
   protected def printIrFun(fun: IrFun, out: IndentWriter): Unit = {
-    out.write("fun ")
+    out.write("fn ")
     printType(fun.returnTy, out)
     out.write(s" ${fun.name}(")
     fun.argTys.foreachSep(printType(_, out), out.write(", "))

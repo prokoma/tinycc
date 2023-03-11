@@ -56,12 +56,11 @@ final class SemanticAnalysis(program: AstProgram) {
 
   private val errors: mutable.Buffer[Message] = mutable.Buffer.empty
 
-  lazy val result: Either[SemanticAnalysisException, Declarations] = {
+  def result(): Declarations = {
     visit(program) // First frame is created by visitBlock.
     if (errors.nonEmpty)
-      Left(new SemanticAnalysisException(errors.toSeq))
-    else
-      Right(declarations)
+      throw new SemanticAnalysisException(errors.toSeq)
+    declarations
   }
 
   private def visit(node: AstNode): Unit = node match {

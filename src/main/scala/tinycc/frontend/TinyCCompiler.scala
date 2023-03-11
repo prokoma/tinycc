@@ -56,14 +56,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
   implicit protected def typeMap: TypeMap = _typeMap
 
-  lazy val result: Either[TinyCCompilerException, IrProgram] = {
-    try
-      Right(new _Impl().compileProgram(program))
-    catch {
-      case e: TinyCCompilerException => Left(e)
-      case e: Throwable => throw e
-    }
-  }
+  def result(): IrProgram = new _Impl().compileProgram(program)
 
   final private class _Impl extends TinyCIrProgramBuilder {
 
@@ -218,8 +211,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           val caseBlock = new BasicBlock(s"switchCase$value", fun)
           val caseContBlock = new BasicBlock(s"switchCase${value}Cont", fun)
 
-          val valueImm = emit(new IImmInsn(value, _))
-          val cmpEq = emit(new CmpInsn(IrOpcode.CmpIEq, cond, valueImm, _))
+          val cmpEq = emit(new CmpInsn(IrOpcode.CmpIEq, cond, emitIImm(value), _))
           emit(new CondBrInsn(cmpEq, caseBlock, caseContBlock, _))
           appendAndEnterBlock(caseContBlock)
           caseBlock
@@ -301,7 +293,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       allocMap(VarDecl(node)) = funOption match {
         case Some(fun) if fun != entryFun => // local variable
-          val alloc = emit(new AllocLInsn(varIrTy, _)).name(node.symbol.name)
+          val alloc = emit(new AllocLInsn(varIrTy, _)).name("local_" + node.symbol.name)
           node.value.foreach(value => {
             val compiledValue = compileExprAndCastTo(value, node.varTy.ty)
             emit(new StoreInsn(alloc, compiledValue, _))
@@ -314,7 +306,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         case None => // global variable - append to entryFun
           withEntryFun({
             // globals can have forward declarations - keep track of variable names in globalMap
-            val alloc = globalMap.getOrElseUpdate(node.symbol, emit(new AllocGInsn(varIrTy, Seq.empty, _)).name(node.symbol.name))
+            val alloc = globalMap.getOrElseUpdate(node.symbol, emit(new AllocGInsn(varIrTy, Seq.empty, _)).name("global_" + node.symbol.name))
             node.value.foreach(value => {
               val compiledValue = compileExprAndCastTo(value, node.varTy.ty)
               emit(new StoreInsn(alloc, compiledValue, _))
@@ -389,16 +381,13 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileExpr(node: AstNode): Insn = node match {
-      case node: AstInteger =>
-        emit(new IImmInsn(node.value, _))
+      case node: AstInteger => emitIImm(node.value)
 
-      case node: AstChar =>
-        emit(new IImmInsn(node.value.toLong, _))
+      case node: AstChar => emitIImm(node.value.toLong)
 
       // TODO: AstString
 
-      case node: AstDouble =>
-        emit(new FImmInsn(node.value, _))
+      case node: AstDouble => emitFImm(node.value)
 
       case node: AstUnaryOp =>
         compileUnaryOp(node)
@@ -545,29 +534,24 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case (Symbols.sub, _: Types.IntegerTy) =>
         val expr = compileExpr(node.expr)
-        val zero = emit(new IImmInsn(0, _))
-        val res = emit(new BinaryArithInsn(IrOpcode.ISub, zero, expr, _))
+        val res = emit(new BinaryArithInsn(IrOpcode.ISub, emitIImm(0), expr, _))
         compileCastFromTo(res, Types.IntTy, node.ty, node.loc)
 
       case (Symbols.sub, Types.DoubleTy) =>
         val expr = compileExpr(node.expr)
-        val zero = emit(new FImmInsn(0, _))
-        emit(new BinaryArithInsn(IrOpcode.FSub, zero, expr, _))
+        emit(new BinaryArithInsn(IrOpcode.FSub, emitFImm(0), expr, _))
 
       case (Symbols.neg, exprTy: Types.IntegerTy) =>
         val expr = compileExpr(node.expr)
-        val maxValue = emit(new IImmInsn(exprTy.maxValueLong, _))
-        emit(new BinaryArithInsn(IrOpcode.IXor, expr, maxValue, _))
+        emit(new BinaryArithInsn(IrOpcode.IXor, expr, emitIImm(exprTy.longBitmask), _))
 
       case (Symbols.not, _: Types.IntegerTy | _: Types.PtrTy) =>
         val expr = compileExpr(node.expr)
-        val zero = emit(new IImmInsn(0, _))
-        emit(new CmpInsn(IrOpcode.CmpIEq, expr, zero, _))
+        emit(new CmpInsn(IrOpcode.CmpIEq, expr, emitIImm(0), _))
 
       case (Symbols.not, Types.DoubleTy) =>
         val expr = compileExpr(node.expr)
-        val zero = emit(new FImmInsn(0, _))
-        emit(new CmpInsn(IrOpcode.CmpFEq, expr, zero, _))
+        emit(new CmpInsn(IrOpcode.CmpFEq, expr, emitFImm(0), _))
 
       case (Symbols.inc | Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = false)
 

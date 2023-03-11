@@ -6,7 +6,7 @@ import tinycc.backend.t86._
 import scala.collection.mutable
 
 trait GenericNaiveRegisterAllocator[T <: Operand] extends T86GenericRegisterAllocator[T] {
-  def processFun(fun: T86Fun): Unit = {
+  def transformFun(fun: T86Fun): Unit = {
     // remap all non-machine registers into machine regs
     val regMap = mutable.Map.empty[T, T]
     val availableRegs = mutable.Queue.from(machineRegs)
@@ -43,18 +43,17 @@ trait GenericNaiveRegisterAllocator[T <: Operand] extends T86GenericRegisterAllo
   }
 }
 
-class NaiveRegisterAllocator(program: T86Program) extends T86RegisterAllocator(program: T86Program) {
+class NaiveRegisterAllocator extends T86RegisterAllocator {
 
   val regRegisterAllocator = new GenericNaiveRegisterAllocator[Operand.Reg] with T86RegRegisterAllocator
   val fregRegisterAllocator = new GenericNaiveRegisterAllocator[Operand.FReg] with T86FRegRegisterAllocator
 
-  override def result(): T86Program = {
-    program.funs.foreach(processFun)
-    program
+  override def transformProgram(program: T86Program): Unit = {
+    program.funs.foreach(transformFun)
   }
 
-  def processFun(fun: T86Fun): Unit = {
-    regRegisterAllocator.processFun(fun)
-    fregRegisterAllocator.processFun(fun)
+  def transformFun(fun: T86Fun): Unit = {
+    regRegisterAllocator.transformFun(fun)
+    fregRegisterAllocator.transformFun(fun)
   }
 }

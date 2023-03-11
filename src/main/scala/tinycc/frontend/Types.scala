@@ -38,19 +38,19 @@ object Types {
   }
 
   sealed trait IntegerTy extends ArithmeticTy {
-    def maxValueLong: Long
+    def longBitmask: Long
   }
 
   case object CharTy extends ArithmeticTy with IntegerTy {
     override def toString: String = "char"
 
-    override def maxValueLong: Long = 0xff
+    override def longBitmask: Long = 0xff
   }
 
   case object IntTy extends ArithmeticTy with IntegerTy {
     override def toString: String = "int"
 
-    override def maxValueLong: Long = Long.MaxValue
+    override def longBitmask: Long = ~(0L)
   }
 
   case object DoubleTy extends ArithmeticTy {

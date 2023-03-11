@@ -7,9 +7,23 @@ trait BasicBlockBuilderOps {
 
   def emit[T <: Insn](insn: BasicBlock => T): T = emit(insn(bb))
 
-  def emitIImm(value: Long): IImmInsn = emit(new IImmInsn(value, bb))
+  def emitIImm(value: Long): IImmInsn = {
+    val insn = emit(new IImmInsn(value, bb))
 
-  def emitFImm(value: Double): FImmInsn = emit(new FImmInsn(value, bb))
+    if(value == 0) insn.name("izero")
+    else if(value == 1) insn.name("ione")
+
+    insn
+  }
+
+  def emitFImm(value: Double): FImmInsn = {
+    val insn = emit(new FImmInsn(value, bb))
+
+    if (value == 0) insn.name("fzero")
+    else if (value == 1) insn.name("fone")
+
+    insn
+  }
 
   def emitBinaryArith(op: IrOpcode.BinaryArithOp, left: Insn, right: Insn): BinaryArithInsn =
     emit(new BinaryArithInsn(op, left, right, bb))

@@ -40,12 +40,11 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
 
   private val errors: mutable.Buffer[Message] = mutable.Buffer.empty
 
-  lazy val result: Either[TypeAnalysisException, TypeMap] = {
+  def result(): TypeMap = {
     visitAndGetTy(program)
     if (errors.nonEmpty)
-      Left(new TypeAnalysisException(errors.toSeq))
-    else
-      Right(typeMap)
+      throw new TypeAnalysisException(errors.toSeq)
+    typeMap
   }
 
   private def hasAddress(node: AstNode): Boolean = node match {

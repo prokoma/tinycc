@@ -10,7 +10,6 @@ object Main extends App {
   } catch {
     case ex: CliException =>
       Console.err.println(ex.getMessage)
-      Help.execute()
-      System.exit(1)
+      sys.exit(1)
   }
 }

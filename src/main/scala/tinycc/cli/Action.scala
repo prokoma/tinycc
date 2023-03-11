@@ -7,20 +7,28 @@ import tinycc.backend.t86.regalloc.T86RegisterAllocator
 import tinycc.backend.t86.{T86AsmPrinter, T86FunProcessor, T86LabelProcessor}
 import tinycc.common.ir.IrPrinter
 import tinycc.frontend.analysis.{SemanticAnalysis, TypeAnalysis}
-import tinycc.frontend.ast.{AstPrinter, AstPrinterC}
+import tinycc.frontend.ast.{AstPrinterC, AstProgram}
 import tinycc.frontend.{TinyCCompiler, TinyCParser}
+import tinycc.util.IndentWriter
 
-import java.io.PrintStream
+import java.io.{IOException, PrintStream, PrintWriter}
 import java.nio.file.{Files, Path}
+import scala.util.Using
 
 trait Action extends Product with Serializable {
   def execute(): Unit
 }
 
+trait ActionInfo {
+  def synopsis: String
+
+  def description: String
+}
+
 trait StdoutOrFileOutput {
   def outFile: Option[Path]
 
-  def withPrintStream(f: PrintStream => Any): Unit = outFile match {
+  def withPrintStream[T](f: PrintStream => T): T = outFile match {
     case Some(path) =>
       util.Using(new PrintStream(Files.newOutputStream(path)))(f).get
 
@@ -29,90 +37,142 @@ trait StdoutOrFileOutput {
   }
 }
 
-object Action {
-  case class TranspileToC(file: Path, outFile: Option[Path] = None, prefix: Seq[String] = Seq.empty) extends Action with StdoutOrFileOutput {
-    override def execute(): Unit = {
-      val str = Files.readString(file)
-      val reporter = new Reporter(str, Some(file.getFileName.toString))
+trait FileInput {
+  def inFile: Path
 
-      withPrintStream(out => {
-        try {
-          val ast = TinyCParser.parseProgram(str)
-          prefix.foreach(out.println)
-          out.println(new AstPrinterC().printToString(ast))
-        } catch {
-          case ex: ProgramException =>
-            Console.err.println(ex.format(reporter))
-            sys.exit(1)
-        }
-      })
+  def getSource(): String = {
+    try
+      Files.readString(inFile)
+    catch {
+      case ex: IOException => throw new CliException("failed to read input file", ex)
     }
   }
 
-  case class Compile(file: Path, outFile: Option[Path] = None) extends Action with StdoutOrFileOutput {
-    override def execute(): Unit = {
-      val str = Files.readString(file)
-      val reporter = new Reporter(str, Some(file.getFileName.toString))
-
-      withPrintStream(out => {
-        try {
-          val ast = TinyCParser.parseProgram(str)
-          Console.out.println(new AstPrinter().printToString(ast))
-
-          val chain = for {
-            decls <- new SemanticAnalysis(ast).result
-            typeMap <- new TypeAnalysis(ast, decls).result
-            irProg <- new TinyCCompiler(ast, decls, typeMap).result
-            _ = Console.out.println(new IrPrinter().printToString(irProg))
-
-            _ = (new BasicBlockScheduling).transformProgram(irProg)
-            _ = irProg.validate()
-            t86Prog <- T86InstructionSelection(irProg).result()
-            _ = Console.out.println(new T86AsmPrinter().printToString(t86Prog.flatten))
-
-            _ = T86RegisterAllocator(t86Prog).result()
-            _ = new T86FunProcessor(t86Prog).result()
-            t86Listing <- new T86LabelProcessor(t86Prog.flatten).result()
-          } yield {
-            out.print(new T86AsmPrinter().printToString(t86Listing))
-          }
-          chain.toTry.get
-
-        } catch {
-          case ex: ProgramException =>
-            Console.err.println(ex.format(reporter))
-            sys.exit(1)
-        }
-      })
-    }
-  }
-
-  case object Help extends Action {
-    override def execute(): Unit = {
-      import Console.{BOLD, RESET}
-
-      Console.err.println(
-        s"""
-           |${BOLD}NAME${RESET}
-           |   ${BOLD}tinycc${RESET} - Modular TinyC compiler written in Scala
-           |
-           |${BOLD}SYNOPSIS${RESET}
-           |   ${BOLD}tinycc${RESET} ${BOLD}transpile-to-c${RESET} [-p <string> | --prefix=<string>] [-o <file> | --output=<file>] <file>
-           |   ${BOLD}tinycc${RESET} ${BOLD}compile${RESET} [-o <file> | --output=<file>] <file>
-           |   ${BOLD}tinycc help${RESET}
-           |
-           |${BOLD}DESCRIPTION${RESET}
-           |   ${BOLD}tinycc${RESET} ${BOLD}transpile-to-c${RESET} [-p <string> | --prefix=<string>] [-o <file> | --output=<file>] <file>
-           |      Transpile the given TinyC source <file> to C66 source code with optional prefix. The
-           |      result is either written to a file, or printed to the standard output.
-           |
-           |   ${BOLD}tinycc${RESET} ${BOLD}compile${RESET} [-o <file> | --output=<file>] <file>
-           |      Compile the given TinyC source <file> to Tiny86 assembly listing. The result is either
-           |      written to a file, or printed to the standard output.
-           |
-           |   ${BOLD}tinycc help${RESET}
-           |      Print this help and exit.
-           |""".stripMargin)
+  def withSource[T](f: String => T): T = {
+    val source = getSource()
+    val reporter = new Reporter(source, Some(inFile.getFileName.toString))
+    try
+      f(source)
+    catch {
+      case ex: ProgramException => throw new CliException(ex.format(reporter))
     }
   }
 }
+
+trait TinyCSourceFileInput extends FileInput {
+  def withParsedProgram[T](f: AstProgram => T): T =
+    withSource(source => f(TinyCParser.parseProgram(source)))
+}
+
+object Action {
+
+  import Console.{BOLD, RESET}
+
+  private def bold(s: String): String = BOLD + s + RESET
+
+  case class Format(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
+    override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
+      out.println(new AstPrinterC().printToString(ast))
+    }))
+  }
+
+  object Format extends ActionInfo {
+    val synopsis: String = s"${bold("tinycc format")} [-o <file> | --output=<file>] <file>"
+
+    val description: String = "Parse the given TinyC source <file> and print it again, this time formatted. The result is either written to a file, or printed to the standard output."
+  }
+
+  case class TranspileToC(inFile: Path, outFile: Option[Path] = None, prefix: Seq[String] = Seq.empty) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
+    override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
+      prefix.foreach(out.println)
+      out.println(new AstPrinterC().printToString(ast))
+    }))
+  }
+
+  object TranspileToC extends ActionInfo {
+    val synopsis: String = s"${bold("tinycc transpile-to-c")} [-p <string> | --prefix=<string>] [-o <file> | --output=<file>] <file>"
+
+    val description: String = "Transpile the given TinyC source <file> to C66 source code with optional prefix. The result is either written to a file, or printed to the standard output."
+  }
+
+  case class CompileToIr(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
+    override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
+      val declarations = new SemanticAnalysis(ast).result()
+      val typeMap = new TypeAnalysis(ast, declarations).result()
+      val irProgram = new TinyCCompiler(ast, declarations, typeMap).result()
+      out.println(new IrPrinter().printToString(irProgram))
+    }))
+  }
+
+  object CompileToIr extends ActionInfo {
+    val synopsis: String = s"${bold("tinycc compile-to-ir")} [-o <file> | --output=<file>] <file>"
+
+    val description: String = s"Compile the given TinyC source <file> to intermediate representation. The result is either written to a file, or printed to the standard output."
+  }
+
+  case class Compile(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
+    override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
+      val declarations = new SemanticAnalysis(ast).result()
+      val typeMap = new TypeAnalysis(ast, declarations).result()
+      val irProgram = new TinyCCompiler(ast, declarations, typeMap).result()
+      Console.err.println(new IrPrinter().printToString(irProgram))
+
+      new BasicBlockScheduling().transformProgram(irProgram)
+      irProgram.validate()
+      val t86Program = T86InstructionSelection(irProgram).result()
+      Console.err.println(new T86AsmPrinter().printToString(t86Program.flatten))
+
+      T86RegisterAllocator().transformProgram(t86Program)
+      new T86FunProcessor().transformProgram(t86Program)
+      val t86Listing = new T86LabelProcessor(t86Program.flatten).result()
+
+      out.print(new T86AsmPrinter().printToString(t86Listing))
+    }))
+  }
+
+  object Compile extends ActionInfo {
+    val synopsis: String = s"${bold("tinycc compile")} [-o <file> | --output=<file>] <file>"
+
+    val description: String = s"Compile the given TinyC source <file> to Tiny86 assembly listing. The result is either written to a file, or printed to the standard output."
+  }
+
+  case object Help extends Action with ActionInfo {
+    override def execute(): Unit = {
+      Using(new IndentWriter(new PrintWriter(Console.err), " " * 3))(out => {
+        out.write(bold("NAME"))
+        out.withIndent({
+          out.write(bold("tinycc") + "- Modular TinyC compiler written in Scala")
+          out.nl()
+        })
+        out.nl()
+        out.write(bold("SYNOPSIS"))
+        out.withIndent({
+          actions.foreach(info => {
+            out.write(info.synopsis)
+            out.nl()
+          })
+        })
+        out.nl()
+        out.write(bold("DESCRIPTION"))
+        out.withIndent({
+          actions.foreach(info => {
+            out.write(info.synopsis)
+            out.nl()
+            out.withIndent({
+              out.write(info.description)
+            })
+            out.nl()
+          })
+        })
+      }).get
+    }
+
+    val synopsis: String = bold("tinycc help")
+
+    val description: String = "Print this help and exit."
+  }
+
+  val actions: Seq[ActionInfo] = Seq(Format, TranspileToC, CompileToIr, Compile, Help)
+}
+
+

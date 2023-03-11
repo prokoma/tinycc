@@ -16,7 +16,7 @@ class T86LabelProcessor(listing: T86Listing) {
     case operand => (operand, Nil)
   }
 
-  def result(): Either[BackendException, T86Listing] = {
+  def result(): T86Listing = {
     var address = 0
     listing.foreach({
       case _: T86Insn =>
@@ -53,6 +53,6 @@ class T86LabelProcessor(listing: T86Listing) {
         newProgram += elem
     })
 
-    Right(newProgram.result)
+    newProgram.result()
   }
 }

@@ -1,13 +1,12 @@
 package tinycc.backend.t86.regalloc
 
-import tinycc.backend.BackendException
 import tinycc.backend.t86.T86Opcode.MOV
 import tinycc.backend.t86._
 import tinycc.common._
 
 import scala.collection.mutable
 
-class GraphColoringRegisterAllocator(program: T86Program) extends T86RegisterAllocator(program: T86Program) {
+class GraphColoringRegisterAllocator extends T86RegisterAllocator {
 
   private val regRegisterAllocator = new GenericGraphColoringRegisterAllocator[Operand.Reg] with T86RegRegisterAllocator {
     override def rewriteFunWithSpilledNodes(fun: T86Fun, spilledNodes: Set[Operand.Reg]): Set[Operand.Reg] = {
@@ -83,17 +82,16 @@ class GraphColoringRegisterAllocator(program: T86Program) extends T86RegisterAll
     }
   }
 
-  override def result(): T86Program = {
-    program.funs.foreach(processFun)
-    program
+  override def transformProgram(program: T86Program): Unit = {
+    program.funs.foreach(transformFun)
   }
 
-  def processFun(fun: T86Fun): Unit = {
+  def transformFun(fun: T86Fun): Unit = {
     // handle float regs first, because to spill them we need regular regs because of MOV operand limitations
     Console.err.println("FReg")
-    fregRegisterAllocator.processFun(fun)
-//    Console.err.println("Reg")
-    regRegisterAllocator.processFun(fun)
+    fregRegisterAllocator.transformFun(fun)
+    //    Console.err.println("Reg")
+    regRegisterAllocator.transformFun(fun)
   }
 }
 
@@ -200,11 +198,11 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
           }
 
           live ++= defines
-          for(l <- live; d <- defines)
+          for (l <- live; d <- defines)
             addEdge(d, l)
           live = (live -- defines) ++ uses
 
-          for(l <- live)
+          for (l <- live)
             _liveRangeSizes(l) = _liveRangeSizes(l) + 1
         }
       })
@@ -255,10 +253,10 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
       def isMoveRelated(node: T): Boolean = _regRegMoveList.contains(node)
 
       def getSpillCost(node: T): Double = {
-        if(interf.getLiveRangeSize(node) == 1)
+        if (interf.getLiveRangeSize(node) == 1)
           Double.PositiveInfinity
         else
-         interf.getDefUseCount(node) / _origAdjList(node).size
+          interf.getDefUseCount(node) / _origAdjList(node).size
       }
 
       for (node <- _initial) {
@@ -357,9 +355,9 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
           val DefUse(defines, uses) = getInsnDefUse(insn)
           // live now contains registers that can be read after this instruction
 
-          if(isRegRegMove(insn)) {
+          if (isRegRegMove(insn)) {
             val BinaryT86Insn(_, dest: T, src: T) = insn
-            if(dest != src && live.contains(dest))
+            if (dest != src && live.contains(dest))
               newBodyReversed += insn
             else
               Console.err.println(s"Removed redundant move $insn")
@@ -381,7 +379,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
    */
   def rewriteFunWithSpilledNodes(fun: T86Fun, spilledNodes: Set[T]): Set[T]
 
-  def processFun(fun: T86Fun): Unit = {
+  def transformFun(fun: T86Fun): Unit = {
     // insert code to backup and restore all callee save registers
     remapCalleeSaveRegs(fun)
 
@@ -392,7 +390,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
       Console.err.println(new T86AsmPrinter().printToString(fun.flatten))
 
       val interferenceGraph = InterferenceGraph(cfg)
-//      Console.err.println(s"Interfering registers for ${fun.irFun.get.name}: ${interferenceGraph.edgeSet}")
+      //      Console.err.println(s"Interfering registers for ${fun.irFun.get.name}: ${interferenceGraph.edgeSet}")
 
       val coloring = InterferenceGraphColoring(interferenceGraph)
       Console.err.println(s"Registers to spill: ${coloring.spilledNodes}")

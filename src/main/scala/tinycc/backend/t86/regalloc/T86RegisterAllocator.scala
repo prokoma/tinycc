@@ -1,6 +1,5 @@
 package tinycc.backend.t86.regalloc
 
-import tinycc.backend.RegisterAllocator
 import tinycc.backend.t86.T86Opcode._
 import tinycc.backend.t86._
 
@@ -239,10 +238,14 @@ trait T86FRegRegisterAllocator extends T86GenericRegisterAllocator[Operand.FReg]
   override def regSize: Long = 1
 }
 
-abstract class T86RegisterAllocator(program: T86Program) extends RegisterAllocator[T86Program](program) {
-  def result(): T86Program
+/**
+ * The purpose of a register allocator is to map virtual registers to real machine registers and backup caller- and callee- saved registers.
+ * Some registers can overflow available registers, in that case it should generate code to spill them into memory.
+ */
+abstract class T86RegisterAllocator {
+  def transformProgram(program: T86Program): Unit
 }
 
 object T86RegisterAllocator {
-  def apply(program: T86Program): T86RegisterAllocator = new GraphColoringRegisterAllocator(program)
+  def apply(): T86RegisterAllocator = new GraphColoringRegisterAllocator()
 }

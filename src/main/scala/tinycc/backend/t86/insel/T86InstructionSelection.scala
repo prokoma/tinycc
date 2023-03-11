@@ -7,5 +7,5 @@ import tinycc.common.ir._
 abstract class T86InstructionSelection(program: IrProgram) extends InstructionSelection[T86Program](program)
 
 object T86InstructionSelection {
-  def apply(prog: IrProgram): T86InstructionSelection = new MaximalMunchT86InstructionSelection2(prog)
+  def apply(prog: IrProgram): T86InstructionSelection = new MaximalMunchT86InstructionSelection(prog)
 }

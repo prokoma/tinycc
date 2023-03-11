@@ -1,16 +1,16 @@
 package tinycc.backend.t86
 
+import tinycc.backend.ProgramPass
+
 /** Insert function prologue and epilogue, remove markers. */
-class T86FunProcessor(program: T86Program) {
+class T86FunProcessor extends ProgramPass[T86Program] {
 
   import tinycc.backend.t86.T86Opcode._
 
-  def result(): T86Program = {
-    program.funs.foreach(processFun)
-    program
-  }
+  override def transformProgram(program: T86Program): Unit =
+    program.funs.foreach(transformFun)
 
-  def processFun(fun: T86Fun): Unit = {
+  def transformFun(fun: T86Fun): Unit = {
     val prologueBuilder = Seq.newBuilder[T86Insn]
     prologueBuilder += T86Insn(PUSH, Operand.BP)
     prologueBuilder += T86Insn(MOV, Operand.BP, Operand.SP)
