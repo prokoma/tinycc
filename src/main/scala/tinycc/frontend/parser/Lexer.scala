@@ -1,30 +1,51 @@
-package tinycc
-package frontend
+package tinycc.frontend.parser
 
-import tinycc.util.parsing.SourceLocation
-import tinycc.util.parsing.combinator.{CharReader, Lexical, Reader}
+import tinycc.util.parsing.combinator.{Lexical, Scanners}
 
 import scala.language.implicitConversions
 
-object Lexer extends Lexical {
+object Lexer extends Lexical with Scanners {
+  sealed trait Token extends Product with Serializable
+
+  object Token {
+    /** An operator, keyword or some other special character. */
+    case class Special(value: Symbol) extends Token {
+      override def toString: String = s"Special('${value.name}')"
+    }
+
+    /** A valid TinyC identifier (variable, type or function name). */
+    case class Identifier(value: Symbol) extends Token {
+      override def toString: String = s"Identifier('${value.name}')"
+    }
+
+    /** An integer literal. */
+    case class IntLiteral(value: Long) extends Token
+
+    case class DoubleLiteral(value: Double) extends Token
+
+    case class StringLiteral(value: String, quote: Char) extends Token {
+      override def toString: String = s"StringLiteral($quote$value$quote)"
+    }
+  }
+
+  import Token._
+
   implicit def char2parser(c: Char): Parser[Char] = elem(c)
 
   implicit def string2parser(s: String): Parser[String] = elem(s)
 
-  lazy val WHITESPACE: Parser[Any] = rep[Any](
-    whitespaceChar
+  override lazy val WHITESPACE: Parser[Any] = rep[Any](
+    whitespace
       | ("//" ~ rep(not(NL) ~> elem("", { case c => c })))
       | ("/*" ~ commit(blockCommentEnd.described("block comment end ('*/')")))
   )
-
-  lazy val whitespaceChar: Parser[Char] = oneOfChar("whitespace", Seq('\r', '\n', '\t', ' '))
 
   def blockCommentEnd: Parser[Any] =
     rep(elem("", { case c if c != '*' => () })) ~ '*' ~ (elem('/') | blockCommentEnd)
 
   // Token
 
-  lazy val TOKEN: Parser[Token] =
+  override lazy val TOKEN: Parser[Token] =
     OPERATOR | IDENTIFIER_OR_KEYWORD | NUMERIC_LITERAL | STRING_SINGLE_QUOTED | STRING_DOUBLE_QUOTED
 
   // Operator
@@ -131,28 +152,4 @@ object Lexer extends Lexical {
   lazy val STRING_SINGLE_QUOTED: Parser[StringLiteral] = stringQuotedHelper('\'') described "single quoted string"
 
   lazy val STRING_DOUBLE_QUOTED: Parser[StringLiteral] = stringQuotedHelper('\"') described "double quoted string"
-
-  case class TokenReader(in: CharReader) extends Reader[Token] {
-    def this(in: String) = this(CharReader(in))
-
-    private val (afterWs, tokOption, afterTok) = parse(WHITESPACE, in) match {
-      case Accept(_, afterWs, _) if afterWs.isEmpty => (afterWs, None, afterWs)
-      case Accept(_, afterWs, _) =>
-        parse(TOKEN, afterWs) match {
-          case Accept(tok, afterTok, _) => (afterWs, Some(tok), afterTok)
-          case Reject(msg, remainder, _) =>
-            throw new TinyCParserException(formatErrorMessage(msg, remainder), remainder.loc)
-        }
-      case Reject(msg, remainder, _) =>
-        throw new TinyCParserException(formatErrorMessage(msg, remainder), remainder.loc)
-    }
-
-    override def headOption: Option[Token] = tokOption
-
-    override def tail: TokenReader = TokenReader(afterTok)
-
-    override def loc: SourceLocation = afterWs.loc
-
-    override def isEmpty: Boolean = in.isEmpty || afterWs.isEmpty
-  }
 }

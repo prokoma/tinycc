@@ -16,7 +16,7 @@ class NameGen() {
   }
 
   def apply(name: String = ""): String = { // TODO: cache
-    var ctr = 1
+    var ctr = if(name == "") 1 else 2
     var newName = name
     while (newName == "" || !isAvailableInChildren(newName) || !isAvailableInParents(newName)) {
       newName = name + ctr

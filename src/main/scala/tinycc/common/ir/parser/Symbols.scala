@@ -1,4 +1,4 @@
-package tinycc.frontend
+package tinycc.common.ir.parser
 
 object Symbols {
   val inc: Symbol = Symbol("++")
@@ -37,25 +37,11 @@ object Symbols {
   val assign: Symbol = Symbol("=")
   val backtick: Symbol = Symbol("`")
 
-  val kwBreak: Symbol = Symbol("break")
-  val kwCase: Symbol = Symbol("case")
-  val kwCast: Symbol = Symbol("cast")
-  val kwChar: Symbol = Symbol("char")
-  val kwContinue: Symbol = Symbol("continue")
-  val kwDefault: Symbol = Symbol("default")
-  val kwDo: Symbol = Symbol("do")
+  val kwFn: Symbol = Symbol("fn")
+  val kwLabel: Symbol = Symbol("label")
+  val kwI64: Symbol = Symbol("i64")
   val kwDouble: Symbol = Symbol("double")
-  val kwElse: Symbol = Symbol("else")
-  val kwFor: Symbol = Symbol("for")
-  val kwIf: Symbol = Symbol("if")
-  val kwInt: Symbol = Symbol("int")
-  val kwReturn: Symbol = Symbol("return")
-  val kwStruct: Symbol = Symbol("struct")
-  val kwSwitch: Symbol = Symbol("switch")
-  val kwTypedef: Symbol = Symbol("typedef")
   val kwVoid: Symbol = Symbol("void")
-  val kwWhile: Symbol = Symbol("while")
-  val kwScan: Symbol = Symbol("scan")
-  val kwPrint: Symbol = Symbol("print")
-  val kwPrintnum: Symbol = Symbol("printnum")
+  val kwPtr: Symbol = Symbol("ptr")
+  val kwStruct: Symbol = Symbol("struct")
 }

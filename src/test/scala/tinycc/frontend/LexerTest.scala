@@ -1,5 +1,7 @@
 package tinycc.frontend
 
+import tinycc.frontend.parser.{Lexer, Symbols}
+
 class LexerTest extends munit.FunSuite {
   test("empty") {
     val ti = new Lexer.TokenReader("")

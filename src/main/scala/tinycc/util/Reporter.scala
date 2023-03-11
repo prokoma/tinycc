@@ -1,4 +1,4 @@
-package tinycc.cli
+package tinycc.util
 
 import tinycc.ErrorLevel
 import tinycc.util.parsing.SourceLocation

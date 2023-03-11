@@ -8,8 +8,9 @@ import tinycc.backend.t86.{T86AsmPrinter, T86FunProcessor, T86LabelProcessor}
 import tinycc.common.ir.IrPrinter
 import tinycc.frontend.analysis.{SemanticAnalysis, TypeAnalysis}
 import tinycc.frontend.ast.{AstPrinterC, AstProgram}
-import tinycc.frontend.{TinyCCompiler, TinyCParser}
-import tinycc.util.IndentWriter
+import tinycc.frontend.TinyCCompiler
+import tinycc.frontend.parser.TinyCParser
+import tinycc.util.{IndentWriter, Reporter}
 
 import java.io.{IOException, PrintStream, PrintWriter}
 import java.nio.file.{Files, Path}

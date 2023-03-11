@@ -1,8 +1,8 @@
 package tinycc.frontend.analysis
 
 import munit.FunSuite
-import tinycc.frontend.{Symbols, TinyCParser}
 import tinycc.frontend.ast.{AstBlock, AstFunDecl, AstNamedType, AstVarDecl}
+import tinycc.frontend.parser.{Symbols, TinyCParser}
 import tinycc.util.parsing.SourceLocation
 
 class SemanticAnalysisTest extends FunSuite {

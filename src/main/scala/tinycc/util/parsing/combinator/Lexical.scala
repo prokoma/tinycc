@@ -63,6 +63,8 @@ trait Lexical extends Parsers {
 
   lazy val digit: Parser[Char] = elem("digit", { case c if c >= '0' && c <= '9' => c })
 
+  lazy val whitespace: Parser[Char] = oneOfChar("whitespace", Seq('\r', '\n', '\t', ' '))
+
   lazy val NL: Parser[String] = (in: Input) =>
     if (in.isEmpty) Accept("", in)
     else if (in.take(1) == "\n") Accept("\n", in.tail)

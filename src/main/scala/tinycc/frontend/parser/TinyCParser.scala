@@ -1,19 +1,16 @@
-package tinycc.frontend
+package tinycc.frontend.parser
 
-import tinycc.cli.Reporter
-import tinycc.frontend.Symbols._
+import Lexer.Token
+import Symbols._
 import tinycc.frontend.ast._
-import tinycc.util.parsing.SourceLocation
 import tinycc.util.parsing.combinator.{CharReader, Parsers, Reader}
-import tinycc.{ErrorLevel, ProgramException}
+import tinycc.util.parsing.{ParserException, SourceLocation}
 
 import scala.language.implicitConversions
 
-class TinyCParserException(message: String, val loc: SourceLocation) extends ProgramException(message) {
-  override def format(reporter: Reporter): String = reporter.formatError(ErrorLevel.Error, message, loc)
-}
-
 object TinyCParser extends Parsers {
+
+  import Token._
 
   type Elem = Token
   type Input = ScannerAdapter
@@ -266,9 +263,9 @@ object TinyCParser extends Parsers {
   def parseProgram(in: Reader[Elem]): AstProgram =
     parse(PROGRAM <~ EOI, ScannerAdapter(in)) match {
       case Accept(value, _, _) => value
-      case Reject(expectation, reminding, _) =>
-        throw new TinyCParserException(formatErrorMessage(expectation, reminding), reminding.loc)
+      case Reject(expectation, remainder, _) =>
+        throw new ParserException(formatErrorMessage(expectation, remainder), remainder.loc)
     }
 
-  def parseProgram(s: String): AstProgram = parseProgram(Lexer.TokenReader(CharReader(s)))
+  def parseProgram(s: String): AstProgram = parseProgram(Lexer.Scanner(CharReader(s)))
 }

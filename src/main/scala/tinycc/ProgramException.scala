@@ -1,6 +1,6 @@
 package tinycc
 
-import tinycc.cli.Reporter
+import tinycc.util.Reporter
 
 class ProgramException(val message: String, cause: Throwable = null) extends RuntimeException(message, cause) {
   def cause: Throwable = getCause

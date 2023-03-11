@@ -1,8 +1,8 @@
 package tinycc.frontend.analysis
 
-import tinycc.cli.Reporter
 import tinycc.frontend.Declarations
 import tinycc.frontend.ast._
+import tinycc.util.Reporter
 import tinycc.util.parsing.SourceLocation
 import tinycc.{ErrorLevel, ProgramException}
 

@@ -1,6 +1,7 @@
 package tinycc.frontend
 
 import munit.FunSuite
+import tinycc.frontend.parser.TinyCParser
 
 class TinyCParserTest extends FunSuite {
   test("empty") {
