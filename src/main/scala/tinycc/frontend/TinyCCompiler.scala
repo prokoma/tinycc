@@ -1,11 +1,12 @@
 package tinycc.frontend
 
 import tinycc.common.ir.IrOpcode._
-import tinycc.common.ir.{parser, _}
+import tinycc.common.ir._
 import tinycc.frontend.Types._
 import tinycc.frontend.analysis.IdentifierDecl
 import tinycc.frontend.analysis.IdentifierDecl.{FunArgDecl, FunDecl, VarDecl}
 import tinycc.frontend.ast._
+import tinycc.frontend.parser.Symbols
 import tinycc.util.Reporter
 import tinycc.util.parsing.SourceLocation
 import tinycc.{ErrorLevel, ProgramException}
@@ -18,7 +19,7 @@ class TinyCCompilerException(val level: ErrorLevel, message: String, val loc: So
   override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
 }
 
-trait TinyCIrProgramBuilder extends IrProgramBuilderOps {
+trait TinyCIrProgramBuilder extends IrProgramBuilder {
   val program: IrProgram = new IrProgram
   val entryFun: IrFun = program.appendEntryFun()
 
@@ -325,7 +326,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         program
       ))
 
-      appendFun(irFun)
+      appendAndEnterFun(irFun)
       if (node.body.isDefined) {
         appendAndEnterBlock(new BasicBlock("entry", fun))
 
@@ -508,7 +509,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     private def compileIncDec(op: Symbol, expr: AstNode, isPostfix: Boolean): Insn = {
       val exprPtr = compileExprPtr(expr)
       val oldValue = emit(new LoadInsn(compileType(expr.ty), exprPtr, _))
-      val delta = if (op == parser.Symbols.inc) 1 else -1
+      val delta = if (op == Symbols.inc) 1 else -1
 
       val newValue = expr.ty match {
         case _: IntegerTy =>
@@ -529,96 +530,96 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileUnaryOp(node: AstUnaryOp): Insn = (node.op, node.expr.ty) match {
-      case (parser.Symbols.add, _) =>
+      case (Symbols.add, _) =>
         compileExpr(node.expr)
 
-      case (parser.Symbols.sub, _: Types.IntegerTy) =>
+      case (Symbols.sub, _: Types.IntegerTy) =>
         val expr = compileExpr(node.expr)
         val res = emit(new BinaryArithInsn(IrOpcode.ISub, emitIImm(0), expr, _))
         compileCastFromTo(res, Types.IntTy, node.ty, node.loc)
 
-      case (parser.Symbols.sub, Types.DoubleTy) =>
+      case (Symbols.sub, Types.DoubleTy) =>
         val expr = compileExpr(node.expr)
         emit(new BinaryArithInsn(IrOpcode.FSub, emitFImm(0), expr, _))
 
-      case (parser.Symbols.neg, exprTy: Types.IntegerTy) =>
+      case (Symbols.neg, exprTy: Types.IntegerTy) =>
         val expr = compileExpr(node.expr)
         emit(new BinaryArithInsn(IrOpcode.IXor, expr, emitIImm(exprTy.longBitmask), _))
 
-      case (parser.Symbols.not, _: Types.IntegerTy | _: Types.PtrTy) =>
+      case (Symbols.not, _: Types.IntegerTy | _: Types.PtrTy) =>
         val expr = compileExpr(node.expr)
         emit(new CmpInsn(IrOpcode.CmpIEq, expr, emitIImm(0), _))
 
-      case (parser.Symbols.not, Types.DoubleTy) =>
+      case (Symbols.not, Types.DoubleTy) =>
         val expr = compileExpr(node.expr)
         emit(new CmpInsn(IrOpcode.CmpFEq, expr, emitFImm(0), _))
 
-      case (parser.Symbols.inc | parser.Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = false)
+      case (Symbols.inc | Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = false)
 
       case (op, argTy) => throw new NotImplementedError(s"UnaryOp '${op.name}' with '$argTy'.")
     }
 
     private def compileUnaryPostOp(node: AstUnaryPostOp): Insn = (node.op, node.expr.ty) match {
-      case (parser.Symbols.inc | parser.Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = true)
+      case (Symbols.inc | Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = true)
 
       case (op, argTy) => throw new NotImplementedError(s"UnaryPostOp '${op.name}' with '$argTy'.")
     }
 
     private def compileBinaryArith(node: AstBinaryOp): Insn = (node.op, node.ty) match {
-      case (parser.Symbols.add | parser.Symbols.sub | parser.Symbols.mul | parser.Symbols.div | parser.Symbols.mod | parser.Symbols.bitAnd | parser.Symbols.bitOr | parser.Symbols.bitXor, resultTy: IntegerTy) =>
+      case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor, resultTy: IntegerTy) =>
         val leftInt = compileExprAndCastTo(node.left, IntTy)
         val rightInt = compileExprAndCastTo(node.right, IntTy)
         val resultInt = node.op match {
-          case parser.Symbols.add => emitBinaryArith(IAdd, leftInt, rightInt)
-          case parser.Symbols.sub => emitBinaryArith(ISub, leftInt, rightInt)
-          case parser.Symbols.mul => emitBinaryArith(SMul, leftInt, rightInt)
-          case parser.Symbols.div => emitBinaryArith(SDiv, leftInt, rightInt)
+          case Symbols.add => emitBinaryArith(IAdd, leftInt, rightInt)
+          case Symbols.sub => emitBinaryArith(ISub, leftInt, rightInt)
+          case Symbols.mul => emitBinaryArith(SMul, leftInt, rightInt)
+          case Symbols.div => emitBinaryArith(SDiv, leftInt, rightInt)
 
-          case parser.Symbols.mod =>
+          case Symbols.mod =>
             val divRes = emitBinaryArith(SDiv, leftInt, rightInt)
             val mulRes = emitBinaryArith(SMul, divRes, rightInt)
             emitBinaryArith(ISub, leftInt, mulRes)
 
-          case parser.Symbols.bitAnd => emitBinaryArith(IAnd, leftInt, rightInt)
-          case parser.Symbols.bitOr => emitBinaryArith(IOr, leftInt, rightInt)
-          case parser.Symbols.bitXor => emitBinaryArith(IXor, leftInt, rightInt)
+          case Symbols.bitAnd => emitBinaryArith(IAnd, leftInt, rightInt)
+          case Symbols.bitOr => emitBinaryArith(IOr, leftInt, rightInt)
+          case Symbols.bitXor => emitBinaryArith(IXor, leftInt, rightInt)
         }
         compileCastFromTo(resultInt, IntTy, resultTy, node.loc)
 
-      case (parser.Symbols.add | parser.Symbols.sub | parser.Symbols.mul | parser.Symbols.div | parser.Symbols.mod, DoubleTy) =>
+      case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod, DoubleTy) =>
         val leftDouble = compileExprAndCastTo(node.left, DoubleTy)
         val rightDouble = compileExprAndCastTo(node.right, DoubleTy)
         node.op match {
-          case parser.Symbols.add => emitBinaryArith(FAdd, leftDouble, rightDouble)
-          case parser.Symbols.sub => emitBinaryArith(FSub, leftDouble, rightDouble)
-          case parser.Symbols.mul => emitBinaryArith(FMul, leftDouble, rightDouble)
-          case parser.Symbols.div => emitBinaryArith(FDiv, leftDouble, rightDouble)
+          case Symbols.add => emitBinaryArith(FAdd, leftDouble, rightDouble)
+          case Symbols.sub => emitBinaryArith(FSub, leftDouble, rightDouble)
+          case Symbols.mul => emitBinaryArith(FMul, leftDouble, rightDouble)
+          case Symbols.div => emitBinaryArith(FDiv, leftDouble, rightDouble)
         }
 
-      case (parser.Symbols.add | parser.Symbols.sub, PtrTy(baseTy)) =>
+      case (Symbols.add | Symbols.sub, PtrTy(baseTy)) =>
         val left = compileExpr(node.left)
         val rightInt = compileExprAndCastTo(node.right, IntTy)
         val index = node.op match {
-          case parser.Symbols.add => rightInt
-          case parser.Symbols.sub => emitBinaryArith(ISub, emitIImm(0), rightInt)
+          case Symbols.add => rightInt
+          case Symbols.sub => emitBinaryArith(ISub, emitIImm(0), rightInt)
         }
         emit(new GetElementPtrInsn(left, index, compileType(baseTy), 0, _))
     }
 
     private def compileCmpArithmeticHelper(op: Symbol, argTy: Types.Ty, leftPromoted: Insn, rightPromoted: Insn): Insn = (op, argTy) match {
-      case (parser.Symbols.eq, _: IntegerTy) => emitCmp(CmpIEq, leftPromoted, rightPromoted)
-      case (parser.Symbols.ne, _: IntegerTy) => emitCmp(CmpINe, leftPromoted, rightPromoted)
-      case (parser.Symbols.lt, _: IntegerTy) => emitCmp(CmpSLt, leftPromoted, rightPromoted)
-      case (parser.Symbols.le, _: IntegerTy) => emitCmp(CmpSLe, leftPromoted, rightPromoted)
-      case (parser.Symbols.gt, _: IntegerTy) => emitCmp(CmpSGt, leftPromoted, rightPromoted)
-      case (parser.Symbols.ge, _: IntegerTy) => emitCmp(CmpSGe, leftPromoted, rightPromoted)
+      case (Symbols.eq, _: IntegerTy) => emitCmp(CmpIEq, leftPromoted, rightPromoted)
+      case (Symbols.ne, _: IntegerTy) => emitCmp(CmpINe, leftPromoted, rightPromoted)
+      case (Symbols.lt, _: IntegerTy) => emitCmp(CmpSLt, leftPromoted, rightPromoted)
+      case (Symbols.le, _: IntegerTy) => emitCmp(CmpSLe, leftPromoted, rightPromoted)
+      case (Symbols.gt, _: IntegerTy) => emitCmp(CmpSGt, leftPromoted, rightPromoted)
+      case (Symbols.ge, _: IntegerTy) => emitCmp(CmpSGe, leftPromoted, rightPromoted)
 
-      case (parser.Symbols.eq, DoubleTy) => emitCmp(CmpFEq, leftPromoted, rightPromoted)
-      case (parser.Symbols.ne, DoubleTy) => emitCmp(CmpFNe, leftPromoted, rightPromoted)
-      case (parser.Symbols.lt, DoubleTy) => emitCmp(CmpFLt, leftPromoted, rightPromoted)
-      case (parser.Symbols.le, DoubleTy) => emitCmp(CmpFLe, leftPromoted, rightPromoted)
-      case (parser.Symbols.gt, DoubleTy) => emitCmp(CmpFGt, leftPromoted, rightPromoted)
-      case (parser.Symbols.ge, DoubleTy) => emitCmp(CmpFGe, leftPromoted, rightPromoted)
+      case (Symbols.eq, DoubleTy) => emitCmp(CmpFEq, leftPromoted, rightPromoted)
+      case (Symbols.ne, DoubleTy) => emitCmp(CmpFNe, leftPromoted, rightPromoted)
+      case (Symbols.lt, DoubleTy) => emitCmp(CmpFLt, leftPromoted, rightPromoted)
+      case (Symbols.le, DoubleTy) => emitCmp(CmpFLe, leftPromoted, rightPromoted)
+      case (Symbols.gt, DoubleTy) => emitCmp(CmpFGt, leftPromoted, rightPromoted)
+      case (Symbols.ge, DoubleTy) => emitCmp(CmpFGe, leftPromoted, rightPromoted)
 
       case _ => throw new NotImplementedError(s"compileCmpArithmeticHelper($op, $argTy)")
     }
@@ -641,13 +642,13 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileBinaryOp(node: AstBinaryOp): Insn = (node.op, node.left.ty, node.right.ty) match {
-      case (parser.Symbols.add | parser.Symbols.sub | parser.Symbols.mul | parser.Symbols.div | parser.Symbols.mod | parser.Symbols.bitAnd | parser.Symbols.bitOr | parser.Symbols.bitXor, _, _) =>
+      case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor, _, _) =>
         compileBinaryArith(node)
 
-      case (parser.Symbols.eq | parser.Symbols.ne | parser.Symbols.lt | parser.Symbols.le | parser.Symbols.gt | parser.Symbols.ge, _, _) =>
+      case (Symbols.eq | Symbols.ne | Symbols.lt | Symbols.le | Symbols.gt | Symbols.ge, _, _) =>
         compileCmp(node)
 
-      case (parser.Symbols.and, _, _) =>
+      case (Symbols.and, _, _) =>
         val leftTrueBlock = new BasicBlock("leftTrue", fun)
         val contBlock = new BasicBlock("cont", fun)
 
@@ -666,7 +667,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         appendAndEnterBlock(contBlock)
         emit(new LoadInsn(IrTy.Int64Ty, resultPtr, _))
 
-      case (parser.Symbols.or, _, _) =>
+      case (Symbols.or, _, _) =>
         val leftFalseBlock = new BasicBlock("leftFalse", fun)
         val contBlock = new BasicBlock("cont", fun)
 

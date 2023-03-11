@@ -24,7 +24,7 @@ class Reporter(source: String, fileName: Option[String] = None) {
 
   protected def formatContext(loc: SourceLocation): String = {
     f"${loc.line}%5d" + " | " + lines(loc.line - 1) + "\n" +
-    "     " + " | " + (" " * (loc.col - 1)) + s"${BOLD}${MAGENTA}^${RESET}"
+      "     " + " | " + (" " * (loc.col - 1)) + s"${BOLD}${MAGENTA}^${RESET}"
   }
 
   def formatError(level: ErrorLevel, message: String): String =

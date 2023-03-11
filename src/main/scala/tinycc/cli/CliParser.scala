@@ -36,6 +36,12 @@ object CliParser extends CliParsers {
     "compile-to-ir" ~> commit(rep(optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(CompileToIr(inFile), opts) } described "compile-to-ir"
   }
 
+  lazy val CODEGEN: Parser[Codegen] = {
+    val optOutFile = output ^^ { outFile => (a: Codegen) => a.copy(outFile = Some(outFile)) }
+
+    "codegen" ~> commit(rep(optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(Codegen(inFile), opts) } described "codegen"
+  }
+
   lazy val COMPILE: Parser[Compile] = {
     val optOutFile = output ^^ { outFile => (a: Compile) => a.copy(outFile = Some(outFile)) }
 
@@ -46,7 +52,7 @@ object CliParser extends CliParsers {
     "help" ^^ (_ => Help) described "help"
   }
 
-  lazy val ACTION: Parser[Action] = (FORMAT | TRANSPILE_TO_C | COMPILE_TO_IR | COMPILE | HELP)
+  lazy val ACTION: Parser[Action] = (FORMAT | TRANSPILE_TO_C | COMPILE_TO_IR | CODEGEN | COMPILE | HELP)
 
   def parseArgs(args: Seq[String]): Action = parse(ACTION <~ EOI, SeqReader(args)) match {
     case Accept(action, _, _) => action

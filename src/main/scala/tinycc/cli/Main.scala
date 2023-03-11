@@ -1,7 +1,5 @@
 package tinycc.cli
 
-import tinycc.cli.Action.Help
-
 object Main extends App {
   try {
     val action = CliParser.parseArgs(args)

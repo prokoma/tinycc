@@ -1,8 +1,8 @@
 package tinycc.frontend.parser
 
-import Lexer.Token
-import Symbols._
 import tinycc.frontend.ast._
+import tinycc.frontend.parser.Lexer.Token
+import tinycc.frontend.parser.Symbols._
 import tinycc.util.parsing.combinator.{CharReader, Parsers, Reader}
 import tinycc.util.parsing.{ParserException, SourceLocation}
 

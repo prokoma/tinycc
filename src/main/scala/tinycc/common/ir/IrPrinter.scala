@@ -22,9 +22,9 @@ class IrPrinter extends IndentPrinter[IrObject] {
     out.write(ty.toString)
 
   protected def printFunSig(funSig: IrFunSignature, out: IndentWriter): Unit = {
-    printType(funSig.returnType, out)
+    printType(funSig.returnTy, out)
     out.write("(")
-    funSig.argTypes.foreachSep(ty => printType(ty, out), out.write(", "))
+    funSig.argTys.foreachSep(ty => printType(ty, out), out.write(", "))
     out.write(")")
   }
 
@@ -78,7 +78,7 @@ class IrPrinter extends IndentPrinter[IrObject] {
       // %0 = getfunptr foo
       case insn: GetFunPtrInsn =>
         out.write(" ")
-        printIrFunRef(insn.targetFun, out)
+        printIrFunRef(insn.targetFunRef, out)
 
       // %0 = loadarg 0
       case insn: LoadArgInsn => out.write(s" ${insn.index}")
@@ -103,11 +103,11 @@ class IrPrinter extends IndentPrinter[IrObject] {
       // %0 = call i32 foo(i32 %1, i32 %2)
       case insn: CallInsn =>
         out.write(s" ")
-        printType(insn.funSig.returnType, out)
+        printType(insn.funSig.returnTy, out)
         out.write(" ")
-        printIrFunRef(insn.targetFun, out)
+        printIrFunRef(insn.targetFunRef, out)
         out.write("(")
-        insn.funSig.argTypes.zip(insn.args).foreachSep({
+        insn.funSig.argTys.zip(insn.argRefs).foreachSep({
           case (argTy, arg) =>
             printType(argTy, out)
             out.write(" ")
@@ -118,11 +118,11 @@ class IrPrinter extends IndentPrinter[IrObject] {
       // %0 = callptr i32 %1(i32 %2, i32 %3)
       case insn: CallPtrInsn =>
         out.write(s" ")
-        printType(insn.funSig.returnType, out)
+        printType(insn.funSig.returnTy, out)
         out.write(" ")
-        printInsnRef(insn.funPtr, out)
+        printInsnRef(insn.funPtrRef, out)
         out.write("(")
-        insn.funSig.argTypes.zip(insn.args).foreachSep({
+        insn.funSig.argTys.zip(insn.argRefs).foreachSep({
           case (argTy, arg) =>
             printType(argTy, out)
             out.write(" ")

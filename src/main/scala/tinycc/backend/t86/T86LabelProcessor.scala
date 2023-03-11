@@ -23,7 +23,7 @@ class T86LabelProcessor(listing: T86Listing) {
         address += 1
 
       case T86Label(symbol) =>
-        if(labelAddressMap.contains(symbol))
+        if (labelAddressMap.contains(symbol))
           throw new BackendException(s"Duplicate label $symbol")
         labelAddressMap(symbol) = address
 

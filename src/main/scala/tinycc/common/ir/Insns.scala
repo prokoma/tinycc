@@ -47,36 +47,44 @@ object FImmInsn {
   def unapply(insn: FImmInsn): Option[Double] = Some(insn.value)
 }
 
-sealed abstract class BinaryInsn(leftOpTgt: Insn, rightOpTgt: Insn, val basicBlock: BasicBlock) extends Insn {
-  val leftOp: OperandRef = new OperandRef(this, Some(leftOpTgt))
-  val rightOp: OperandRef = new OperandRef(this, Some(rightOpTgt))
+sealed abstract class BinaryInsn(_left: Option[Insn], _right: Option[Insn], val basicBlock: BasicBlock) extends Insn {
+  val leftRef: OperandRef = new OperandRef(this, _left)
+  val rightRef: OperandRef = new OperandRef(this, _right)
 
-  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(leftOp, rightOp)
+  def left: Insn = leftRef.get
+
+  def right: Insn = rightRef.get
+
+  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(leftRef, rightRef)
 }
 
-class BinaryArithInsn(val op: IrOpcode.BinaryArithOp, leftOpTgt: Insn, rightOpTgt: Insn, basicBlock: BasicBlock) extends BinaryInsn(leftOpTgt, rightOpTgt, basicBlock) {
+class BinaryArithInsn(val op: IrOpcode.BinaryArithOp, _left: Option[Insn], _right: Option[Insn], basicBlock: BasicBlock) extends BinaryInsn(_left, _right, basicBlock) {
+  def this(op: IrOpcode.BinaryArithOp, _left: Insn, _right: Insn, basicBlock: BasicBlock) = this(op, Some(_left), Some(_right), basicBlock)
+
   override def resultTy: IrTy = op.insnTy
 
   override def validate(): Unit = {
     super.validate()
-    assert(leftOp.get.resultTy == op.insnTy)
-    assert(rightOp.get.resultTy == op.insnTy)
+    assert(left.resultTy == op.insnTy)
+    assert(right.resultTy == op.insnTy)
   }
 
-  override def copy(newBlock: BasicBlock): Insn = new BinaryArithInsn(op, leftOp.get, rightOp.get, newBlock)
+  override def copy(newBlock: BasicBlock): Insn = new BinaryArithInsn(op, leftRef(), rightRef(), newBlock)
 }
 
 /** All compare instructions return either 0 or 1. */
-class CmpInsn(val op: IrOpcode.CmpOp, leftOpTgt: Insn, rightOpTgt: Insn, basicBlock: BasicBlock) extends BinaryInsn(leftOpTgt, rightOpTgt, basicBlock) {
+class CmpInsn(val op: IrOpcode.CmpOp, _left: Option[Insn], _right: Option[Insn], basicBlock: BasicBlock) extends BinaryInsn(_left, _right, basicBlock) {
+  def this(op: IrOpcode.CmpOp, _left: Insn, _right: Insn, basicBlock: BasicBlock) = this(op, Some(_left), Some(_right), basicBlock)
+
   override def resultTy: IrTy = IrTy.Int64Ty
 
   override def validate(): Unit = {
     super.validate()
-    assert(leftOp.get.resultTy == op.operandTy)
-    assert(rightOp.get.resultTy == op.operandTy)
+    assert(left.resultTy == op.operandTy)
+    assert(right.resultTy == op.operandTy)
   }
 
-  override def copy(newBlock: BasicBlock): Insn = new CmpInsn(op, leftOp.get, rightOp.get, newBlock)
+  override def copy(newBlock: BasicBlock): Insn = new CmpInsn(op, leftRef(), rightRef(), newBlock)
 }
 
 /* === Memory Instructions === */
@@ -105,31 +113,41 @@ class AllocGInsn(varTy: IrTy, val initData: Seq[Byte], basicBlock: BasicBlock) e
   }
 }
 
-class LoadInsn(val valueTy: IrTy, addrTgt: Insn, val basicBlock: BasicBlock) extends Insn {
-  val addr: OperandRef = new OperandRef(this, Some(addrTgt))
+class LoadInsn(val valueTy: IrTy, _ptr: Option[Insn], val basicBlock: BasicBlock) extends Insn {
+  def this(valueTy: IrTy, _ptr: Insn, basicBlock: BasicBlock) = this(valueTy, Some(_ptr), basicBlock)
+
+  val ptrRef: OperandRef = new OperandRef(this, _ptr)
+
+  def ptr: Insn = ptrRef.get
 
   override def op: IrOpcode = IrOpcode.Load
 
   override def resultTy: IrTy = valueTy
 
-  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(addr)
+  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(ptrRef)
 
-  override def copy(newBlock: BasicBlock): LoadInsn = new LoadInsn(valueTy, addr.get, newBlock)
+  override def copy(newBlock: BasicBlock): LoadInsn = new LoadInsn(valueTy, ptrRef(), newBlock)
 }
 
-class StoreInsn(addrTgt: Insn, valueTgt: Insn, val basicBlock: BasicBlock) extends Insn {
-  val addr: OperandRef = new OperandRef(this, Some(addrTgt))
-  val value: OperandRef = new OperandRef(this, Some(valueTgt))
+class StoreInsn(_ptr: Option[Insn], _value: Option[Insn], val basicBlock: BasicBlock) extends Insn {
+  def this(_ptr: Insn, _value: Insn, basicBlock: BasicBlock) = this(Some(_ptr), Some(_value), basicBlock)
+
+  val ptrRef: OperandRef = new OperandRef(this, _ptr)
+  val valueRef: OperandRef = new OperandRef(this, _value)
+
+  def ptr: Insn = ptrRef.get
+
+  def value: Insn = valueRef.get
 
   override def op: IrOpcode = IrOpcode.Store
 
   override def resultTy: IrTy = IrTy.VoidTy
 
-  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(addr, value)
+  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(ptrRef, valueRef)
 
   override def hasSideEffects: Boolean = true
 
-  override def copy(newBlock: BasicBlock): StoreInsn = new StoreInsn(addr.get, value.get, newBlock)
+  override def copy(newBlock: BasicBlock): StoreInsn = new StoreInsn(ptrRef(), valueRef(), newBlock)
 }
 
 class GetElementPtrInsn(baseTgt: Insn, indexTgt: Insn, val elemTy: IrTy, val fieldIndex: Int, val basicBlock: BasicBlock) extends Insn {
@@ -153,14 +171,18 @@ class GetElementPtrInsn(baseTgt: Insn, indexTgt: Insn, val elemTy: IrTy, val fie
 
 /* === Function call instructions === */
 
-class GetFunPtrInsn(targetFunTgt: IrFun, val basicBlock: BasicBlock) extends Insn {
-  val targetFun: IrFunRef = new IrFunRef(Some(targetFunTgt))
+class GetFunPtrInsn(_targetFun: Option[IrFun], val basicBlock: BasicBlock) extends Insn {
+  def this(_targetFun: IrFun, basicBlock: BasicBlock) = this(Some(_targetFun), basicBlock)
+
+  val targetFunRef: IrFunRef = new IrFunRef(_targetFun)
+
+  def targetFun: IrFun = targetFunRef.get
 
   override def op: IrOpcode = IrOpcode.GetFunPtr
 
   override def resultTy: IrTy = IrTy.PtrTy
 
-  override def copy(newBlock: BasicBlock): GetFunPtrInsn = new GetFunPtrInsn(targetFun.get, newBlock)
+  override def copy(newBlock: BasicBlock): GetFunPtrInsn = new GetFunPtrInsn(targetFunRef(), newBlock)
 }
 
 class LoadArgInsn(val index: Int, val basicBlock: BasicBlock) extends Insn {
@@ -172,7 +194,9 @@ class LoadArgInsn(val index: Int, val basicBlock: BasicBlock) extends Insn {
 }
 
 sealed trait CallInsnBase extends Insn {
-  def args: IndexedSeq[OperandRef]
+  def argRefs: IndexedSeq[OperandRef]
+
+  def args: IndexedSeq[Insn] = argRefs.map(_.get)
 
   def funSig: IrFunSignature
 
@@ -180,9 +204,9 @@ sealed trait CallInsnBase extends Insn {
 
   override def validate(): Unit = {
     super.validate()
-    if (args.size != funSig.argTypes.size)
-      throw new IrException(s"Wrong number of arguments in $this (expected ${funSig.argTypes.size}, ${args.size} given).")
-    args.zip(funSig.argTypes).zipWithIndex.foreach({ case ((arg, sigTy), i) =>
+    if (argRefs.size != funSig.argTys.size)
+      throw new IrException(s"Wrong number of arguments in $this (expected ${funSig.argTys.size}, ${argRefs.size} given).")
+    argRefs.zip(funSig.argTys).zipWithIndex.foreach({ case ((arg, sigTy), i) =>
       if (arg.isDefined && arg.get.resultTy != sigTy)
         throw new IrException(s"Wrong type of $i-th argument in $this (expected ${sigTy}, ${arg.get.resultTy} given).")
     })
@@ -190,84 +214,100 @@ sealed trait CallInsnBase extends Insn {
 }
 
 /** Direct call */
-class CallInsn(targetFunTgt: IrFun, argTgts: IndexedSeq[Insn], val basicBlock: BasicBlock) extends CallInsnBase {
-  val targetFun: IrFunRef = new IrFunRef(Some(targetFunTgt))
-  val args: IndexedSeq[OperandRef] = argTgts.map(tgt => new OperandRef(this, Some(tgt)))
+class CallInsn(_targetFun: Option[IrFun], _args: IndexedSeq[Option[Insn]], val basicBlock: BasicBlock) extends CallInsnBase {
+  def this(_targetFun: IrFun, _args: IndexedSeq[Insn], basicBlock: BasicBlock) = this(Some(_targetFun), _args.map(Some(_)), basicBlock)
+
+  val targetFunRef: IrFunRef = new IrFunRef(_targetFun)
+  override val argRefs: IndexedSeq[OperandRef] = _args.map(new OperandRef(this, _))
+
+  def targetFun: IrFun = targetFunRef.get
 
   override def op: IrOpcode = IrOpcode.Call
 
-  override def resultTy: IrTy = targetFun.get.returnTy
+  override def resultTy: IrTy = targetFun.returnTy
 
-  override def operandRefs: IndexedSeq[OperandRef] = args
+  override def operandRefs: IndexedSeq[OperandRef] = argRefs
 
-  override def funSig: IrFunSignature = targetFun.get.signature
+  override def funSig: IrFunSignature = targetFun.signature
 
-  override def copy(newBlock: BasicBlock): CallInsn = new CallInsn(targetFun.get, args.map(_.get), newBlock)
+  override def copy(newBlock: BasicBlock): CallInsn = new CallInsn(targetFunRef(), argRefs.map(_.apply()), newBlock)
 
   override def releaseRefs(): Unit = {
     super.releaseRefs()
-    targetFun.apply(None)
+    targetFunRef.apply(None)
   }
 }
 
 /** Indirect call */
-class CallPtrInsn(val funSig: IrFunSignature, funPtrTgt: Insn, argTgts: IndexedSeq[Insn], val basicBlock: BasicBlock) extends CallInsnBase {
-  val funPtr: OperandRef = new OperandRef(this, Some(funPtrTgt))
-  val args: IndexedSeq[OperandRef] = argTgts.map(tgt => new OperandRef(this, Some(tgt)))
+class CallPtrInsn(override val funSig: IrFunSignature, _funPtr: Option[Insn], _args: IndexedSeq[Option[Insn]], val basicBlock: BasicBlock) extends CallInsnBase {
+  def this(funSig: IrFunSignature, _funPtr: Insn, _args: IndexedSeq[Insn], basicBlock: BasicBlock) = this(funSig, Some(_funPtr), _args.map(Some(_)), basicBlock)
+
+  val funPtrRef: OperandRef = new OperandRef(this, _funPtr)
+  override val argRefs: IndexedSeq[OperandRef] = _args.map(new OperandRef(this, _))
+
+  def funPtr: Insn = funPtrRef.get
 
   override def op: IrOpcode = IrOpcode.CallPtr
 
-  override def resultTy: IrTy = funSig.returnType
+  override def resultTy: IrTy = funSig.returnTy
 
-  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(funPtr) ++ args
+  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(funPtrRef) ++ argRefs
 
   override def validate(): Unit = {
     super.validate()
-    if (funPtr.isDefined && funPtr.get.resultTy != IrTy.PtrTy)
-      throw new IrException(s"Target of $this must be a pointer, ${funPtr.get.resultTy} given.")
+    if (funPtrRef.isDefined && funPtrRef.get.resultTy != IrTy.PtrTy)
+      throw new IrException(s"Target of $this must be a pointer, ${funPtrRef.get.resultTy} given.")
   }
 
-  override def copy(newBlock: BasicBlock): CallPtrInsn = new CallPtrInsn(funSig, funPtr.get, args.map(_.get), newBlock)
+  override def copy(newBlock: BasicBlock): CallPtrInsn = new CallPtrInsn(funSig, funPtrRef(), argRefs.map(_.apply()), newBlock)
 }
 
 /* === Other instructions === */
 
-class PutCharInsn(argTgt: Insn, val basicBlock: BasicBlock) extends Insn {
-  val arg: OperandRef = new OperandRef(this, Some(argTgt))
+class PutCharInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends Insn {
+  def this(_arg: Insn, basicBlock: BasicBlock) = this(Some(_arg), basicBlock)
+
+  val argRef: OperandRef = new OperandRef(this, _arg)
+
+  def arg: Insn = argRef.get
 
   override def op: IrOpcode = IrOpcode.PutChar
 
   override def resultTy: IrTy = IrTy.VoidTy
 
-  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(arg)
+  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
 
   override def hasSideEffects: Boolean = true
 
   override def validate(): Unit = {
     super.validate()
-    assert(arg.get.resultTy == IrTy.Int64Ty)
+    assert(argRef.get.resultTy == IrTy.Int64Ty)
   }
 
-  override def copy(newBlock: BasicBlock): PutCharInsn = new PutCharInsn(arg.get, newBlock)
+  override def copy(newBlock: BasicBlock): PutCharInsn = new PutCharInsn(argRef(), newBlock)
 }
 
-class PutNumInsn(argTgt: Insn, val basicBlock: BasicBlock) extends Insn {
-  val arg: OperandRef = new OperandRef(this, Some(argTgt))
+class PutNumInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends Insn {
+  def this(_arg: Insn, basicBlock: BasicBlock) = this(Some(_arg), basicBlock)
+
+  val argRef: OperandRef = new OperandRef(this, _arg)
+
+  def arg: Insn = argRef.get
 
   override def op: IrOpcode = IrOpcode.PutNum
 
   override def resultTy: IrTy = IrTy.VoidTy
 
-  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(arg)
+  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
 
   override def hasSideEffects: Boolean = true
 
   override def validate(): Unit = {
     super.validate()
-    assert(arg.get.resultTy == IrTy.Int64Ty)
+    assert(argRef.get.resultTy == IrTy.Int64Ty)
   }
 
-  override def copy(newBlock: BasicBlock): PutNumInsn = new PutNumInsn(arg.get, newBlock)
+  override def copy(newBlock: BasicBlock): PutNumInsn = new PutNumInsn(argRef(), newBlock)
 }
 
 class GetCharInsn(val basicBlock: BasicBlock) extends Insn {
@@ -280,40 +320,48 @@ class GetCharInsn(val basicBlock: BasicBlock) extends Insn {
   override def copy(newBlock: BasicBlock): GetCharInsn = new GetCharInsn(newBlock)
 }
 
-class CastInsn(val op: IrOpcode.CastOp, argTgt: Insn, val basicBlock: BasicBlock) extends Insn {
-  val arg: OperandRef = new OperandRef(this, Some(argTgt))
+class CastInsn(val op: IrOpcode.CastOp, _arg: Option[Insn], val basicBlock: BasicBlock) extends Insn {
+  def this(op: IrOpcode.CastOp, _arg: Insn, basicBlock: BasicBlock) = this(op, Some(_arg), basicBlock)
+
+  val argRef: OperandRef = new OperandRef(this, _arg)
+
+  def arg: Insn = argRef.get
 
   override def resultTy: IrTy = op.resultTy
 
-  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(arg)
-
-  override def copy(newBlock: BasicBlock): Insn = new CastInsn(op, arg.get, newBlock)
+  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
 
   override def validate(): Unit = {
     super.validate()
-    assert(!arg.isDefined || op.operandTy == arg.get.resultTy)
+    assert(!argRef.isDefined || op.operandTy == argRef.get.resultTy)
   }
+
+  override def copy(newBlock: BasicBlock): Insn = new CastInsn(op, argRef(), newBlock)
 }
 
 /* === Terminators === */
 
 sealed trait IrFunExitPoint extends TerminatorInsn
 
-class RetInsn(retValTgt: Insn, val basicBlock: BasicBlock) extends IrFunExitPoint {
+class RetInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends IrFunExitPoint {
+  def this(_arg: Insn, basicBlock: BasicBlock) = this(Some(_arg), basicBlock)
+
   override def op: IrOpcode = IrOpcode.Ret
 
-  val retVal: OperandRef = new OperandRef(this, Some(retValTgt))
+  val argRef: OperandRef = new OperandRef(this, _arg)
 
-  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(retVal)
+  def arg: Insn = argRef.get
+
+  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
 
   override def succBlockRefs: Seq[TerminatorSuccRef] = Seq.empty
 
   override def validate(): Unit = {
     super.validate()
-    assert(retVal.get.resultTy == basicBlock.fun.returnTy)
+    assert(argRef.get.resultTy == basicBlock.fun.returnTy)
   }
 
-  override def copy(newBlock: BasicBlock): RetInsn = new RetInsn(retVal.get, newBlock)
+  override def copy(newBlock: BasicBlock): RetInsn = new RetInsn(argRef(), newBlock)
 }
 
 class RetVoidInsn(val basicBlock: BasicBlock) extends IrFunExitPoint {
@@ -337,33 +385,45 @@ class HaltInsn(val basicBlock: BasicBlock) extends IrFunExitPoint {
   override def copy(newBlock: BasicBlock): HaltInsn = new HaltInsn(newBlock)
 }
 
-class BrInsn(succBlockTgt: BasicBlock, val basicBlock: BasicBlock) extends TerminatorInsn {
+class BrInsn(_succBlock: Option[BasicBlock], val basicBlock: BasicBlock) extends TerminatorInsn {
+  def this(_succBlock: BasicBlock, basicBlock: BasicBlock) = this(Some(_succBlock), basicBlock)
+
   override def op: IrOpcode = IrOpcode.Br
 
-  val succBlock: TerminatorSuccRef = new TerminatorSuccRef(this, Some(succBlockTgt))
+  val succBlockRef: TerminatorSuccRef = new TerminatorSuccRef(this, _succBlock)
 
-  override def succBlockRefs: Seq[TerminatorSuccRef] = Seq(succBlock)
+  def succBlock: BasicBlock = succBlockRef.get
 
-  override def copy(newBlock: BasicBlock): BrInsn = new BrInsn(succBlock.get, newBlock)
+  override def succBlockRefs: Seq[TerminatorSuccRef] = Seq(succBlockRef)
+
+  override def copy(newBlock: BasicBlock): BrInsn = new BrInsn(succBlockRef(), newBlock)
 }
 
 /** If condOp is non-zero, the successor is trueBlock, otherwise falseBlock. */
-class CondBrInsn(condOpTgt: Insn, trueBlockTgt: BasicBlock, falseBlockTgt: BasicBlock, val basicBlock: BasicBlock) extends TerminatorInsn {
+class CondBrInsn(_arg: Option[Insn], _trueBlock: Option[BasicBlock], _falseBlock: Option[BasicBlock], val basicBlock: BasicBlock) extends TerminatorInsn {
+  def this(_arg: Insn, _trueBlock: BasicBlock, _falseBlock: BasicBlock, basicBlock: BasicBlock) = this(Some(_arg), Some(_trueBlock), Some(_falseBlock), basicBlock)
+
   override def op: IrOpcode = IrOpcode.CondBr
 
-  val condOp: OperandRef = new OperandRef(this, Some(condOpTgt))
+  val argRef: OperandRef = new OperandRef(this, _arg)
 
-  val trueBlock: TerminatorSuccRef = new TerminatorSuccRef(this, Some(trueBlockTgt))
-  val falseBlock: TerminatorSuccRef = new TerminatorSuccRef(this, Some(falseBlockTgt))
+  val trueBlockRef: TerminatorSuccRef = new TerminatorSuccRef(this, _trueBlock)
+  val falseBlockRef: TerminatorSuccRef = new TerminatorSuccRef(this, _falseBlock)
 
-  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(condOp)
+  def arg: Insn = argRef.get
 
-  override def succBlockRefs: Seq[TerminatorSuccRef] = Seq(trueBlock, falseBlock)
+  def trueBlock: BasicBlock = trueBlockRef.get
 
-  override def copy(newBlock: BasicBlock): CondBrInsn = new CondBrInsn(condOp.get, trueBlock.get, falseBlock.get, newBlock)
+  def falseBlock: BasicBlock = falseBlockRef.get
+
+  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
+
+  override def succBlockRefs: Seq[TerminatorSuccRef] = Seq(trueBlockRef, falseBlockRef)
+
+  override def copy(newBlock: BasicBlock): CondBrInsn = new CondBrInsn(argRef(), trueBlockRef(), falseBlockRef(), newBlock)
 
   override def validate(): Unit = {
     super.validate()
-    assert(condOp.get.resultTy == Int64Ty)
+    assert(argRef.get.resultTy == Int64Ty)
   }
 }

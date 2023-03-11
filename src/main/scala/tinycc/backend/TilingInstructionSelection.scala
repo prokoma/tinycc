@@ -181,7 +181,7 @@ trait TilingInstructionSelection {
       if (insn.op == IrOpcode.Call) {
         val callInsn = insn.asInstanceOf[CallInsn]
         for {
-          Pat.Match(args, coveredInsns, requiredInsns) <- matchIndexedSeq(callInsn.args.map(_.get), arg)
+          Pat.Match(args, coveredInsns, requiredInsns) <- matchIndexedSeq(callInsn.argRefs.map(_.get), arg)
         } yield Pat.Match((callInsn, args), insn :: coveredInsns, requiredInsns)
       } else None
 
@@ -200,8 +200,8 @@ trait TilingInstructionSelection {
       if (insn.op == IrOpcode.CallPtr) {
         val callInsn = insn.asInstanceOf[CallPtrInsn]
         for (
-          Pat.Match(ptr, ptrCoveredInsns, ptrRequiredInsns) <- ptr(callInsn.funPtr.get);
-          Pat.Match(args, argsCoveredInsns, argsRequiredInsns) <- matchIndexedSeq(callInsn.args.map(_.get), arg)
+          Pat.Match(ptr, ptrCoveredInsns, ptrRequiredInsns) <- ptr(callInsn.funPtrRef.get);
+          Pat.Match(args, argsCoveredInsns, argsRequiredInsns) <- matchIndexedSeq(callInsn.argRefs.map(_.get), arg)
         ) yield Pat.Match((callInsn, ptr, args), insn :: ptrCoveredInsns ++ argsCoveredInsns, ptrRequiredInsns ++ argsRequiredInsns)
       } else None
 

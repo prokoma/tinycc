@@ -15,9 +15,9 @@ object T86Utils {
     })
   }
 
-//  val machineRegCount: Int = 4
-//
-//  val machineFRegCount: Int = 2
+  //  val machineRegCount: Int = 4
+  //
+  //  val machineFRegCount: Int = 2
 
   val machineRegCount: Int = 32
 

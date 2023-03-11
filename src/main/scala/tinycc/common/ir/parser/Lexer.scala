@@ -43,37 +43,12 @@ object Lexer extends Lexical with Scanners {
   // Token
 
   lazy val TOKEN: Parser[Token] =
-    OPERATOR | IDENTIFIER_OR_KEYWORD | REGISTER | NUMERIC_LITERAL
+    REGISTER | OPERATOR | IDENTIFIER_OR_KEYWORD | NUMERIC_LITERAL
 
   // Operator
 
   lazy val OPERATOR: Parser[Special] = oneOfSymbol("operator", Seq(
-    Symbols.inc,
-    Symbols.dec,
-    Symbols.add,
-    Symbols.sub,
-    Symbols.mul,
-    Symbols.div,
-    Symbols.mod,
-    Symbols.shiftLeft,
-    Symbols.shiftRight,
-    Symbols.eq,
-    Symbols.ne,
-    Symbols.lt,
-    Symbols.gt,
-    Symbols.le,
-    Symbols.ge,
-    Symbols.bitAnd,
-    Symbols.bitOr,
-    Symbols.and,
-    Symbols.or,
-    Symbols.not,
-    Symbols.neg,
-    Symbols.bitXor,
-    Symbols.dot,
-    Symbols.semicolon,
     Symbols.colon,
-    Symbols.arrowR,
     Symbols.comma,
     Symbols.parOpen,
     Symbols.parClose,
@@ -82,7 +57,6 @@ object Lexer extends Lexical with Scanners {
     Symbols.curlyOpen,
     Symbols.curlyClose,
     Symbols.assign,
-    Symbols.backtick,
   )) ^^ Special
 
   private val keywords: Seq[Symbol] = Seq(

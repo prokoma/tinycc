@@ -5,10 +5,11 @@ import tinycc.backend.BasicBlockScheduling
 import tinycc.backend.t86.insel.T86InstructionSelection
 import tinycc.backend.t86.regalloc.T86RegisterAllocator
 import tinycc.backend.t86.{T86AsmPrinter, T86FunProcessor, T86LabelProcessor}
-import tinycc.common.ir.IrPrinter
+import tinycc.common.ir.parser.IrParser
+import tinycc.common.ir.{IrPrinter, IrProgram}
+import tinycc.frontend.TinyCCompiler
 import tinycc.frontend.analysis.{SemanticAnalysis, TypeAnalysis}
 import tinycc.frontend.ast.{AstPrinterC, AstProgram}
-import tinycc.frontend.TinyCCompiler
 import tinycc.frontend.parser.TinyCParser
 import tinycc.util.{IndentWriter, Reporter}
 
@@ -65,6 +66,11 @@ trait TinyCSourceFileInput extends FileInput {
     withSource(source => f(TinyCParser.parseProgram(source)))
 }
 
+trait IrFileInput extends FileInput {
+  def withParsedProgram[T](f: IrProgram => T): T =
+    withSource(source => f(IrParser.parseProgram(source)))
+}
+
 object Action {
 
   import Console.{BOLD, RESET}
@@ -111,6 +117,29 @@ object Action {
     val description: String = s"Compile the given TinyC source <file> to intermediate representation. The result is either written to a file, or printed to the standard output."
   }
 
+  case class Codegen(inFile: Path, outFile: Option[Path] = None) extends Action with IrFileInput with StdoutOrFileOutput {
+    override def execute(): Unit = withPrintStream(out => withParsedProgram(irProgram => {
+      Console.err.println(new IrPrinter().printToString(irProgram))
+
+      new BasicBlockScheduling().transformProgram(irProgram)
+      irProgram.validate()
+      val t86Program = T86InstructionSelection(irProgram).result()
+      Console.err.println(new T86AsmPrinter().printToString(t86Program.flatten))
+
+      T86RegisterAllocator().transformProgram(t86Program)
+      new T86FunProcessor().transformProgram(t86Program)
+      val t86Listing = new T86LabelProcessor(t86Program.flatten).result()
+
+      out.print(new T86AsmPrinter().printToString(t86Listing))
+    }))
+  }
+
+  object Codegen extends ActionInfo {
+    val synopsis: String = s"${bold("tinycc codegen")} [-o <file> | --output=<file>] <file>"
+
+    val description: String = s"Compile the given intermediate code stored in <file> to Tiny86 assembly listing. The result is either written to a file, or printed to the standard output."
+  }
+
   case class Compile(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
     override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
       val declarations = new SemanticAnalysis(ast).result()
@@ -134,7 +163,7 @@ object Action {
   object Compile extends ActionInfo {
     val synopsis: String = s"${bold("tinycc compile")} [-o <file> | --output=<file>] <file>"
 
-    val description: String = s"Compile the given TinyC source <file> to Tiny86 assembly listing. The result is either written to a file, or printed to the standard output."
+    val description: String = s"Compile the given TinyC source <file> to Tiny86 assembly listing. Combines the ${bold("compile-to-ir")} and ${bold("codegen")} actions. The result is either written to a file, or printed to the standard output."
   }
 
   case object Help extends Action with ActionInfo {
@@ -160,7 +189,7 @@ object Action {
             out.write(info.synopsis)
             out.nl()
             out.withIndent({
-              out.write(info.description)
+              out.write(info.description) // TODO: word wrap
             })
             out.nl()
           })
@@ -173,7 +202,7 @@ object Action {
     val description: String = "Print this help and exit."
   }
 
-  val actions: Seq[ActionInfo] = Seq(Format, TranspileToC, CompileToIr, Compile, Help)
+  val actions: Seq[ActionInfo] = Seq(Format, TranspileToC, CompileToIr, Codegen, Compile, Help)
 }
 
 

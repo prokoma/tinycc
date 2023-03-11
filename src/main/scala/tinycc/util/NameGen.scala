@@ -1,7 +1,7 @@
 package tinycc.util
 
 /** Generates unique names. If a name is generated in a program, it is unique across the entire program.
- * If it is generated in a function, it is unique within the function and the program namespace, but not across other functions.  */
+ * If it is generated in a function, it is unique within the function and the program namespace, but not across other functions. */
 class NameGen() {
   private var _takenNames = Set.empty[String]
   private var _children = List.empty[NameGen]
@@ -16,7 +16,7 @@ class NameGen() {
   }
 
   def apply(name: String = ""): String = { // TODO: cache
-    var ctr = if(name == "") 1 else 2
+    var ctr = if (name == "") 1 else 2
     var newName = name
     while (newName == "" || !isAvailableInChildren(newName) || !isAvailableInParents(newName)) {
       newName = name + ctr

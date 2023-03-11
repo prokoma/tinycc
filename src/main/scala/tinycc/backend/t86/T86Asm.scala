@@ -2,8 +2,6 @@ package tinycc.backend.t86
 
 import tinycc.common.ir.{BasicBlock, IrFun, IrProgram}
 
-import scala.collection.mutable
-
 sealed trait Operand extends Product with Serializable
 
 object Operand {

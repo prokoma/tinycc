@@ -74,8 +74,8 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
   def constImm(v: Long): AsmPat[Operand.Imm] = Pat(IImm)
     .filter({ case insn: IImmInsn => insn.value == v }) ^^ { case insn: IImmInsn => pure(Operand.Imm(insn.value)) }
 
-//  def constFImm(v: Long): AsmPat[Operand.Imm] = Pat(IImm)
-//    .filter({ case insn: IImmInsn => insn.value == v }) ^^ { case insn: IImmInsn => pure(Operand.Imm(insn.value)) }
+  //  def constFImm(v: Long): AsmPat[Operand.Imm] = Pat(IImm)
+  //    .filter({ case insn: IImmInsn => insn.value == v }) ^^ { case insn: IImmInsn => pure(Operand.Imm(insn.value)) }
 
   lazy val imm: AsmPat[Operand.Imm] = Pat(IImm) ^^ { case insn: IImmInsn => pure(Operand.Imm(insn.value)) }
   lazy val regOrImm: AsmPat[Operand] = imm | RegVar
@@ -137,13 +137,13 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       Pat(CmpFGt, freg, fregOrFimm) ^^ emitFCmpAndReturnJmpOp(T86Opcode.JG) |
       Pat(CmpFGe, freg, fregOrFimm) ^^ emitFCmpAndReturnJmpOp(T86Opcode.JGE)
 
-//      // cmpfeq (fsub %1, %2), (fimm 0)
-//      Pat(CmpIEq, Pat(FSub, freg, fregOrFimm), constFImm(0)) ^^ { case (_, (_, left, right), _) =>
-//        (ctx: Context) => {
-//          ctx.emit(CMP, left(ctx), right(ctx))
-//          T86Opcode.JZ
-//        }
-//      }
+    //      // cmpfeq (fsub %1, %2), (fimm 0)
+    //      Pat(CmpIEq, Pat(FSub, freg, fregOrFimm), constFImm(0)) ^^ { case (_, (_, left, right), _) =>
+    //        (ctx: Context) => {
+    //          ctx.emit(CMP, left(ctx), right(ctx))
+    //          T86Opcode.JZ
+    //        }
+    //      }
     )
 
   lazy val cmpInsn: AsmPat[CondJmpOp] = icmpInsn | fcmpInsn
@@ -196,8 +196,8 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
         ctx.emit(PUSH, arg(ctx))
       })
       ctx.emit(CallPrologueMarker)
-      ctx.emit(CALL, ctx.getFunLabel(insn.targetFun.get).toOperand)
-      if(args.nonEmpty)
+      ctx.emit(CALL, ctx.getFunLabel(insn.targetFunRef.get).toOperand)
+      if (args.nonEmpty)
         ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
       ctx.emit(CallEpilogueMarker)
       Operand.BasicReg(0)
@@ -211,7 +211,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       })
       ctx.emit(CallPrologueMarker)
       ctx.emit(CALL, ptr(ctx))
-      if(args.nonEmpty)
+      if (args.nonEmpty)
         ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
       ctx.emit(CallEpilogueMarker)
       Operand.BasicReg(0)
@@ -253,8 +253,8 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     GenRule(RegVar, Pat(CondBr, cmpInsn) ^^ { case (condBrInsn: CondBrInsn, cmpInsn) =>
       (ctx: Context) => {
         val jmpOp = cmpInsn(ctx)
-        ctx.emit(jmpOp, ctx.getBasicBlockLabel(condBrInsn.trueBlock.get).toOperand)
-        ctx.emit(JMP, ctx.getBasicBlockLabel(condBrInsn.falseBlock.get).toOperand)
+        ctx.emit(jmpOp, ctx.getBasicBlockLabel(condBrInsn.trueBlockRef.get).toOperand)
+        ctx.emit(JMP, ctx.getBasicBlockLabel(condBrInsn.falseBlockRef.get).toOperand)
         ctx.freshReg()
       }
     }),
@@ -372,7 +372,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     }),
     GenRule(RegVar, Pat(Br) ^^ { case insn: BrInsn =>
       (ctx: Context) => {
-        ctx.emit(JMP, ctx.getBasicBlockLabel(insn.succBlock.get).toOperand)
+        ctx.emit(JMP, ctx.getBasicBlockLabel(insn.succBlockRef.get).toOperand)
         ctx.freshReg()
       }
     }),
@@ -380,8 +380,8 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     GenRule(RegVar, Pat(CondBr, RegVar) ^^ { case (insn: CondBrInsn, reg) =>
       (ctx: Context) => {
         ctx.emit(CMP, reg(ctx), Operand.Imm(0))
-        ctx.emit(JZ, ctx.getBasicBlockLabel(insn.falseBlock.get).toOperand)
-        ctx.emit(JMP, ctx.getBasicBlockLabel(insn.trueBlock.get).toOperand)
+        ctx.emit(JZ, ctx.getBasicBlockLabel(insn.falseBlockRef.get).toOperand)
+        ctx.emit(JMP, ctx.getBasicBlockLabel(insn.trueBlockRef.get).toOperand)
         ctx.freshReg()
       }
     }),

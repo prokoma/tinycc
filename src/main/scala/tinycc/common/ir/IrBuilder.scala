@@ -1,6 +1,6 @@
 package tinycc.common.ir
 
-trait BasicBlockBuilderOps {
+trait BasicBlockBuilder {
   def bb: BasicBlock
 
   def emit[T <: Insn](insn: T): T = bb.append(insn)
@@ -10,8 +10,8 @@ trait BasicBlockBuilderOps {
   def emitIImm(value: Long): IImmInsn = {
     val insn = emit(new IImmInsn(value, bb))
 
-    if(value == 0) insn.name("izero")
-    else if(value == 1) insn.name("ione")
+    if (value == 0) insn.name("izero")
+    else if (value == 1) insn.name("ione")
 
     insn
   }
@@ -32,7 +32,13 @@ trait BasicBlockBuilderOps {
     emit(new CmpInsn(op, left, right, bb))
 }
 
-trait IrFunBuilderOps extends BasicBlockBuilderOps {
+object BasicBlockBuilder {
+  def apply(_bb: BasicBlock): BasicBlockBuilder = new BasicBlockBuilder {
+    override def bb: BasicBlock = _bb
+  }
+}
+
+trait IrFunBuilder extends BasicBlockBuilder {
   def fun: IrFun
 
   var bbOption: Option[BasicBlock] = None
@@ -50,6 +56,16 @@ trait IrFunBuilderOps extends BasicBlockBuilderOps {
   def appendAndEnterBlock(name: String): BasicBlock =
     appendAndEnterBlock(new BasicBlock(name, fun))
 
+  def withBlock[T](newBlock: BasicBlock, thunk: => T): T = {
+    val oldBbOption = bbOption
+    enterBlock(newBlock)
+    try
+      thunk
+    finally {
+      bbOption = oldBbOption
+    }
+  }
+
   def enterBlock(newBlock: BasicBlock): Unit = {
     bbOption = Some(newBlock)
   }
@@ -59,18 +75,26 @@ trait IrFunBuilderOps extends BasicBlockBuilderOps {
   }
 }
 
-trait IrProgramBuilderOps extends IrFunBuilderOps {
+object IrFunBuilder {
+  def apply(_fun: IrFun): IrFunBuilder = new IrFunBuilder {
+    override def fun: IrFun = _fun
+  }
+}
+
+trait IrProgramBuilder extends IrFunBuilder {
   def program: IrProgram
 
   protected var funOption: Option[IrFun] = None
 
   def fun: IrFun = funOption.get
 
-  def appendFun(newFun: IrFun): IrFun = {
+  def appendAndEnterFun(newFun: IrFun): IrFun = {
     program.append(newFun)
     enterFun(newFun)
     newFun
   }
+
+  def appendAndEnterFun(newFun: IrProgram => IrFun): IrFun = appendAndEnterFun(newFun(program))
 
   def withFun[T](newFun: IrFun, thunk: => T): T = {
     val oldFunOption = funOption
@@ -95,8 +119,8 @@ trait IrProgramBuilderOps extends IrFunBuilderOps {
   }
 }
 
-class BasicBlockBuilder(val bb: BasicBlock) extends BasicBlockBuilderOps
-
-class IrFunBuilder(val fun: IrFun) extends IrFunBuilderOps
-
-class IrProgramBuilder(val program: IrProgram) extends IrProgramBuilderOps
+object IrProgramBuilder {
+  def apply(_program: IrProgram): IrProgramBuilder = new IrProgramBuilder {
+    override def program: IrProgram = _program
+  }
+}

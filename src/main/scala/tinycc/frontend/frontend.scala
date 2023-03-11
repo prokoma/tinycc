@@ -3,7 +3,7 @@ package tinycc
 import tinycc.frontend.Types.Ty
 import tinycc.frontend.analysis.IdentifierDecl
 import tinycc.frontend.analysis.IdentifierDecl.{FunDecl, VarDecl}
-import tinycc.frontend.ast.{AstFunDecl, AstIdentifier, AstIdentifierOrDecl, AstNode, AstVarDecl}
+import tinycc.frontend.ast._
 
 package object frontend {
   type TypeMap = collection.Map[AstNode, Ty]

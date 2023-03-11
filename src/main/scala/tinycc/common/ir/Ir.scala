@@ -143,7 +143,8 @@ trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
 
   def name(newName: String): this.type = {
     parentNameGen.releaseName(_name)
-    _name = fun.nameGen(newName); this
+    _name = fun.nameGen(newName);
+    this
   }
 
   override def validate(): Unit = () // TODO: check if all operands are defined
@@ -262,7 +263,7 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
   override def toString: String = s"BasicBlock($name, fun=$fun)"
 }
 
-case class IrFunSignature(returnType: IrTy, argTypes: Seq[IrTy])
+case class IrFunSignature(returnTy: IrTy, argTys: Seq[IrTy])
 
 class IrFun(val _name: String, val returnTy: IrTy, val argTys: IndexedSeq[IrTy], val program: IrProgram) extends IrObject with UseTracking[IrFunRef, IrFun] {
   val name: String = program.nameGen(_name)

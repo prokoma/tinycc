@@ -126,7 +126,7 @@ trait Parsers {
 
   def Parser[T](f: Input => Result[T]): Parser[T] = (in: Input) => f(in)
 
-  def success[T](value: T): Parser[T] = (in: Input) => Accept(value, in)
+  def success[T](value: => T): Parser[T] = (in: Input) => Accept(value, in)
 
   def failure(message: String = ""): Parser[Nothing] = (in: Input) => Reject(message, in)
 
