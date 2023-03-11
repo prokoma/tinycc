@@ -11,8 +11,8 @@ object Lexer extends Lexical with Scanners {
       override def toString: String = s"Special('${value.name}')"
     }
 
-    case class Register(value: Option[Symbol]) extends Token {
-      override def toString: String = s"Register('%${value.map(_.name).getOrElse("<null>")}')"
+    case class Register(value: Symbol) extends Token {
+      override def toString: String = s"Register('%${value.name}')"
     }
 
     case class Identifier(value: Symbol) extends Token {
@@ -67,6 +67,7 @@ object Lexer extends Lexical with Scanners {
     Symbols.kwVoid,
     Symbols.kwPtr,
     Symbols.kwStruct,
+    Symbols.kwNull,
   )
 
   lazy val IDENTIFIER_OR_KEYWORD: Parser[Token] = IDENTIFIER ^^ { ident =>
@@ -95,9 +96,5 @@ object Lexer extends Lexical with Scanners {
 
   // Register
 
-  lazy val REGISTER: Parser[Register] =
-    '%' ~> (
-      ("<null>" ~> success(Register(None)))
-        | (rep1(identifierMid) ^^ { name => Register(Some(Symbol(name.mkString))) })
-      )
+  lazy val REGISTER: Parser[Register] = '%' ~> rep1(identifierMid) ^^ { name => Register(Symbol(name.mkString)) }
 }

@@ -29,11 +29,9 @@ object IrParser extends Parsers {
   implicit def opcode2parser[T <: IrOpcode](op: T): Parser[T] = elem(s"'${op}'", { case Identifier(value) if value.name == op.toString => op })
 
   lazy val identifier: Parser[Symbol] = elem("identifier", { case Identifier(value) => value })
-  lazy val register: Parser[Option[Symbol]] = elem("register", { case Register(value) => value })
+  lazy val register: Parser[Symbol] = elem("register", { case Register(value) => value })
   lazy val integer: Parser[Long] = elem("integer literal", { case IntLiteral(value) => value })
   lazy val double: Parser[Double] = elem("double literal", { case DoubleLiteral(value) => value })
-
-  lazy val nonEmptyRegister: Parser[Symbol] = register.filter(_.nonEmpty).map(_.get) described "not-null register"
 
   trait RefPatcher {
     private val _insnRefs: mutable.Map[(IrFun, Symbol), List[Option[Insn] => Unit]] = mutable.Map.empty.withDefaultValue(Nil)
@@ -72,26 +70,28 @@ object IrParser extends Parsers {
   /** Because instructions can reference not yet encountered objects, this provides means to register a callback, which will be called in the future, when a value for the reference is available. */
   type RefFuture[T] = (T => Unit) => Unit
 
-  lazy val insnRef: Parser[Context => RefFuture[Insn]] = loc ~ register ^^ { case loc ~ name =>
+  def emptyRef[T]: Parser[Context => RefFuture[T]] = kwNull ^^ { _ => (ctx: Context) => (resolve: T => Unit) => () }
+
+  lazy val insnRef: Parser[Context => RefFuture[Insn]] = emptyRef[Insn] | (loc ~ register ^^ { case loc ~ name =>
     (ctx: Context) =>
       (resolve: Insn => Unit) =>
-        name.foreach(name => ctx.registerInsnRef(ctx.fun, name, insnOption =>
-          resolve(insnOption.getOrElse(throw new ParserException(s"undeclared instruction '$name'", loc)))))
-  }
+        ctx.registerInsnRef(ctx.fun, name, insnOption =>
+          resolve(insnOption.getOrElse(throw new ParserException(s"undeclared instruction '$name'", loc))))
+  })
 
-  lazy val basicBlockRef: Parser[Context => RefFuture[BasicBlock]] = loc ~ register ^^ { case loc ~ name =>
+  lazy val basicBlockRef: Parser[Context => RefFuture[BasicBlock]] = emptyRef[BasicBlock] | (loc ~ (kwLabel ~> register) ^^ { case loc ~ name =>
     (ctx: Context) =>
       (resolve: BasicBlock => Unit) =>
-        name.foreach(name => ctx.registerBasicBlockRef(ctx.fun, name, basicBlockOption =>
-          resolve(basicBlockOption.getOrElse(throw new ParserException(s"undeclared basic block '$name'", loc)))))
-  }
+        ctx.registerBasicBlockRef(ctx.fun, name, basicBlockOption =>
+          resolve(basicBlockOption.getOrElse(throw new ParserException(s"undeclared basic block '$name'", loc))))
+  })
 
-  lazy val funRef: Parser[Context => RefFuture[IrFun]] = loc ~ identifier ^^ { case loc ~ name =>
+  lazy val funRef: Parser[Context => RefFuture[IrFun]] = emptyRef[IrFun] | (loc ~ identifier ^^ { case loc ~ name =>
     (ctx: Context) =>
       (resolve: IrFun => Unit) =>
         ctx.registerFunRef(name, basicBlockOption =>
           resolve(basicBlockOption.getOrElse(throw new ParserException(s"undeclared function '$name'", loc))))
-  }
+  })
 
   lazy val PROGRAM: Parser[Context => Any] = rep(FUN_DECL) ^^ { case funGens =>
     (ctx: Context) => funGens.foreach(_(ctx))
@@ -116,7 +116,7 @@ object IrParser extends Parsers {
     }
   } described "basic block"
 
-  lazy val INSN: Parser[Context => Any] = nonEmptyRegister ~ (assign ~> (
+  lazy val INSN: Parser[Context => Any] = register ~ (assign ~> (
     IIMM | FIMM | BINARY_ARITH | CMP | ALLOCG | ALLOCL | LOAD | STORE | GETELEMENTPTR | GETFUNPTR | LOADARG | CALL | CALLPTR | PUTCHAR | PUTNUM | GETCHAR | CAST | RET | RETVOID | HALT | BR | CONDBR
     )) ^^ { case name ~ insnGen =>
     (ctx: Context) => {
@@ -239,7 +239,7 @@ object IrParser extends Parsers {
 
   lazy val HALT: Parser[Context => HaltInsn] = Halt ^^ { _ => _.emit(new HaltInsn(_)) }
 
-  lazy val BR: Parser[Context => BrInsn] = (Br ~> kwLabel ~> basicBlockRef) ^^ { succBlockFuture =>
+  lazy val BR: Parser[Context => BrInsn] = (Br ~> basicBlockRef) ^^ { succBlockFuture =>
     (ctx: Context) => {
       val insn = ctx.emit(new BrInsn(None, _))
       succBlockFuture(ctx)(insn.succBlockRef.apply)
@@ -247,7 +247,7 @@ object IrParser extends Parsers {
     }
   }
 
-  lazy val CONDBR: Parser[Context => CondBrInsn] = (CondBr ~> insnRef) ~ (kwLabel ~> basicBlockRef) ~ (comma ~> kwLabel ~> basicBlockRef) ^^ { case argFuture ~ trueBlockFuture ~ falseBlockFuture =>
+  lazy val CONDBR: Parser[Context => CondBrInsn] = (CondBr ~> insnRef) ~ (comma ~> basicBlockRef) ~ (comma ~> basicBlockRef) ^^ { case argFuture ~ trueBlockFuture ~ falseBlockFuture =>
     (ctx: Context) => {
       val insn = ctx.emit(new CondBrInsn(None, None, None, _))
       argFuture(ctx)(insn.argRef.apply)
@@ -285,7 +285,7 @@ object IrParser extends Parsers {
     case Identifier(value) => s"identifier '${value.name}'"
     case IntLiteral(value) => s"integer literal $value"
     case DoubleLiteral(value) => s"double literal $value"
-    case Register(value) => s"register %${value.map(_.name).getOrElse("<null>")}"
+    case Register(value) => s"register %${value.name}"
   }).getOrElse("end of input")
 
   def buildProgram(gen: Context => Any): IrProgram = {

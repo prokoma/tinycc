@@ -18,4 +18,5 @@ object Symbols {
   val kwVoid: Symbol = Symbol("void")
   val kwPtr: Symbol = Symbol("ptr")
   val kwStruct: Symbol = Symbol("struct")
+  val kwNull: Symbol = Symbol("null")
 }
