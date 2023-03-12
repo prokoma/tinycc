@@ -70,6 +70,7 @@ object IrParser extends Parsers {
   /** Because instructions can reference not yet encountered objects, this provides means to register a callback, which will be called in the future, when a value for the reference is available. */
   type RefFuture[T] = (T => Unit) => Unit
 
+  /** Universal handler for null references. */
   def emptyRef[T]: Parser[Context => RefFuture[T]] = kwNull ^^ { _ => (ctx: Context) => (resolve: T => Unit) => () }
 
   lazy val insnRef: Parser[Context => RefFuture[Insn]] = emptyRef[Insn] | (loc ~ register ^^ { case loc ~ name =>
@@ -77,21 +78,21 @@ object IrParser extends Parsers {
       (resolve: Insn => Unit) =>
         ctx.registerInsnRef(ctx.fun, name, insnOption =>
           resolve(insnOption.getOrElse(throw new ParserException(s"undeclared instruction '$name'", loc))))
-  })
+  }) described "instruction reference"
 
   lazy val basicBlockRef: Parser[Context => RefFuture[BasicBlock]] = emptyRef[BasicBlock] | (loc ~ (kwLabel ~> register) ^^ { case loc ~ name =>
     (ctx: Context) =>
       (resolve: BasicBlock => Unit) =>
         ctx.registerBasicBlockRef(ctx.fun, name, basicBlockOption =>
           resolve(basicBlockOption.getOrElse(throw new ParserException(s"undeclared basic block '$name'", loc))))
-  })
+  }) described "basic block reference"
 
   lazy val funRef: Parser[Context => RefFuture[IrFun]] = emptyRef[IrFun] | (loc ~ identifier ^^ { case loc ~ name =>
     (ctx: Context) =>
       (resolve: IrFun => Unit) =>
         ctx.registerFunRef(name, basicBlockOption =>
           resolve(basicBlockOption.getOrElse(throw new ParserException(s"undeclared function '$name'", loc))))
-  })
+  }) described "function reference"
 
   lazy val PROGRAM: Parser[Context => Any] = rep(FUN_DECL) ^^ { case funGens =>
     (ctx: Context) => funGens.foreach(_(ctx))
@@ -117,7 +118,7 @@ object IrParser extends Parsers {
   } described "basic block"
 
   lazy val INSN: Parser[Context => Any] = register ~ (assign ~> (
-    IIMM | FIMM | BINARY_ARITH | CMP | ALLOCG | ALLOCL | LOAD | STORE | GETELEMENTPTR | GETFUNPTR | LOADARG | CALL | CALLPTR | PUTCHAR | PUTNUM | GETCHAR | CAST | RET | RETVOID | HALT | BR | CONDBR
+    IIMM | FIMM | BINARY_ARITH | CMP | ALLOCG | ALLOCL | LOAD | STORE | GETELEMENTPTR | SIZEOF | GETFUNPTR | LOADARG | CALL | CALLPTR | PUTCHAR | PUTNUM | GETCHAR | CAST | RET | RETVOID | HALT | BR | CONDBR
     )) ^^ { case name ~ insnGen =>
     (ctx: Context) => {
       val insn = insnGen(ctx).name(name.name)
@@ -172,7 +173,20 @@ object IrParser extends Parsers {
     }
   }
 
-  lazy val GETELEMENTPTR: Parser[Context => GetElementPtrInsn] = GetElementPtr ^^ (_ => ???) // TODO
+  // %0 = getelementptr i64, ptr %1, [%2].0
+  lazy val GETELEMENTPTR: Parser[Context => GetElementPtrInsn] =
+    (GetElementPtr ~> VAR_TYPE) ~ (comma ~> kwPtr ~> insnRef) ~ (comma ~> squareOpen ~> insnRef) ~ (squareClose ~> dot ~> integer) ^^ { case elemTy ~ ptrFuture ~ indexFuture ~ fieldIndex =>
+      (ctx: Context) => {
+        val insn = ctx.emit(new GetElementPtrInsn(None, None, elemTy, fieldIndex.toInt, _))
+        ptrFuture(ctx)(insn.ptrRef.apply)
+        indexFuture(ctx)(insn.indexRef.apply)
+        insn
+      }
+    }
+
+  lazy val SIZEOF: Parser[Context => SizeOfInsn] = SizeOf ~> VAR_TYPE ^^ { varTy =>
+    (ctx: Context) => ctx.emit(new SizeOfInsn(varTy, _))
+  }
 
   lazy val GETFUNPTR: Parser[Context => GetFunPtrInsn] = (GetFunPtr ~> funRef) ^^ { targetFunFuture =>
     (ctx: Context) => {
@@ -272,8 +286,11 @@ object IrParser extends Parsers {
   lazy val RET_TYPE: Parser[IrTy] = SCALAR_TYPE | (kwVoid ^^ { _ => VoidTy }) described "return type"
 
 
-  lazy val VAR_TYPE: Parser[IrTy] = SCALAR_TYPE | STRUCT_TYPE
+  lazy val VAR_TYPE: Parser[IrTy] = (SCALAR_TYPE | STRUCT_TYPE) ~ rep((squareOpen ~> integer) <~ squareClose ^^ { case numElem =>
+    (baseTy: IrTy) => ArrayTy(baseTy, numElem.toInt)
+  }) ^^ { case baseTy ~ postfix => postfix.foldLeft(baseTy)((baseTy, f) => f(baseTy)) }
 
+  /** Pointer is a scalar type in IR (alias to Int64). */
   lazy val SCALAR_TYPE: Parser[IrTy] = (
     (kwI64 ^^ { _ => Int64Ty }) | (kwDouble ^^ { _ => DoubleTy }) | (kwPtr ^^ { _ => PtrTy })
     ) described "scalar type"

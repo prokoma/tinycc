@@ -48,6 +48,7 @@ object Lexer extends Lexical with Scanners {
   // Operator
 
   lazy val OPERATOR: Parser[Special] = oneOfSymbol("operator", Seq(
+    Symbols.dot,
     Symbols.colon,
     Symbols.comma,
     Symbols.parOpen,

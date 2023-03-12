@@ -99,7 +99,7 @@ object Operand {
     override def toString: String = s"[$addrReg + $addrScaledReg * $addrScale]"
   }
 
-  case class MemRegImmRegScaled(addrReg: Reg, addrOffset: Long, addrScaledReg: Reg, addrScale: Long) {
+  case class MemRegImmRegScaled(addrReg: Reg, addrOffset: Long, addrScaledReg: Reg, addrScale: Long) extends Operand {
     override def toString: String = s"[$addrReg + $addrOffset + $addrScaledReg * $addrScale]"
   }
 

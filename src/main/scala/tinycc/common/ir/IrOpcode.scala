@@ -197,6 +197,10 @@ object IrOpcode {
     override def toString: String = "getelementptr"
   }
 
+  case object SizeOf extends IrOpcode {
+    override def toString: String = "sizeof"
+  }
+
   case object GetFunPtr extends IrOpcode {
     override def toString: String = "getfunptr"
   }

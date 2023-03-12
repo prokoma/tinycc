@@ -44,7 +44,7 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
   private val tileResults = mutable.Map.empty[(Var[_], Insn), Any]
   private val programBuilder = new T86ProgramBuilder(Some(program))
 
-  private lazy val sortedRules = rules.sortBy(r => -r.rhs.size)
+  private lazy val sortedRules = rules.sortBy(r => (-r.rhs.size, r.rhs.cost)) // sort first by size (descending) then by cost ascending
 
   def result(): T86Program = {
     program.funs.foreach(tileIrFun)

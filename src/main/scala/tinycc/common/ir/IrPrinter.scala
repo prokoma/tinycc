@@ -95,9 +95,9 @@ class IrPrinter extends IndentPrinter[IrObject] {
         out.write(s" ")
         printType(insn.elemTy, out)
         out.write(", ptr ")
-        printInsnRef(insn.base, out)
+        printInsnRef(insn.ptrRef, out)
         out.write(", [")
-        printInsnRef(insn.index, out)
+        printInsnRef(insn.indexRef, out)
         out.write(s"].${insn.fieldIndex}")
 
       // %0 = call i32 foo(i32 %1, i32 %2)

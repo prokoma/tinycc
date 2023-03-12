@@ -150,23 +150,37 @@ class StoreInsn(_ptr: Option[Insn], _value: Option[Insn], val basicBlock: BasicB
   override def copy(newBlock: BasicBlock): StoreInsn = new StoreInsn(ptrRef(), valueRef(), newBlock)
 }
 
-class GetElementPtrInsn(baseTgt: Insn, indexTgt: Insn, val elemTy: IrTy, val fieldIndex: Int, val basicBlock: BasicBlock) extends Insn {
-  val base: OperandRef = new OperandRef(this, Some(baseTgt))
-  val index: OperandRef = new OperandRef(this, Some(indexTgt))
+class GetElementPtrInsn(_ptr: Option[Insn], _index: Option[Insn], val elemTy: IrTy, val fieldIndex: Int, val basicBlock: BasicBlock) extends Insn {
+  def this(_ptr: Insn, _index: Insn, elemTy: IrTy, fieldIndex: Int, basicBlock: BasicBlock) = this(Some(_ptr), Some(_index), elemTy, fieldIndex, basicBlock)
+
+  val ptrRef: OperandRef = new OperandRef(this, _ptr)
+  val indexRef: OperandRef = new OperandRef(this, _index)
+
+  def ptr: Insn = ptrRef.get
+
+  def index: Insn = indexRef.get
 
   override def op: IrOpcode = IrOpcode.GetElementPtr
 
   override def resultTy: IrTy = IrTy.PtrTy
 
-  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(base, index)
+  override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(ptrRef, indexRef)
 
   override def validate(): Unit = {
     super.validate()
-    assert(base.get.resultTy == IrTy.PtrTy)
-    assert(index.get.resultTy == IrTy.Int64Ty)
+    assert(ptrRef.get.resultTy == IrTy.PtrTy)
+    assert(indexRef.get.resultTy == IrTy.Int64Ty)
   }
 
-  override def copy(newBlock: BasicBlock): GetElementPtrInsn = new GetElementPtrInsn(base.get, index.get, elemTy, fieldIndex, newBlock)
+  override def copy(newBlock: BasicBlock): GetElementPtrInsn = new GetElementPtrInsn(ptrRef(), indexRef(), elemTy, fieldIndex, newBlock)
+}
+
+class SizeOfInsn(val varTy: IrTy, val basicBlock: BasicBlock) extends Insn {
+  override def op: IrOpcode = IrOpcode.SizeOf
+
+  override def resultTy: IrTy = IrTy.Int64Ty
+
+  override def copy(newBlock: BasicBlock): SizeOfInsn = new SizeOfInsn(varTy, newBlock)
 }
 
 /* === Function call instructions === */

@@ -21,6 +21,10 @@ trait TilingInstructionSelection {
     /** Number of covered instructions by this pattern. */
     def size: Int
 
+    /** Cost is used to break ties between patterns with the same size (number of covered insns). Higher cost should mean longer execution time. */
+    def cost: Int
+
+    /** Returns a list of patterns without alternatives. */
     def flatten: Iterable[Pat[A]]
 
     def ^^[B](f: A => B): Pat[B] = MapPat(this, f)
@@ -30,6 +34,8 @@ trait TilingInstructionSelection {
     def filter(f: A => Boolean): Pat[A] = FilterPat(this, (m: Pat.Match[A]) => f(m.value))
 
     def filterMatch(f: Pat.Match[A] => Boolean): Pat[A] = FilterPat(this, f)
+
+    def cost(by: Int): Pat[A] = IncreaseCostPat(this, by)
   }
 
   object Pat {
@@ -53,6 +59,8 @@ trait TilingInstructionSelection {
   case class NullaryInsnPat[T <: Insn](op: IrOpcode) extends Pat[T] {
     override def size: Int = 1
 
+    override def cost: Int = 0
+
     override def apply(insn: Insn): Option[Pat.Match[T]] =
       if (insn.op == op) Some(Pat.Match(insn.asInstanceOf[T], List(insn), List.empty)) else None
 
@@ -64,6 +72,8 @@ trait TilingInstructionSelection {
   /** Matches an unary instruction by its opcode and operand, returns the instruction and value of the operand. */
   case class UnaryInsnPat[T <: Insn, A](op: IrOpcode, operand: Pat[A]) extends Pat[(T, A)] {
     override def size: Int = operand.size + 1
+
+    override def cost: Int = operand.cost
 
     override def apply(insn: Insn): Option[Pat.Match[(T, A)]] =
       if (insn.op == op && insn.operands.size == 1) {
@@ -83,6 +93,8 @@ trait TilingInstructionSelection {
   /** Matches a binary instruction by its opcode and operands, returns the instruction and value of the operands. */
   case class BinaryInsnPat[T <: Insn, A, B](op: IrOpcode, left: Pat[A], right: Pat[B]) extends Pat[(T, A, B)] {
     override def size: Int = left.size + right.size + 1
+
+    override def cost: Int = left.cost + right.cost
 
     override def apply(insn: Insn): Option[Pat.Match[(T, A, B)]] =
       if (insn.op == op && insn.operands.size == 2)
@@ -108,6 +120,8 @@ trait TilingInstructionSelection {
   case class VarPat[T](v: Var[T]) extends Pat[T] {
     override def size: Int = 0
 
+    override def cost: Int = 0
+
     override def apply(insn: Insn): Option[Pat.Match[T]] =
       Some(Pat.Match(v.resolveValue(insn), Nil, List((v, insn))))
 
@@ -119,6 +133,8 @@ trait TilingInstructionSelection {
   /** Transforms value of a pattern. */
   case class MapPat[T, U](pat: Pat[T], f: T => U) extends Pat[U] {
     override def size: Int = pat.size
+
+    override def cost: Int = pat.cost
 
     override def apply(insn: Insn): Option[Pat.Match[U]] = {
       for {
@@ -138,6 +154,8 @@ trait TilingInstructionSelection {
   case class FilterPat[T](pat: Pat[T], f: Pat.Match[T] => Boolean) extends Pat[T] {
     override def size: Int = pat.size
 
+    override def cost: Int = pat.cost
+
     override def apply(insn: Insn): Option[Pat.Match[T]] = {
       for {
         m <- pat(insn) if f(m)
@@ -155,12 +173,26 @@ trait TilingInstructionSelection {
   case class OrPat[T](pat: Pat[T], pat2: Pat[T]) extends Pat[T] {
     override def size: Int = Math.min(pat.size, pat2.size)
 
+    override def cost: Int = Math.max(pat.cost, pat2.cost)
+
     override def apply(insn: Insn): Option[Pat.Match[T]] =
       pat(insn).orElse(pat2(insn))
 
     override def flatten: Iterable[Pat[T]] = pat.flatten ++ pat2.flatten
 
     override def toString(): String = s"($pat | $pat2)"
+  }
+
+  case class IncreaseCostPat[T](pat: Pat[T], by: Int) extends Pat[T] {
+    override def size: Int = pat.size
+
+    override def cost: Int = pat.cost + by
+
+    override def apply(insn: Insn): Option[Pat.Match[T]] = pat(insn)
+
+    override def flatten: Iterable[Pat[T]] = pat.flatten
+
+    override def toString(): String = s"($pat $$+$by)"
   }
 
   protected def matchIndexedSeq[A](seq: IndexedSeq[Insn], pat: Pat[A]): Option[Pat.Match[IndexedSeq[A]]] = {
@@ -176,6 +208,8 @@ trait TilingInstructionSelection {
 
   case class CallInsnPat[A](arg: Pat[A]) extends Pat[(CallInsn, IndexedSeq[A])] {
     override def size: Int = arg.size + 1
+
+    override def cost: Int = arg.cost
 
     override def apply(insn: Insn): Option[Pat.Match[(CallInsn, IndexedSeq[A])]] =
       if (insn.op == IrOpcode.Call) {
@@ -195,6 +229,8 @@ trait TilingInstructionSelection {
 
   case class CallPtrInsnPat[A, B](ptr: Pat[A], arg: Pat[B]) extends Pat[(CallPtrInsn, A, IndexedSeq[B])] {
     override def size: Int = ptr.size + arg.size + 1
+
+    override def cost: Int = ptr.cost + arg.cost
 
     override def apply(insn: Insn): Option[Pat.Match[(CallPtrInsn, A, IndexedSeq[B])]] =
       if (insn.op == IrOpcode.CallPtr) {
@@ -242,8 +278,6 @@ trait TilingInstructionSelection {
       def requiredInsns: List[(Var[_], Insn)] = patMatch.requiredInsns
     }
   }
-
-  //  def ->[T](v: Var[AsmEmitter[T]], rhs: Pat[AsmEmitter[T]]): RewriteRule[T] = RewriteRule(v, rhs)
 
   implicit def var2pat[T](v: Var[T]): VarPat[T] = VarPat(v)
 }

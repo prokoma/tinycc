@@ -1,6 +1,7 @@
 package tinycc.common.ir.parser
 
 object Symbols {
+  val dot: Symbol = Symbol(".")
   val colon: Symbol = Symbol(":")
   val comma: Symbol = Symbol(",")
   val parOpen: Symbol = Symbol("(")
