@@ -75,12 +75,21 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
 
       override def freshFReg(): Operand.FReg = funBuilder.freshFReg()
 
-      override def resolveAllocL(insn: AllocLInsn): Operand.MemRegImm = funBuilder.resolveAllocL(insn)
+      override def resolveAllocL(insn: AllocLInsn): Operand.MemRegImm = {
+        emit(T86Comment(insn.name))
+        funBuilder.resolveAllocL(insn)
+      }
 
-      override def resolveAllocG(insn: AllocGInsn): Operand.MemImm = programBuilder.resolveAllocG(insn)
+      override def resolveAllocG(insn: AllocGInsn): Operand.MemImm = {
+        emit(T86Comment(insn.name))
+        programBuilder.resolveAllocG(insn)
+      }
 
       /** Can return either MemRegImm or Reg depending on calling conventions. */
-      override def resolveLoadArg(insn: LoadArgInsn): Operand = argsMap(insn.index)
+      override def resolveLoadArg(insn: LoadArgInsn): Operand = {
+        emit(T86Comment(s"arg ${insn.index}"))
+        argsMap(insn.index)
+      }
     }
 
     val allCoveredInsns = mutable.Set.empty[Insn]
@@ -88,8 +97,10 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
     val tileMap = mutable.Map.empty[(Var[_], Insn), GenRule.Match[_]]
 
     ctx.emit(ctx.getBasicBlockLabel(bb))
-    if (bb.isFunEntryBlock)
+    if (bb.isFunEntryBlock) {
       ctx.emit(T86SpecialLabel.FunPrologueMarker)
+      ctx.emit(T86Comment(s"${bb.fun.name} prologue end"))
+    }
 
     // instructions in a basic block are topologically sorted
     // greedily cover instructions with tiles

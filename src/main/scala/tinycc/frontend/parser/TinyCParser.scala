@@ -114,11 +114,17 @@ object TinyCParser extends Parsers {
   /** TYPE_FUN_RET := TYPE | void */
   lazy val TYPE_FUN_RET: Parser[AstType] = TYPE | (loc ~ kwVoid ^^ { case loc ~ name => new AstNamedType(name, loc) })
 
-  /** STRUCT_DECL := struct identifier [ '{' { TYPE identifier ';' } '}' ] ';' */
+  /** STRUCT_DECL := struct identifier [ '{' { STRUCT_FIELD } '}' ] ';' */
   lazy val STRUCT_DECL: Parser[AstStructDecl] =
-    loc ~ (kwStruct ~> declareNamedType(identifier)) ~ opt((curlyOpen ~> rep(TYPE ~ identifier <~ semicolon ^^ { case fieldTy ~ name => (fieldTy, name) })) <~ curlyClose) <~ semicolon ^^ {
+    loc ~ (kwStruct ~> declareNamedType(identifier)) ~ opt((curlyOpen ~> rep(STRUCT_FIELD)) <~ curlyClose) <~ semicolon ^^ {
       case loc ~ name ~ fields => new AstStructDecl(name, fields, loc)
     } described "struct declaration"
+
+  /** STRUCT_FIELD := TYPE identifier [ '[' E9 ']' ] ';' */
+  lazy val STRUCT_FIELD: Parser[(AstType, Symbol)] =
+    TYPE ~ identifier ~ opt(loc ~ (squareOpen ~> E9) <~ squareClose ^^ buildArrayType) <~ semicolon ^^ { case fieldTy ~ name ~ arrayMod =>
+      (arrayMod.foldLeft(fieldTy)((expr, fn) => fn(expr)), name)
+    } described "struct field"
 
   /** FUNPTR_DECL := typedef TYPE_FUN_RET '(' '*' identifier ')' '(' [ TYPE { ',' TYPE } ] ')' ';' */
   lazy val FUNPTR_DECL: Parser[AstFunPtrDecl] =
@@ -199,8 +205,9 @@ object TinyCParser extends Parsers {
   lazy val EXPRS: Parser[AstSequence] = loc ~ rep1sep(EXPR, comma) ^^ { case loc ~ exprs => new AstSequence(exprs, loc) }
 
   /** VAR_DECL := TYPE identifier [ '[' E9 ']' ] [ '=' EXPR ] */
-  lazy val VAR_DECL: Parser[AstVarDecl] = loc ~ TYPE ~ identifier ~ opt((squareOpen ~> E9) <~ squareClose) ~ opt(assign ~> EXPR) ^^ {
-    case loc ~ varTy ~ name ~ arrayLen ~ value => new AstVarDecl(name, varTy, value, loc) // TODO: array length
+  lazy val VAR_DECL: Parser[AstVarDecl] =
+    loc ~ TYPE ~ identifier ~ opt(loc ~ (squareOpen ~> E9) <~ squareClose ^^ buildArrayType) ~ opt(assign ~> EXPR) ^^ {
+    case loc ~ varTy ~ name ~ arrayMod ~ value => new AstVarDecl(name, arrayMod.foldLeft(varTy)((expr, fn) => fn(expr)), value, loc)
   } described "variable declaration"
 
   /** VAR_DECLS := VAR_DECL { ',' VAR_DECL } */
@@ -210,6 +217,10 @@ object TinyCParser extends Parsers {
   lazy val EXPRS_OR_VAR_DECLS: Parser[AstSequence] = VAR_DECLS | EXPRS
 
   private def buildPointerType(loc: SourceLocation): AstType => AstPointerType = base => new AstPointerType(base, loc)
+
+  private def buildArrayType(a: SourceLocation ~ AstNode): AstType => AstArrayType = a match {
+    case loc ~ size => base => new AstArrayType(base, size, loc)
+  }
 
   private def buildUnaryOpLike(a: SourceLocation ~ Symbol): AstNode => AstNode = a match {
     case loc ~ Symbols.bitAnd => expr: AstNode => new AstAddress(expr, loc)

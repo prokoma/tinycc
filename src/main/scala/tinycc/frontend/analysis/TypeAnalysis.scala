@@ -91,7 +91,20 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
       PtrTy(visitAndGetTy(node.base))
 
     case node: AstArrayType =>
-      PtrTy(visitAndGetTy(node.base))
+      val baseTy = visitAndGetTy(node.base)
+      val sizeTy = visitAndGetTy(node.size)
+      if (!IntTy.isAssignableFrom(sizeTy))
+        errors += new Message(Error, s"expected $IntTy (or compatible type) as array size, got $sizeTy", node.size.loc)
+      node.size match {
+        case size: AstInteger =>
+          if (size.value <= 0)
+            errors += new Message(Error, s"expected positive integer as array size", node.size.loc)
+          ArrayPtrTy(baseTy, size.value.toInt)
+
+        case _ =>
+          errors += new Message(Error, s"expected integer literal as array size", node.size.loc)
+          PtrTy(baseTy)
+      }
 
     case node: AstNamedType =>
       node.symbol match {

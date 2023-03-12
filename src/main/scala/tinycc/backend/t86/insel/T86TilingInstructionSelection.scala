@@ -343,13 +343,15 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     GenRule(RegVar, Pat(Ret, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
         ctx.emit(MOV, Operand.BasicReg(0), reg(ctx))
+        ctx.emit(T86Comment(s"${insn.fun.name} epilogue start"))
         ctx.emit(T86SpecialLabel.FunEpilogueMarker)
         ctx.emit(RET)
         ctx.freshReg()
       }
     }),
-    GenRule(RegVar, Pat(RetVoid) ^^ { _ =>
+    GenRule(RegVar, Pat(RetVoid) ^^ { insn =>
       (ctx: Context) =>
+        ctx.emit(T86Comment(s"${insn.fun.name} epilogue start"))
         ctx.emit(T86SpecialLabel.FunEpilogueMarker)
         ctx.emit(RET)
         ctx.freshReg()

@@ -295,7 +295,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileVarDecl(node: AstVarDecl): Unit = {
-      val varIrTy = compileType(node.varTy.ty)
+      val varIrTy = compileType(node.varTy.ty, treatArrayAsPtr = false)
 
       allocMap(VarDecl(node)) = funOption match {
         case Some(fun) if fun != entryFun => // local variable
@@ -368,10 +368,10 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node: AstDeref => compileExpr(node.expr)
 
       case node: AstIndex =>
-        val expr = compileExpr(node.expr)
+        val expr = compileExprPtr(node.expr)
         val IndexableTy(baseTy) = node.expr.ty
         val index = compileExpr(node.index)
-        emit(new GetElementPtrInsn(expr, index, compileType(baseTy), 0, _))
+        emit(new GetElementPtrInsn(expr, index, compileType(baseTy, treatArrayAsPtr = false), 0, _))
 
       case node: AstMember => // .
         compileMemberExprPtrHelper(compileExprPtr(node.expr), node.expr.ty.asInstanceOf[StructTy], node.member)

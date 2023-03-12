@@ -57,8 +57,11 @@ class AstPrinter extends IndentPrinter[AstNode] {
         semicolon
 
       case node: AstIndex =>
-        out.write("&")
+        out.write("(")
         printAsExpr(node.expr, out)
+        out.write(")[")
+        printAsExpr(node.index, out)
+        out.write("]")
         semicolon
 
       case node: AstMember =>
@@ -193,8 +196,7 @@ class AstPrinter extends IndentPrinter[AstNode] {
 
     node match {
       case node: AstVarDecl =>
-        printAsExpr(node.varTy, out)
-        out.write(s" ${node.symbol.name}")
+        printFieldOrVarDecl(node.varTy, node.symbol, out)
         node.value.foreach(value => {
           out.write(" = ")
           printAsExpr(value, out)
@@ -222,8 +224,8 @@ class AstPrinter extends IndentPrinter[AstNode] {
         node.fields.foreach(fields => {
           out.write("{")
           out.withIndent(fields.foreach({ case (ty, symbol) =>
-            printAsExpr(ty, out)
-            out.write(s" ${symbol.name};")
+            printFieldOrVarDecl(ty, symbol, out)
+            out.write(";")
           }), out.nl())
           out.write("}")
         })
@@ -239,6 +241,23 @@ class AstPrinter extends IndentPrinter[AstNode] {
     }
   }
 
+  protected def printFieldOrVarDecl(fieldTy: AstType, name: Symbol, out: IndentWriter): Unit = {
+    fieldTy match {
+      case fieldTy: AstArrayType =>
+        printType(fieldTy.base, out)
+        out.write(" ")
+        out.write(name.name)
+        out.write("[")
+        printAsExpr(fieldTy.size, out)
+        out.write("]")
+
+      case fieldTy =>
+        printType(fieldTy, out)
+        out.write(" ")
+        out.write(name.name)
+    }
+  }
+
   protected def printType(node: AstType, out: IndentWriter): Unit = node match {
     case node: AstPointerType =>
       printAsExpr(node.base, out)
@@ -246,7 +265,9 @@ class AstPrinter extends IndentPrinter[AstNode] {
 
     case node: AstArrayType =>
       printAsExpr(node.base, out)
-      out.write("[]")
+      out.write("[")
+      printAsExpr(node.size, out)
+      out.write("]")
 
     case node: AstNamedType => out.write(node.symbol.name)
   }
