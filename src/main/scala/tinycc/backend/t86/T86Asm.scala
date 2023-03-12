@@ -172,8 +172,17 @@ case class BinaryT86Insn(op: T86Opcode.BinaryOp, operand0: Operand, operand1: Op
   override def operands: Seq[Operand] = Seq(operand0, operand1)
 }
 
-class T86Program(var funs: IndexedSeq[T86Fun], var globalsSize: Long = 0, val irProgram: Option[IrProgram] = None) {
-  def flatten: T86Listing = funs.flatMap(_.flatten)
+case class T86DataWord(value: Long) extends T86ListingElement
+
+class T86Program(var funs: IndexedSeq[T86Fun], var data: IndexedSeq[Long] = IndexedSeq.empty, val irProgram: Option[IrProgram] = None) {
+  def flatten: T86Listing = {
+    val dataSection = if(data.nonEmpty)
+      T86SectionLabel("data") +: data.map(T86DataWord)
+    else
+      Seq.empty
+    val textSection = T86SectionLabel("text") +: funs.flatMap(_.flatten)
+    dataSection ++ textSection
+  }
 }
 
 class T86Fun(var basicBlocks: IndexedSeq[T86BasicBlock], var localsSize: Long = 0, var nextReg: Long = 0, var nextFreg: Long = 0, val irFun: Option[IrFun] = None) {

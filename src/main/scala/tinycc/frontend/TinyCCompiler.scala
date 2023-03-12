@@ -93,17 +93,22 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
     /* Visitor Methods */
 
-    private def compileType(ty: Types.Ty): IrTy = ty match {
+    private def compileType(ty: Types.Ty, treatArrayAsPtr: Boolean = true): IrTy = ty match {
       case Types.VoidTy => IrTy.VoidTy
       case Types.CharTy => IrTy.Int64Ty
       case Types.IntTy => IrTy.Int64Ty
       case Types.DoubleTy => IrTy.DoubleTy
       case _: Types.PtrTy => IrTy.PtrTy
-      case Types.ArrayTy(baseTy, numElem) => IrTy.ArrayTy(compileType(baseTy), numElem)
+
+      case Types.ArrayPtrTy(elemTy, numElem) =>
+        if(treatArrayAsPtr)
+          IrTy.PtrTy
+        else
+          IrTy.ArrayTy(compileType(elemTy, treatArrayAsPtr = false), numElem)
 
       case Types.StructTy(_, fieldsOption) =>
         val fieldIrTys = fieldsOption match {
-          case Some(fields) => fields.map({ case (fieldTy, _) => compileType(fieldTy) })
+          case Some(fields) => fields.map({ case (fieldTy, _) => compileType(fieldTy, treatArrayAsPtr = false) })
           case None => throw new UnsupportedOperationException(s"Cannot compile incomplete struct type.")
         }
         IrTy.StructTy(fieldIrTys)
@@ -307,7 +312,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         case None => // global variable - append to entryFun
           withEntryFun({
             // globals can have forward declarations - keep track of variable names in globalMap
-            val alloc = globalMap.getOrElseUpdate(node.symbol, emit(new AllocGInsn(varIrTy, Seq.empty, _)).name("global_" + node.symbol.name))
+            val alloc = globalMap.getOrElseUpdate(node.symbol, emit(new AllocGInsn(varIrTy, Seq.fill(varIrTy.sizeWords)(0.toLong), _)).name("global_" + node.symbol.name))
             node.value.foreach(value => {
               val compiledValue = compileExprAndCastTo(value, node.varTy.ty)
               emit(new StoreInsn(alloc, compiledValue, _))
@@ -322,7 +327,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       val irFun = funMap.getOrElseUpdate(node.symbol, new IrFun(
         node.symbol.name,
         compileType(funTy.returnTy),
-        funTy.argTys.map(compileType),
+        funTy.argTys.map(compileType(_)),
         program
       ))
 
@@ -386,7 +391,10 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node: AstChar => emitIImm(node.value.toLong)
 
-      // TODO: AstString
+      case node: AstString =>
+        val varIrTy = compileType(node.ty, treatArrayAsPtr = false)
+        val initData = (node.value + 0.toChar).map(_.toLong)
+        emit(new AllocGInsn(varIrTy, initData, _))
 
       case node: AstDouble => emitFImm(node.value)
 
@@ -481,10 +489,10 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         compileCastFromTo(valueInt, Types.IntTy, toTy, loc)
 
       // Types of pointers were already checked by TypeAnalysis.
-      case (Types.CharTy | Types.IntTy | _: Types.PtrTy | _: Types.ArrayTy, _: Types.PtrTy) =>
+      case (Types.CharTy | Types.IntTy | _: Types.PtrTy | _: Types.ArrayPtrTy, _: Types.PtrTy) =>
         value
 
-      case (_: Types.PtrTy | _: Types.ArrayTy, _: Types.IntegerTy) =>
+      case (_: Types.PtrTy | _: Types.ArrayPtrTy, _: Types.IntegerTy) =>
         compileCastFromTo(value, Types.IntTy, toTy, loc)
 
       case (fromTy, toTy) => throw new TinyCCompilerException(Error, s"cannot cast '$fromTy' to '$toTy'", loc)
@@ -501,7 +509,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileFunSignature(ty: FunTy): IrFunSignature =
-      IrFunSignature(compileType(ty.returnTy), ty.argTys.map(compileType))
+      IrFunSignature(compileType(ty.returnTy), ty.argTys.map(compileType(_)))
 
     private def compileCallArgs(argTys: Seq[Ty], args: Seq[AstNode]): Seq[Insn] =
       argTys.zip(args).map({ case (ty, arg) => compileExprAndCastTo(arg, ty) })
@@ -635,7 +643,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val rightPromoted = compileExprAndCastTo(node.right, leftTy)
         compileCmpArithmeticHelper(op, leftTy, left, rightPromoted)
 
-      case (op, _: PtrTy | _: ArrayTy, _: PtrTy | _: ArrayTy) =>
+      case (op, _: PtrTy | _: ArrayPtrTy, _: PtrTy | _: ArrayPtrTy) =>
         val left = compileExpr(node.left)
         val right = compileExpr(node.right)
         compileCmpArithmeticHelper(op, IntTy, left, right)

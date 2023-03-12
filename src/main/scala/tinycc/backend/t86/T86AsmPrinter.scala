@@ -25,6 +25,9 @@ class T86AsmPrinter extends IndentPrinter[T86Listing] {
       out.write(symbol.name + ":\n")
       out.indent()
 
+    case T86DataWord(value) =>
+      out.write(s"DW $value\n")
+
     case insn: T86Insn =>
       printInsn(insn, out)
       out.write("\n")

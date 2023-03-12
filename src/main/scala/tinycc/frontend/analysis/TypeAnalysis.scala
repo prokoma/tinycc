@@ -76,7 +76,7 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
     case _: AstInteger => IntTy
     case _: AstDouble => DoubleTy
     case _: AstChar => CharTy
-    case node: AstString => ArrayTy(CharTy, node.value.length + 1) // + 1 for '\0'
+    case node: AstString => ArrayPtrTy(CharTy, node.value.length + 1) // + 1 for '\0'
 
     case node: AstIdentifier =>
       // need to call visitAndGetTy on the declaration, because it may be later in the code

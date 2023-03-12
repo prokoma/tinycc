@@ -147,7 +147,11 @@ trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
     this
   }
 
-  override def validate(): Unit = () // TODO: check if all operands are defined
+  override def validate(): Unit = {
+    operandRefs.zipWithIndex.foreach({ case (ref, index) =>
+      assert(ref.isDefined, s"operand #$index is not defined")
+    })
+  }
 
   def remove(force: Boolean = false): Unit = basicBlock.removeInsn(this, force)
 
@@ -195,8 +199,7 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
 
   override def validate(): Unit = {
     body.foreach(_.validate())
-    if (terminator.isEmpty)
-      throw new IrException(s"Unterminated BasicBlock '$name' in '${fun.name}'.")
+    assert(terminator.isDefined, "unterminated basic block")
   }
 
   def releaseRefs(): Unit =
@@ -385,8 +388,7 @@ class IrProgram extends IrObject {
 
   override def validate(): Unit = {
     funs.foreach(_.validate())
-    if (entryFunRef.isEmpty)
-      throw new IrException("Missing entryFun declaration in program.")
+    assert(entryFunRef.isDefined, "entryFun is not defined")
   }
 
   def removeFun(fun: IrFun, force: Boolean = false): Unit = {

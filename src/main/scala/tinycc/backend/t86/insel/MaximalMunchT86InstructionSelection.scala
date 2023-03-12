@@ -87,8 +87,6 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
     val allRequiredInsns = mutable.Set.empty[(Var[_], Insn)]
     val tileMap = mutable.Map.empty[(Var[_], Insn), GenRule.Match[_]]
 
-    if (bb.isFunEntryBlock)
-      ctx.emit(T86SectionLabel("text"))
     ctx.emit(ctx.getBasicBlockLabel(bb))
     if (bb.isFunEntryBlock)
       ctx.emit(T86SpecialLabel.FunPrologueMarker)

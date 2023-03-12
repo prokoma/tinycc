@@ -71,9 +71,18 @@ class IrPrinter extends IndentPrinter[IrObject] {
       case insn: FImmInsn => out.write(s" ${insn.value}")
 
       // %0 = allocl i64
-      case insn: AllocInsn =>
+      case insn: AllocLInsn =>
         out.write(" ")
         printType(insn.varTy, out)
+
+      // %0 = allocg i64, 42
+      case insn: AllocGInsn =>
+        out.write(" ")
+        printType(insn.varTy, out)
+        if (insn.initData.nonEmpty) {
+          out.write(", ")
+          insn.initData.foreachSep(l => out.write(l.toString), out.write(" "))
+        }
 
       // %0 = getfunptr foo
       case insn: GetFunPtrInsn =>

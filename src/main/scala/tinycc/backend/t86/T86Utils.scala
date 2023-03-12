@@ -3,26 +3,14 @@ package tinycc.backend.t86
 import tinycc.common.ir.IrTy
 
 object T86Utils {
-  def getSizeWords(ty: IrTy): Long =
-    (ty.sizeBytes / 8).ceil.toLong
-
-  def getFieldOffsetWords(struct: IrTy.StructTy, fieldIndex: Int): Long = {
-    require(fieldIndex < struct.fields.size)
-    struct.fields.take(fieldIndex).map(getSizeWords).sum // sum size of first fieldIndex fields
-  }
-
   def buildArgsMap(argTys: IndexedSeq[IrTy], offset: Long): IndexedSeq[Operand.MemRegImm] = {
     var argsSize: Long = 0
     argTys.map(ty => {
       val oldSize = argsSize
-      argsSize += getSizeWords(ty)
+      argsSize += ty.sizeWords
       Operand.MemRegImm(Operand.BP, oldSize + offset)
     })
   }
-
-  //  val machineRegCount: Int = 4
-  //
-  //  val machineFRegCount: Int = 2
 
   val machineRegCount: Int = 32
 

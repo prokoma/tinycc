@@ -152,7 +152,9 @@ object IrParser extends Parsers {
 
   lazy val ALLOCL: Parser[Context => AllocLInsn] = AllocL ~> VAR_TYPE ^^ { varTy => _.emit(new AllocLInsn(varTy, _)) }
 
-  lazy val ALLOCG: Parser[Context => AllocGInsn] = AllocG ~> VAR_TYPE ^^ { varTy => _.emit(new AllocGInsn(varTy, Seq.empty, _)) }
+  lazy val ALLOCG: Parser[Context => AllocGInsn] = AllocG ~> VAR_TYPE ~ opt(comma ~> rep1(integer)) ^^ { case varTy ~ initData =>
+    _.emit(new AllocGInsn(varTy, initData.getOrElse(Seq.empty), _))
+  }
 
   lazy val LOAD: Parser[Context => LoadInsn] = (Load ~> SCALAR_TYPE) ~ insnRef ^^ { case valueTy ~ ptrFuture =>
     (ctx: Context) => {

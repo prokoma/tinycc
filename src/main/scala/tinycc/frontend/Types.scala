@@ -51,6 +51,9 @@ object Types {
     override def toString: String = "int"
 
     override def longBitmask: Long = ~(0L)
+
+    override def isExplicitlyCastableFrom(other: Ty): Boolean =
+      super.isExplicitlyCastableFrom(other) || other.isInstanceOf[IndexableTy] // 64 bit pointers can be explicitly casted to 64 bit int
   }
 
   case object DoubleTy extends ArithmeticTy {
@@ -88,7 +91,7 @@ object Types {
     })
 
     override def isExplicitlyCastableFrom(other: Ty): Boolean = super.isExplicitlyCastableFrom(other) || (other match {
-      case _: IndexableTy => true
+      case _: IndexableTy | IntTy => true
       case _ => false
     })
 
@@ -97,8 +100,8 @@ object Types {
     override def toPtr: PtrTy = this
   }
 
-  /** Static array */
-  case class ArrayTy(elemTy: Ty, numElem: Int) extends IndexableTy {
+  /** A pointer to the beginning of an array with a known size. */
+  case class ArrayPtrTy(elemTy: Ty, numElem: Int) extends IndexableTy {
     override def toString: String = s"$baseTy[$numElem]"
 
     override def baseTy: Ty = elemTy

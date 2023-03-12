@@ -6,29 +6,26 @@ import scala.collection.mutable
 
 class T86ProgramBuilder(irProgram: Option[IrProgram] = None) {
 
-  import T86Utils._
+  protected var _data: IndexedSeq[Long] = IndexedSeq.empty
+  protected val _globalsMap = mutable.Map.empty[AllocGInsn, Operand.MemImm]
+  protected val _funs: mutable.Builder[T86Fun, IndexedSeq[T86Fun]] = IndexedSeq.newBuilder[T86Fun]
 
-  protected var globalsSize: Long = 0
-  protected val globalsMap = mutable.Map.empty[AllocGInsn, Operand.MemImm]
-  protected val funs: mutable.Builder[T86Fun, IndexedSeq[T86Fun]] = IndexedSeq.newBuilder[T86Fun]
-
-  def freshGlobal(size: Long): Operand.MemImm = {
-    globalsSize += size
-    Operand.MemImm(globalsSize - size)
+  def freshGlobal(data: Seq[Long]): Operand.MemImm = {
+    val offset = _data.size
+    _data ++= data
+    Operand.MemImm(offset)
   }
 
   def resolveAllocG(insn: AllocGInsn): Operand.MemImm =
-    globalsMap.getOrElseUpdate(insn, freshGlobal(getSizeWords(insn.varTy)))
+    _globalsMap.getOrElseUpdate(insn, freshGlobal(insn.initData))
 
   def appendFun(fun: T86Fun): Unit =
-    funs += fun
+    _funs += fun
 
-  def result(): T86Program = new T86Program(funs.result(), globalsSize, irProgram)
+  def result(): T86Program = new T86Program(_funs.result(), _data, irProgram)
 }
 
 class T86FunBuilder(irFun: Option[IrFun] = None) {
-
-  import T86Utils._
 
   protected var localsSize: Long = 0
   protected val localsMap = mutable.Map.empty[AllocLInsn, Operand.MemRegImm]
@@ -52,7 +49,7 @@ class T86FunBuilder(irFun: Option[IrFun] = None) {
   }
 
   def resolveAllocL(insn: AllocLInsn): Operand.MemRegImm =
-    localsMap.getOrElseUpdate(insn, freshLocal(getSizeWords(insn.varTy)))
+    localsMap.getOrElseUpdate(insn, freshLocal(insn.varTy.sizeWords))
 
   def appendBlock(bb: T86BasicBlock): Unit =
     basicBlocks += bb

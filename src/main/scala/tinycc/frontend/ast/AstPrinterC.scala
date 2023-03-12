@@ -12,9 +12,9 @@ class AstPrinterC extends AstPrinter {
         out.write("int64_t")
         semicolon()
 
-      case node: AstNamedType if node.symbol == Symbols.kwChar =>
-        out.write("int8_t")
-        semicolon()
+//      case node: AstNamedType if node.symbol == Symbols.kwChar =>
+//        out.write("int8_t")
+//        semicolon()
 
       case node: AstFunDecl if node.symbol.name == "main" =>
         super.printNode(node.returnTy, isStmt = false, out) // preserve int return type of main

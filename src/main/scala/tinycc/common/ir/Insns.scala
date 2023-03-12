@@ -1,6 +1,6 @@
 package tinycc.common.ir
 
-import tinycc.common.ir.IrTy.{DoubleTy, Int64Ty}
+import tinycc.common.ir.IrTy.{DoubleTy, Int64Ty, PtrTy, VoidTy}
 import tinycc.util.NameGen
 
 /** An instruction, which terminates a BasicBlock. */
@@ -9,7 +9,7 @@ sealed trait TerminatorInsn extends Insn {
 
   def succBlocks: Seq[BasicBlock] = succBlockRefs.flatMap(_())
 
-  override def resultTy: IrTy = IrTy.VoidTy
+  override def resultTy: IrTy = VoidTy
 
   override def hasSideEffects: Boolean = true
 
@@ -18,6 +18,13 @@ sealed trait TerminatorInsn extends Insn {
   override def releaseRefs(): Unit = {
     super.releaseRefs()
     succBlockRefs.foreach(_.apply(None))
+  }
+
+  override def validate(): Unit = {
+    super.validate()
+    succBlockRefs.zipWithIndex.foreach({ case (ref, index) =>
+      assert(ref.isDefined, s"succesor block #$index is not defined")
+    })
   }
 }
 
@@ -76,7 +83,7 @@ class BinaryArithInsn(val op: IrOpcode.BinaryArithOp, _left: Option[Insn], _righ
 class CmpInsn(val op: IrOpcode.CmpOp, _left: Option[Insn], _right: Option[Insn], basicBlock: BasicBlock) extends BinaryInsn(_left, _right, basicBlock) {
   def this(op: IrOpcode.CmpOp, _left: Insn, _right: Insn, basicBlock: BasicBlock) = this(op, Some(_left), Some(_right), basicBlock)
 
-  override def resultTy: IrTy = IrTy.Int64Ty
+  override def resultTy: IrTy = Int64Ty
 
   override def validate(): Unit = {
     super.validate()
@@ -90,7 +97,7 @@ class CmpInsn(val op: IrOpcode.CmpOp, _left: Option[Insn], _right: Option[Insn],
 /* === Memory Instructions === */
 
 sealed abstract class AllocInsn(val varTy: IrTy, val basicBlock: BasicBlock) extends Insn {
-  override def resultTy: IrTy = IrTy.PtrTy
+  override def resultTy: IrTy = PtrTy
 }
 
 class AllocLInsn(varTy: IrTy, basicBlock: BasicBlock) extends AllocInsn(varTy, basicBlock) {
@@ -99,7 +106,12 @@ class AllocLInsn(varTy: IrTy, basicBlock: BasicBlock) extends AllocInsn(varTy, b
   override def copy(newBlock: BasicBlock): AllocLInsn = new AllocLInsn(varTy, newBlock)
 }
 
-class AllocGInsn(varTy: IrTy, val initData: Seq[Byte], basicBlock: BasicBlock) extends AllocInsn(varTy, basicBlock) {
+/**
+ * Represents a global or static variable.
+ *
+ * @param initData initial data (64 bit words)
+ */
+class AllocGInsn(varTy: IrTy, val initData: Seq[Long], basicBlock: BasicBlock) extends AllocInsn(varTy, basicBlock) {
   override def parentNameGen: NameGen = fun.program.nameGen // names of AllocGInsn are unique in the entire program
 
   override def op: IrOpcode = IrOpcode.AllocG
@@ -108,8 +120,7 @@ class AllocGInsn(varTy: IrTy, val initData: Seq[Byte], basicBlock: BasicBlock) e
 
   override def validate(): Unit = {
     super.validate()
-    if (initData.size > varTy.sizeBytes)
-      throw new IrException(s"AllocG init data is too large (initData.size: ${initData.size}, capacity: ${varTy.sizeBytes})")
+    assert(initData.size == varTy.sizeWords)
   }
 }
 
@@ -141,7 +152,7 @@ class StoreInsn(_ptr: Option[Insn], _value: Option[Insn], val basicBlock: BasicB
 
   override def op: IrOpcode = IrOpcode.Store
 
-  override def resultTy: IrTy = IrTy.VoidTy
+  override def resultTy: IrTy = VoidTy
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(ptrRef, valueRef)
 
@@ -162,14 +173,14 @@ class GetElementPtrInsn(_ptr: Option[Insn], _index: Option[Insn], val elemTy: Ir
 
   override def op: IrOpcode = IrOpcode.GetElementPtr
 
-  override def resultTy: IrTy = IrTy.PtrTy
+  override def resultTy: IrTy = PtrTy
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(ptrRef, indexRef)
 
   override def validate(): Unit = {
     super.validate()
-    assert(ptrRef.get.resultTy == IrTy.PtrTy)
-    assert(indexRef.get.resultTy == IrTy.Int64Ty)
+    assert(ptr.resultTy == PtrTy)
+    assert(index.resultTy == Int64Ty)
   }
 
   override def copy(newBlock: BasicBlock): GetElementPtrInsn = new GetElementPtrInsn(ptrRef(), indexRef(), elemTy, fieldIndex, newBlock)
@@ -178,7 +189,7 @@ class GetElementPtrInsn(_ptr: Option[Insn], _index: Option[Insn], val elemTy: Ir
 class SizeOfInsn(val varTy: IrTy, val basicBlock: BasicBlock) extends Insn {
   override def op: IrOpcode = IrOpcode.SizeOf
 
-  override def resultTy: IrTy = IrTy.Int64Ty
+  override def resultTy: IrTy = Int64Ty
 
   override def copy(newBlock: BasicBlock): SizeOfInsn = new SizeOfInsn(varTy, newBlock)
 }
@@ -194,7 +205,7 @@ class GetFunPtrInsn(_targetFun: Option[IrFun], val basicBlock: BasicBlock) exten
 
   override def op: IrOpcode = IrOpcode.GetFunPtr
 
-  override def resultTy: IrTy = IrTy.PtrTy
+  override def resultTy: IrTy = PtrTy
 
   override def copy(newBlock: BasicBlock): GetFunPtrInsn = new GetFunPtrInsn(targetFunRef(), newBlock)
 }
@@ -269,8 +280,7 @@ class CallPtrInsn(override val funSig: IrFunSignature, _funPtr: Option[Insn], _a
 
   override def validate(): Unit = {
     super.validate()
-    if (funPtrRef.isDefined && funPtrRef.get.resultTy != IrTy.PtrTy)
-      throw new IrException(s"Target of $this must be a pointer, ${funPtrRef.get.resultTy} given.")
+    assert(funPtr.resultTy == PtrTy)
   }
 
   override def copy(newBlock: BasicBlock): CallPtrInsn = new CallPtrInsn(funSig, funPtrRef(), argRefs.map(_.apply()), newBlock)
@@ -287,7 +297,7 @@ class PutCharInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends Insn {
 
   override def op: IrOpcode = IrOpcode.PutChar
 
-  override def resultTy: IrTy = IrTy.VoidTy
+  override def resultTy: IrTy = VoidTy
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
 
@@ -295,7 +305,7 @@ class PutCharInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends Insn {
 
   override def validate(): Unit = {
     super.validate()
-    assert(argRef.get.resultTy == IrTy.Int64Ty)
+    assert(arg.resultTy == Int64Ty)
   }
 
   override def copy(newBlock: BasicBlock): PutCharInsn = new PutCharInsn(argRef(), newBlock)
@@ -310,7 +320,7 @@ class PutNumInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends Insn {
 
   override def op: IrOpcode = IrOpcode.PutNum
 
-  override def resultTy: IrTy = IrTy.VoidTy
+  override def resultTy: IrTy = VoidTy
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
 
@@ -318,7 +328,7 @@ class PutNumInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends Insn {
 
   override def validate(): Unit = {
     super.validate()
-    assert(argRef.get.resultTy == IrTy.Int64Ty)
+    assert(arg.resultTy == Int64Ty)
   }
 
   override def copy(newBlock: BasicBlock): PutNumInsn = new PutNumInsn(argRef(), newBlock)
@@ -327,7 +337,7 @@ class PutNumInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends Insn {
 class GetCharInsn(val basicBlock: BasicBlock) extends Insn {
   override def op: IrOpcode = IrOpcode.GetChar
 
-  override def resultTy: IrTy = IrTy.Int64Ty
+  override def resultTy: IrTy = Int64Ty
 
   override def hasSideEffects: Boolean = true
 
@@ -347,7 +357,7 @@ class CastInsn(val op: IrOpcode.CastOp, _arg: Option[Insn], val basicBlock: Basi
 
   override def validate(): Unit = {
     super.validate()
-    assert(!argRef.isDefined || op.operandTy == argRef.get.resultTy)
+    assert(arg.resultTy == op.operandTy)
   }
 
   override def copy(newBlock: BasicBlock): Insn = new CastInsn(op, argRef(), newBlock)
@@ -372,7 +382,7 @@ class RetInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends IrFunExitP
 
   override def validate(): Unit = {
     super.validate()
-    assert(argRef.get.resultTy == basicBlock.fun.returnTy)
+    assert(arg.resultTy == basicBlock.fun.returnTy)
   }
 
   override def copy(newBlock: BasicBlock): RetInsn = new RetInsn(argRef(), newBlock)
@@ -385,7 +395,7 @@ class RetVoidInsn(val basicBlock: BasicBlock) extends IrFunExitPoint {
 
   override def validate(): Unit = {
     super.validate()
-    assert(basicBlock.fun.returnTy == IrTy.VoidTy)
+    assert(basicBlock.fun.returnTy == VoidTy)
   }
 
   override def copy(newBlock: BasicBlock): RetVoidInsn = new RetVoidInsn(newBlock)
@@ -438,6 +448,6 @@ class CondBrInsn(_arg: Option[Insn], _trueBlock: Option[BasicBlock], _falseBlock
 
   override def validate(): Unit = {
     super.validate()
-    assert(argRef.get.resultTy == Int64Ty)
+    assert(arg.resultTy == Int64Ty)
   }
 }

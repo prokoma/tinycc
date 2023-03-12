@@ -79,7 +79,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
   lazy val imm: AsmPat[Operand.Imm] = (
     Pat(IImm) ^^ { case insn: IImmInsn => pure(Operand.Imm(insn.value)) }
-      | Pat(SizeOf) ^^ { case insn: SizeOfInsn => pure(Operand.Imm(T86Utils.getSizeWords(insn.varTy))) })
+      | Pat(SizeOf) ^^ { case insn: SizeOfInsn => pure(Operand.Imm(insn.varTy.sizeWords)) })
 
   lazy val regOrImm: AsmPat[Operand] = imm | RegVar
 
@@ -254,13 +254,14 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     }),
 
     GenRule(RegVar, Pat(AllocL) ^^ { case insn: AllocLInsn =>
-      (ctx: Context) =>
+      (ctx: Context) => {
         val res = ctx.freshReg()
         ctx.emit(LEA, res, ctx.resolveAllocL(insn))
         res
+      }
     }),
     GenRule(RegVar, Pat(AllocG) ^^ { case insn: AllocGInsn =>
-      (ctx: Context) => ctx.copyToFreshReg(ctx.resolveAllocG(insn))
+      (ctx: Context) => ctx.copyToFreshReg(Operand.Imm(ctx.resolveAllocG(insn).addr))
     }),
 
     GenRule(RegVar, Pat(Load, memAddr) ^^ { case (_, memAddr) =>
@@ -284,12 +285,11 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     GenRule(RegVar, Pat(GetElementPtr, RegVar, RegVar) ^^ { case (insn: GetElementPtrInsn, base, index) =>
       (ctx: Context) => {
         val res = ctx.freshReg()
-        val elemSize = T86Utils.getSizeWords(insn.elemTy)
         if (insn.fieldIndex == 0)
-          ctx.emit(LEA, res, Operand.MemRegRegScaled(base(ctx), index(ctx), elemSize))
+          ctx.emit(LEA, res, Operand.MemRegRegScaled(base(ctx), index(ctx), insn.elemTy.sizeWords))
         else {
-          val fieldOffset = T86Utils.getFieldOffsetWords(insn.elemTy.asInstanceOf[IrTy.StructTy], insn.fieldIndex)
-          ctx.emit(LEA, res, Operand.MemRegImmRegScaled(base(ctx), fieldOffset, index(ctx), elemSize))
+          val fieldOffset = insn.elemTy.asInstanceOf[IrTy.StructTy].getFieldOffsetWords(insn.fieldIndex)
+          ctx.emit(LEA, res, Operand.MemRegImmRegScaled(base(ctx), fieldOffset, index(ctx), insn.elemTy.sizeWords))
         }
         res
       }
