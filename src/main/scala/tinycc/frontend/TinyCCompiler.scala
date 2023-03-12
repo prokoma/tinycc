@@ -368,10 +368,10 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node: AstDeref => compileExpr(node.expr)
 
       case node: AstIndex =>
-        val expr = compileExprPtr(node.expr)
+        val ptr = compileExpr(node.expr)
         val IndexableTy(baseTy) = node.expr.ty
         val index = compileExpr(node.index)
-        emit(new GetElementPtrInsn(expr, index, compileType(baseTy, treatArrayAsPtr = false), 0, _))
+        emit(new GetElementPtrInsn(ptr, index, compileType(baseTy, treatArrayAsPtr = false), 0, _))
 
       case node: AstMember => // .
         compileMemberExprPtrHelper(compileExprPtr(node.expr), node.expr.ty.asInstanceOf[StructTy], node.member)
@@ -427,22 +427,6 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node: AstAddress =>
         compileExprPtr(node.expr)
-
-      case node: AstDeref =>
-        val value = compileExpr(node.expr)
-        emit(new LoadInsn(compileType(node.ty), value, _))
-
-      case node: AstIndex =>
-        val expr = compileExpr(node.expr)
-        val index = compileExprAndCastTo(node.index, IntTy)
-
-        node.expr.ty match {
-          case exprTy: IndexableTy =>
-            val elemTy = compileType(exprTy.baseTy)
-            emit(new GetElementPtrInsn(expr, index, elemTy, 0, _))
-
-          case _ => throw new UnsupportedOperationException("Invalid AstIndex expr type.")
-        }
 
       case c: AstCall =>
         c.expr match {

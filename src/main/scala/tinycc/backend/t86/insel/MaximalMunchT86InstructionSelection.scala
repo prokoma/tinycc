@@ -43,18 +43,21 @@ import scala.collection.mutable
 class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86InstructionSelection(program) with T86TilingInstructionSelection {
   private val tileResults = mutable.Map.empty[(Var[_], Insn), Any]
   private val programBuilder = new T86ProgramBuilder(Some(program))
+  private var globals: Seq[AllocGInsn] = _
 
   private lazy val sortedRules = rules.sortBy(r => (-r.rhs.size, r.rhs.cost)) // sort first by size (descending) then by cost ascending
 
   def result(): T86Program = {
+    globals = program.globals.toSeq // cache
     program.funs.foreach(tileIrFun)
     programBuilder.result()
   }
 
   def tileIrFun(fun: IrFun): Unit = {
+    tileResults.clear()
+
     val funBuilder = new T86FunBuilder(Some(fun))
     val argsMap = buildArgsMap(fun.argTys, 2)
-
     fun.basicBlocks.foreach(bb => tileBasicBlock(bb, funBuilder, argsMap))
     programBuilder.appendFun(funBuilder.result())
   }
@@ -76,19 +79,22 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
       override def freshFReg(): Operand.FReg = funBuilder.freshFReg()
 
       override def resolveAllocL(insn: AllocLInsn): Operand.MemRegImm = {
-        emit(T86Comment(insn.name))
-        funBuilder.resolveAllocL(insn)
+        val res = funBuilder.resolveAllocL(insn)
+        emit(T86Comment(s"$res -> ${insn.name}"))
+        res
       }
 
       override def resolveAllocG(insn: AllocGInsn): Operand.MemImm = {
-        emit(T86Comment(insn.name))
-        programBuilder.resolveAllocG(insn)
+        val res = programBuilder.resolveAllocG(insn)
+        emit(T86Comment(s"$res -> ${insn.name}"))
+        res
       }
 
       /** Can return either MemRegImm or Reg depending on calling conventions. */
       override def resolveLoadArg(insn: LoadArgInsn): Operand = {
-        emit(T86Comment(s"arg ${insn.index}"))
-        argsMap(insn.index)
+        val res = argsMap(insn.index)
+        emit(T86Comment(s"$res -> arg ${insn.index}"))
+        res
       }
     }
 
@@ -102,9 +108,27 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
       ctx.emit(T86Comment(s"${bb.fun.name} prologue end"))
     }
 
+    def usedInOtherBasicBlocks(insn: Insn): Boolean =
+      insn.uses.exists({
+        case use: OperandRef => use.insn.basicBlock != bb
+        case _ => true // just in case, return true
+      })
+
+    def usedInThisFun(insn: Insn): Boolean =
+      insn.uses.exists({
+        case use: OperandRef => use.insn.fun == bb.fun
+        case _ => true
+      })
+
+    // pretend that we see all global variables again at the start of each function
+    val body = if(bb.isFunEntryBlock)
+      globals.filter(usedInThisFun) ++ bb.body
+    else
+      bb.body
+
     // instructions in a basic block are topologically sorted
     // greedily cover instructions with tiles
-    bb.body.reverse.foreach(insn => {
+    body.reverse.foreach(insn => {
       val requiredVars = variables.filter(v => allRequiredInsns.contains((v, insn)))
 
       if (requiredVars.nonEmpty) {
@@ -123,7 +147,7 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
               throw new BackendException(s"Failed to cover $insn as $v (tried ${varRules.size} rules)")
           }
         })
-      } else if (!allCoveredInsns.contains(insn)) {
+      } else if (!allCoveredInsns.contains(insn) || usedInOtherBasicBlocks(insn)) {
         sortedRules.view.flatMap(_(insn)).headOption match {
           case Some(m) =>
             tileMap((m.rule.v, insn)) = m
@@ -137,7 +161,7 @@ class MaximalMunchT86InstructionSelection(program: IrProgram) extends T86Instruc
     })
 
     // now loop in the program order and generate code for the matched tiles
-    bb.body.foreach(insn => {
+    body.foreach(insn => {
       variables.foreach(v => tileMap.get((v, insn)) match {
         case Some(m) =>
           tileResults((v, insn)) = m.value(ctx)

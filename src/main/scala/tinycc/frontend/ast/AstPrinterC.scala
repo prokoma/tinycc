@@ -8,16 +8,8 @@ class AstPrinterC extends AstPrinter {
     def semicolon(): Unit = if (isStmt) out.write(";")
 
     node match {
-      case node: AstNamedType if node.symbol == Symbols.kwInt =>
-        out.write("int64_t")
-        semicolon()
-
-//      case node: AstNamedType if node.symbol == Symbols.kwChar =>
-//        out.write("int8_t")
-//        semicolon()
-
       case node: AstFunDecl if node.symbol.name == "main" =>
-        super.printNode(node.returnTy, isStmt = false, out) // preserve int return type of main
+        super.printType(node.returnTy, out) // preserve int return type of main
         out.write(s" ${node.symbol.name}(")
         node.args.foreachSep({ case (ty, symbol) =>
           printAsExpr(ty, out)
@@ -42,5 +34,12 @@ class AstPrinterC extends AstPrinter {
 
       case node => super.printNode(node, isStmt, out)
     }
+  }
+
+  override protected def printType(node: AstType, out: IndentWriter): Unit = node match {
+    case node: AstNamedType if node.symbol == Symbols.kwInt =>
+      out.write("int64_t")
+
+    case node => super.printType(node, out)
   }
 }
