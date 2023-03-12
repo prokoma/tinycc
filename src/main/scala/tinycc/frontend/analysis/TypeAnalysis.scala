@@ -8,6 +8,7 @@ import tinycc.util.Reporter
 import tinycc.util.parsing.SourceLocation
 import tinycc.{ErrorLevel, ProgramException}
 
+import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.math.Ordered.orderingToOrdered
 
@@ -48,8 +49,10 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
     typeMap
   }
 
+  @tailrec
   private def hasAddress(node: AstNode): Boolean = node match {
-    case _: AstIdentifier | _: AstDeref | _: AstIndex => true
+    case _: AstIdentifier | _: AstDeref | _: AstMemberPtr | _: AstIndex => true
+    case node: AstMember => hasAddress(node.expr)
     case _ => false
   }
 
@@ -61,7 +64,7 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
 
   private def visitGuard(guard: AstNode, label: String): Unit = {
     val guardTy = visitAndGetTy(guard)
-    if (!IntTy.isAssignableFrom(guardTy))
+    if (!IntTy.isAssignableFrom(guardTy) && !guardTy.isInstanceOf[IndexableTy])
       errors += new Message(Error, s"expected $IntTy (or compatible type) $label, got $guardTy", guard.loc)
   }
 

@@ -6,23 +6,31 @@ import scala.collection.mutable
 
 class T86ProgramBuilder(irProgram: Option[IrProgram] = None) {
 
-  protected var _data: IndexedSeq[Long] = IndexedSeq.empty
+  protected var _data: mutable.Builder[T86ListingElement, IndexedSeq[T86ListingElement]] = IndexedSeq.newBuilder[T86ListingElement]
+  protected var _globalsSize: Long = 0
   protected val _globalsMap = mutable.Map.empty[AllocGInsn, Operand.MemImm]
   protected val _funs: mutable.Builder[T86Fun, IndexedSeq[T86Fun]] = IndexedSeq.newBuilder[T86Fun]
 
-  def freshGlobal(data: Seq[Long]): Operand.MemImm = {
-    val offset = _data.size
-    _data ++= data
-    Operand.MemImm(offset)
+  def freshGlobal(size: Long, initData: Seq[Long] = Seq.empty): Operand.MemImm = {
+    require(initData.size <= size)
+    _data ++= initData.map(T86DataWord(_))
+    if(initData.size < size)
+      _data += T86DataWord(0, size - initData.size)
+    _globalsSize += size
+    Operand.MemImm(_globalsSize - size)
   }
 
   def resolveAllocG(insn: AllocGInsn): Operand.MemImm =
-    _globalsMap.getOrElseUpdate(insn, freshGlobal(insn.initData))
+    _globalsMap.getOrElseUpdate(insn, {
+      val res = freshGlobal(insn.varTy.sizeWords, insn.initData)
+      _data += T86Comment(s"$res -> ${insn.name}")
+      res
+    })
 
   def appendFun(fun: T86Fun): Unit =
     _funs += fun
 
-  def result(): T86Program = new T86Program(_funs.result(), _data, irProgram)
+  def result(): T86Program = new T86Program(_funs.result(), _data.result(), irProgram)
 }
 
 class T86FunBuilder(irFun: Option[IrFun] = None) {

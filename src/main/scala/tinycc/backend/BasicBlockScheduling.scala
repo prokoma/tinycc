@@ -1,6 +1,6 @@
 package tinycc.backend
 
-import tinycc.common.ir.{BasicBlock, IrFun, IrProgram}
+import tinycc.common.ir.{BasicBlock, IrException, IrFun, IrProgram}
 
 import scala.collection.mutable
 
@@ -23,7 +23,8 @@ class BasicBlockScheduling extends ProgramPass[IrProgram] {
         return
       visitedBlocks += bb
       sortedBasicBlocks += bb
-      bb.terminator.get.succBlocks.foreach(dfs)
+      val terminator = bb.terminator.getOrElse(throw new IrException(s"unterminated, but reachable basic block ${bb.uniqueName}"))
+      terminator.succBlocks.foreach(dfs)
     }
 
     dfs(fun.entryBlock)

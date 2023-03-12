@@ -112,6 +112,7 @@ trait T86RegRegisterAllocator extends T86GenericRegisterAllocator[Operand.Reg] {
     case Operand.MemRegReg(addrReg, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
     case Operand.MemRegScaled(addrReg, addrScale) => DefUse(Set.empty, Set(addrReg))
     case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
+    case Operand.MemRegImmRegScaled(addrReg, addrOffset, addrReg2, addrScale) => DefUse(Set.empty, Set(addrReg, addrReg2))
     case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse(Set.empty, Set(addrReg, addrScaledReg))
 
     case freg: Operand.FReg => DefUse.empty
@@ -136,6 +137,7 @@ trait T86RegRegisterAllocator extends T86GenericRegisterAllocator[Operand.Reg] {
     case Operand.MemRegReg(addrReg, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
     case Operand.MemRegScaled(addrReg, addrScale) => DefUse(Set.empty, Set(addrReg))
     case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => DefUse(Set.empty, Set(addrReg, addrReg2))
+    case Operand.MemRegImmRegScaled(addrReg, addrOffset, addrReg2, addrScale) => DefUse(Set.empty, Set(addrReg, addrReg2))
     case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse(Set.empty, Set(addrReg, addrScaledReg))
 
     case freg: Operand.FReg => DefUse.empty
@@ -163,6 +165,7 @@ trait T86RegRegisterAllocator extends T86GenericRegisterAllocator[Operand.Reg] {
     case Operand.MemRegReg(addrReg, addrReg2) => Operand.MemRegReg(regMap(addrReg), regMap(addrReg2))
     case Operand.MemRegScaled(addrReg, addrScale) => Operand.MemRegScaled(regMap(addrReg), addrScale)
     case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => Operand.MemRegImmReg(regMap(addrReg), addrOffset, regMap(addrReg2))
+    case Operand.MemRegImmRegScaled(addrReg, addrOffset, addrReg2, addrScale) => Operand.MemRegImmRegScaled(regMap(addrReg), addrOffset, regMap(addrReg2), addrScale)
     case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => Operand.MemRegRegScaled(regMap(addrReg), regMap(addrScaledReg), addrScale)
 
     case freg: Operand.FReg => freg
@@ -195,6 +198,7 @@ trait T86FRegRegisterAllocator extends T86GenericRegisterAllocator[Operand.FReg]
     case Operand.MemRegReg(addrReg, addrReg2) => DefUse.empty
     case Operand.MemRegScaled(addrReg, addrScale) => DefUse.empty
     case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => DefUse.empty
+    case Operand.MemRegImmRegScaled(addrReg, addrOffset, addrScaledReg, addrScale) => DefUse.empty
     case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse.empty
 
     case freg: Operand.FReg => DefUse(Set(freg), Set.empty)
@@ -219,6 +223,7 @@ trait T86FRegRegisterAllocator extends T86GenericRegisterAllocator[Operand.FReg]
     case Operand.MemRegReg(addrReg, addrReg2) => DefUse.empty
     case Operand.MemRegScaled(addrReg, addrScale) => DefUse.empty
     case Operand.MemRegImmReg(addrReg, addrOffset, addrReg2) => DefUse.empty
+    case Operand.MemRegImmRegScaled(addrReg, addrOffset, addrScaledReg, addrScale) => DefUse.empty
     case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse.empty
 
     case freg: Operand.FReg => DefUse(Set.empty, Set(freg))

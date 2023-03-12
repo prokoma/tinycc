@@ -142,19 +142,26 @@ object Action {
 
   case class Compile(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
     override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
+      var startTime = System.currentTimeMillis()
+
       val declarations = new SemanticAnalysis(ast).result()
       val typeMap = new TypeAnalysis(ast, declarations).result()
       val irProgram = new TinyCCompiler(ast, declarations, typeMap).result()
       Console.err.println(new IrPrinter().printToString(irProgram))
+      val frontendTime = System.currentTimeMillis()
 
       new BasicBlockScheduling().transformProgram(irProgram)
       irProgram.validate()
       val t86Program = T86InstructionSelection(irProgram).result()
       Console.err.println(new T86AsmPrinter().printToString(t86Program.flatten))
+      val inselTime = System.currentTimeMillis()
 
       T86RegisterAllocator().transformProgram(t86Program)
       new T86FunProcessor().transformProgram(t86Program)
       val t86Listing = new T86LabelProcessor(t86Program.flatten).result()
+      val regallocTime = System.currentTimeMillis()
+
+      Console.err.println(s"frontend: ${frontendTime-startTime} ms, insel: ${inselTime-frontendTime} ms, regalloc: ${regallocTime-inselTime} ms")
 
       out.print(new T86AsmPrinter().printToString(t86Listing))
     }))

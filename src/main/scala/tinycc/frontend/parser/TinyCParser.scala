@@ -124,7 +124,7 @@ object TinyCParser extends Parsers {
   lazy val STRUCT_FIELD: Parser[(AstType, Symbol)] =
     TYPE ~ identifier ~ opt(loc ~ (squareOpen ~> E9) <~ squareClose ^^ buildArrayType) <~ semicolon ^^ { case fieldTy ~ name ~ arrayMod =>
       (arrayMod.foldLeft(fieldTy)((expr, fn) => fn(expr)), name)
-    } described "struct field"
+    }
 
   /** FUNPTR_DECL := typedef TYPE_FUN_RET '(' '*' identifier ')' '(' [ TYPE { ',' TYPE } ] ')' ';' */
   lazy val FUNPTR_DECL: Parser[AstFunPtrDecl] =

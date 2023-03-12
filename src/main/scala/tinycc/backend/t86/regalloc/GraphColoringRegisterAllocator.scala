@@ -387,13 +387,13 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
     var hasSpilledNodes = false
     do {
-      Console.err.println(new T86AsmPrinter().printToString(fun.flatten))
+//      Console.err.println(new T86AsmPrinter().printToString(fun.flatten))
 
       val interferenceGraph = InterferenceGraph(cfg)
       //      Console.err.println(s"Interfering registers for ${fun.irFun.get.name}: ${interferenceGraph.edgeSet}")
 
       val coloring = InterferenceGraphColoring(interferenceGraph)
-      Console.err.println(s"Registers to spill: ${coloring.spilledNodes}")
+//      Console.err.println(s"Registers to spill: ${coloring.spilledNodes}")
 
       if (coloring.spilledNodes.nonEmpty) {
         hasSpilledNodes = true

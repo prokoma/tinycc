@@ -109,7 +109,7 @@ class AllocLInsn(varTy: IrTy, basicBlock: BasicBlock) extends AllocInsn(varTy, b
 /**
  * Represents a global or static variable.
  *
- * @param initData initial data (64 bit words)
+ * @param initData initial data (64 bit words), padded with zeroes if shorter than [[varTy.sizeWords]]
  */
 class AllocGInsn(varTy: IrTy, val initData: Seq[Long], basicBlock: BasicBlock) extends AllocInsn(varTy, basicBlock) {
   override def parentNameGen: NameGen = fun.program.nameGen // names of AllocGInsn are unique in the entire program
@@ -120,7 +120,7 @@ class AllocGInsn(varTy: IrTy, val initData: Seq[Long], basicBlock: BasicBlock) e
 
   override def validate(): Unit = {
     super.validate()
-    assert(initData.size == varTy.sizeWords)
+    assert(initData.size <= varTy.sizeWords)
   }
 }
 

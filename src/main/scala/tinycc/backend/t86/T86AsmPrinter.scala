@@ -17,20 +17,23 @@ class T86AsmPrinter extends IndentPrinter[T86Listing] {
 
     case T86SectionLabel(symbol) =>
       out.dedent()
-      out.write("." + symbol.name + "\n")
+      out.write("." + symbol.name)
       out.indent()
 
     case T86Label(symbol) =>
       out.dedent()
-      out.write(symbol.name + ":\n")
+      out.write(symbol.name + ":")
       out.indent()
 
-    case T86DataWord(value) =>
-      out.write(s"DW $value\n")
+    case T86DataWord(value, rep) =>
+      out.write(s"DW $value")
+      if(rep > 1)
+        out.write(s" * $rep")
+      out.nl()
 
     case insn: T86Insn =>
       printInsn(insn, out)
-      out.write("\n")
+      out.nl()
   }
 
   private def printInsn(insn: T86Insn, out: IndentWriter): Unit = {

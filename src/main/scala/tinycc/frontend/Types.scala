@@ -81,7 +81,7 @@ object Types {
       resolveNestedPtr(baseTy) match {
         case (funTy: FunTy, stars) =>
           s"${funTy.returnTy}($stars)(${funTy.argTys.map(_.toString).mkString(",")})"
-        case (baseTy, stars) => s"$stars$baseTy"
+        case (baseTy, stars) => s"$baseTy$stars"
       }
     }
 
@@ -118,10 +118,11 @@ object Types {
   case class StructTy(symbol: Option[Symbol] = None, var fields: Option[IndexedSeq[(Ty, Symbol)]] = None) extends Ty {
     override def toString: String = {
       val s = symbol.map(" " + _).getOrElse("")
-      val f = fields.map(" {" + _.map({ case (ty, name) =>
-        s" $ty $name;"
-      }).mkString + " }").getOrElse("")
-      s"struct$s$f;"
+//      val f = fields.map(" {" + _.map({ case (ty, name) =>
+//        s" $ty $name;"
+//      }).mkString + " }").getOrElse("")
+//      s"struct$s$f;"
+      s"struct$s"
     }
 
     override def isComplete: Boolean = fields.isDefined

@@ -312,7 +312,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         case None => // global variable - append to entryFun
           withEntryFun({
             // globals can have forward declarations - keep track of variable names in globalMap
-            val alloc = globalMap.getOrElseUpdate(node.symbol, emit(new AllocGInsn(varIrTy, Seq.fill(varIrTy.sizeWords)(0.toLong), _)).name("global_" + node.symbol.name))
+            val alloc = globalMap.getOrElseUpdate(node.symbol, emit(new AllocGInsn(varIrTy, Seq.empty, _)).name("global_" + node.symbol.name))
             node.value.foreach(value => {
               val compiledValue = compileExprAndCastTo(value, node.varTy.ty)
               emit(new StoreInsn(alloc, compiledValue, _))
@@ -398,21 +398,17 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node: AstDouble => emitFImm(node.value)
 
-      case node: AstUnaryOp =>
-        compileUnaryOp(node)
+      case node: AstUnaryOp => compileUnaryOp(node)
 
-      case node: AstUnaryPostOp =>
-        compileUnaryPostOp(node)
+      case node: AstUnaryPostOp => compileUnaryPostOp(node)
 
-      case node: AstBinaryOp =>
-        compileBinaryOp(node)
+      case node: AstBinaryOp => compileBinaryOp(node)
 
       case node: AstSequence =>
         node.body.map(compileExpr).lastOption
           .getOrElse(throw new TinyCCompilerException(Error, "empty sequence", node.loc))
 
-      case _: AstRead =>
-        emit(new GetCharInsn(_))
+      case _: AstRead => emit(new GetCharInsn(_))
 
       case node: AstAssignment =>
         val lvalue = compileExprPtr(node.lvalue)
@@ -420,13 +416,13 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         emit(new StoreInsn(lvalue, value, _))
         value
 
-      case node: AstIdentifier if node.decl.isInstanceOf[FunDecl] => node.decl match {
-        case FunDecl(decl) =>
-          emit(new GetFunPtrInsn(funMap(decl.symbol), _))
+      case node: AstIdentifier => node.ty match {
+        case _: FunTy | _: ArrayPtrTy | _: StructTy => compileExprPtr(node)
+
+        case _ => emit(new LoadInsn(compileType(node.ty), compileExprPtr(node), _))
       }
 
-      case node: AstAddress =>
-        compileExprPtr(node.expr)
+      case node: AstAddress => compileExprPtr(node.expr)
 
       case c: AstCall =>
         c.expr match {
@@ -449,9 +445,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val expr = compileExpr(node.expr)
         compileCastFromTo(expr, node.expr.ty, node.ty, node.loc)
 
-      case node =>
-        val resultPtr = compileExprPtr(node)
-        emit(new LoadInsn(compileType(node.ty), resultPtr, _))
+      case node => emit(new LoadInsn(compileType(node.ty), compileExprPtr(node), _))
     }
 
     @tailrec

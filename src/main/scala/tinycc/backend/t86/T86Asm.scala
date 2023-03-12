@@ -172,12 +172,12 @@ case class BinaryT86Insn(op: T86Opcode.BinaryOp, operand0: Operand, operand1: Op
   override def operands: Seq[Operand] = Seq(operand0, operand1)
 }
 
-case class T86DataWord(value: Long) extends T86ListingElement
+case class T86DataWord(value: Long, rep: Long = 1) extends T86ListingElement
 
-class T86Program(var funs: IndexedSeq[T86Fun], var data: IndexedSeq[Long] = IndexedSeq.empty, val irProgram: Option[IrProgram] = None) {
+class T86Program(var funs: IndexedSeq[T86Fun], var data: IndexedSeq[T86ListingElement], val irProgram: Option[IrProgram] = None) {
   def flatten: T86Listing = {
     val dataSection = if(data.nonEmpty)
-      T86SectionLabel("data") +: data.map(T86DataWord)
+      T86SectionLabel("data") +: data
     else
       Seq.empty
     val textSection = T86SectionLabel("text") +: funs.flatMap(_.flatten)
