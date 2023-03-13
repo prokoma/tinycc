@@ -1,5 +1,6 @@
-package tinycc.backend
+package tinycc.common.transform
 
+import tinycc.common.ProgramTransform
 import tinycc.common.ir.{BasicBlock, IrException, IrFun, IrProgram}
 
 import scala.collection.mutable
@@ -10,12 +11,12 @@ import scala.collection.mutable
  * - the function contains no unreachable basic blocks
  * - the blocks are sorted so there is a high chance that one of the successors of each block immediately follows it
  */
-class BasicBlockScheduling extends ProgramPass[IrProgram] {
+class BasicBlockScheduling extends ProgramTransform[IrProgram] {
   override def transformProgram(program: IrProgram): Unit =
     program.funs.foreach(transformFun)
 
   def transformFun(fun: IrFun): Unit = {
-    val sortedBasicBlocks = mutable.IndexedBuffer.empty[BasicBlock]
+    val sortedBasicBlocks = IndexedSeq.newBuilder[BasicBlock]
     val visitedBlocks = mutable.Set.empty[BasicBlock]
 
     def dfs(bb: BasicBlock): Unit = {
@@ -28,7 +29,6 @@ class BasicBlockScheduling extends ProgramPass[IrProgram] {
     }
 
     dfs(fun.entryBlock)
-    fun.basicBlocks.clear()
-    fun.basicBlocks ++= sortedBasicBlocks
+    fun.basicBlocks = sortedBasicBlocks.result()
   }
 }

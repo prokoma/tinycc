@@ -170,7 +170,7 @@ trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
 class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTracking[BasicBlockRef, BasicBlock] {
   val name: String = fun.bbNameGen(_name)
 
-  val body: mutable.IndexedBuffer[Insn] = mutable.IndexedBuffer.empty[Insn]
+  var body: IndexedSeq[Insn] = IndexedSeq.empty
 
   def uniqueName: String = fun.name + "$" + name
 
@@ -193,13 +193,18 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
       throw new IrException(s"Cannot append '$insn' owned by '${insn.basicBlock.name}.'")
     if (terminator.isDefined)
       throw new IrException(s"Cannot append '$insn' to terminated block '$name' in '${fun.name}'.")
-    body.addOne(insn)
+    body = body :+ insn
     insn
   }
 
   override def validate(): Unit = {
-    body.foreach(_.validate())
+    body.foreach(insn => {
+      assert(insn.basicBlock == this, s"$insn is owned by ${insn.basicBlock}")
+      insn.validate()
+    })
     assert(terminator.isDefined, "unterminated basic block")
+    assert(terminator.get == body.last, "terminator is not the last instruction in basic block")
+    assert(body.count(_.isInstanceOf[TerminatorInsn]) == 1, "multiple terminator instructions in a basic block")
   }
 
   def releaseRefs(): Unit =
@@ -208,11 +213,11 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
   def insertInsnBefore(newInsn: Insn, mark: Insn): Insn = {
     if (newInsn.basicBlock != this)
       throw new IrException(s"Cannot insert '$newInsn' owned by '${newInsn.basicBlock.name}.'")
-    body.subtractOne(newInsn)
+    body = body.filterNot(_ == newInsn)
 
     findInsn(mark) match {
       case Some(idx) =>
-        body.insert(idx, newInsn)
+        body = body.patch(idx, Seq(newInsn), 0)
         newInsn
       case None =>
         throw new IrException(s"Invalid insertion marker '$mark' owned by '${mark.basicBlock.name}'.")
@@ -245,8 +250,9 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
     else if (insn.uses.nonEmpty)
       throw new IrException(s"Cannot remove still referenced insn '$insn'.")
 
+    insn.parentNameGen.releaseName(insn.name)
     insn.releaseRefs()
-    body.subtractOne(insn)
+    body = body.filterNot(_ == insn)
   }
 
   def replaceInsn(insn: Insn, newInsn: Insn, replaceUses: Boolean = false): Unit = {
@@ -260,7 +266,7 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
 
     insn.releaseRefs()
     val idx = findInsn(insn).get
-    body(idx) = newInsn
+    body = body.updated(idx, newInsn)
   }
 
   override def toString: String = s"BasicBlock($name, fun=$fun)"
@@ -273,7 +279,7 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
 
   val name: String = program.nameGen(_name)
 
-  val basicBlocks: mutable.IndexedBuffer[BasicBlock] = mutable.IndexedBuffer.empty
+  var basicBlocks: IndexedSeq[BasicBlock] = IndexedSeq.empty
 
   def returnTy: IrTy = signature.returnTy
 
@@ -297,7 +303,7 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
 
   def append(basicBlock: BasicBlock): BasicBlock = {
     if (!basicBlocks.contains(basicBlock))
-      basicBlocks.addOne(basicBlock)
+      basicBlocks = basicBlocks :+ basicBlock
     if (entryBlockRef.isEmpty)
       entryBlockRef(basicBlock)
     basicBlock
@@ -306,7 +312,10 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
   override def validate(): Unit = {
     if (basicBlocks.toSet.size != basicBlocks.size)
       throw new IrException(s"$this: Function contains duplicate basic blocks.")
-    basicBlocks.foreach(_.validate())
+    basicBlocks.foreach(bb => {
+      assert(bb.fun == this, s"$bb is owned by ${bb.fun}")
+      bb.validate()
+    })
     if (entryBlockRef.isEmpty)
       throw new IrException(s"Function '$name' doesn't have entry block set.")
     if (entryBlock.pred.nonEmpty)
@@ -332,17 +341,17 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
       throw new IrException(s"Cannot remove still referenced block '${basicBlock.name}'.")
 
     basicBlock.releaseRefs()
-    basicBlocks.subtractOne(basicBlock)
+    basicBlocks = basicBlocks.filterNot(_ == basicBlock)
   }
 
   def insertBlockBefore(newBlock: BasicBlock, mark: BasicBlock): BasicBlock = {
     if (newBlock.fun != this)
       throw new IrException(s"Cannot insert '$newBlock' owned by '${newBlock.fun}.'")
-    basicBlocks.subtractOne(newBlock)
+    basicBlocks = basicBlocks.filterNot(_ == newBlock)
 
     findBlock(mark) match {
       case Some(idx) =>
-        basicBlocks.insert(idx, newBlock)
+        basicBlocks = basicBlocks.patch(idx, Seq(newBlock), 0)
         newBlock
       case None =>
         throw new IrException(s"Invalid insertion marker '$mark' owned by '${mark.fun}'.")
@@ -362,7 +371,7 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
 }
 
 class IrProgram extends IrObject {
-  val funs: mutable.IndexedBuffer[IrFun] = mutable.IndexedBuffer.empty[IrFun]
+  var funs: IndexedSeq[IrFun] = IndexedSeq.empty
 
   val nameGen: NameGen = new NameGen
 
@@ -378,7 +387,7 @@ class IrProgram extends IrObject {
 
   def append(fun: IrFun): IrFun = {
     if (!funs.contains(fun))
-      funs.addOne(fun)
+      funs = funs :+ fun
     fun
   }
 
@@ -404,7 +413,7 @@ class IrProgram extends IrObject {
     else if (fun.uses.nonEmpty)
       throw new IrException(s"Cannot remove still referenced function '${fun.name}'.")
 
-    funs.subtractOne(fun)
+    funs = funs.filterNot(_ == fun)
   }
 }
 

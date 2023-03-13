@@ -1,12 +1,12 @@
 package tinycc.cli
 
 import tinycc.ProgramException
-import tinycc.backend.BasicBlockScheduling
 import tinycc.backend.t86.insel.T86InstructionSelection
 import tinycc.backend.t86.regalloc.T86RegisterAllocator
 import tinycc.backend.t86.{T86AsmPrinter, T86FunProcessor, T86LabelProcessor}
 import tinycc.common.ir.parser.IrParser
 import tinycc.common.ir.{IrPrinter, IrProgram}
+import tinycc.common.transform.{AllocOrdering, BasicBlockScheduling}
 import tinycc.frontend.TinyCCompiler
 import tinycc.frontend.analysis.{SemanticAnalysis, TypeAnalysis}
 import tinycc.frontend.ast.{AstPrinterC, AstProgram}
@@ -122,6 +122,9 @@ object Action {
       Console.err.println(new IrPrinter().printToString(irProgram))
 
       new BasicBlockScheduling().transformProgram(irProgram)
+      new AllocOrdering().transformProgram(irProgram)
+      Console.err.println(new IrPrinter().printToString(irProgram))
+
       irProgram.validate()
       val t86Program = T86InstructionSelection(irProgram).result()
       Console.err.println(new T86AsmPrinter().printToString(t86Program.flatten))
@@ -142,7 +145,7 @@ object Action {
 
   case class Compile(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
     override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
-      var startTime = System.currentTimeMillis()
+      val startTime = System.currentTimeMillis()
 
       val declarations = new SemanticAnalysis(ast).result()
       val typeMap = new TypeAnalysis(ast, declarations).result()
@@ -151,6 +154,9 @@ object Action {
       val frontendTime = System.currentTimeMillis()
 
       new BasicBlockScheduling().transformProgram(irProgram)
+      new AllocOrdering().transformProgram(irProgram)
+      Console.err.println(new IrPrinter().printToString(irProgram))
+
       irProgram.validate()
       val t86Program = T86InstructionSelection(irProgram).result()
       Console.err.println(new T86AsmPrinter().printToString(t86Program.flatten))

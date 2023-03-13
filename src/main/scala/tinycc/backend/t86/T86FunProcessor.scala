@@ -1,9 +1,9 @@
 package tinycc.backend.t86
 
-import tinycc.backend.ProgramPass
+import tinycc.common.ProgramTransform
 
 /** Insert function prologue and epilogue, remove markers. */
-class T86FunProcessor extends ProgramPass[T86Program] {
+class T86FunProcessor extends ProgramTransform[T86Program] {
 
   import tinycc.backend.t86.T86Opcode._
 
