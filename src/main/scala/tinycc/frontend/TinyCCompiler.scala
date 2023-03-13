@@ -511,8 +511,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val memcpyFun = program.funs.find(_.name == "memcpy").getOrElse(throw new TinyCCompilerException(Error, "an implementation of memcpy is required for large struct support", loc))
         if (memcpyFun.signature != IrFunSignature(IrTy.VoidTy, IndexedSeq(IrTy.PtrTy, IrTy.PtrTy, IrTy.Int64Ty)))
           throw new TinyCCompilerException(Error, "invalid memcpy function signature", loc)
-        val sizeImm = emitIImm(irTy.sizeWords)
-        emit(new CallInsn(memcpyFun, IndexedSeq(destPtr, srcPtr, sizeImm), _))
+        emit(new CallInsn(memcpyFun, IndexedSeq(destPtr, srcPtr, emit(new SizeOfInsn(irTy, _))), _))
       }
     }
 
