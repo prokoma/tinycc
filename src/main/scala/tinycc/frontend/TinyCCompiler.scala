@@ -68,6 +68,9 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     val allocMap: mutable.Map[IdentifierDecl, AllocInsn] = mutable.Map.empty
     val globalMap: mutable.Map[Symbol, AllocGInsn] = mutable.Map.empty
     val funMap: mutable.Map[Symbol, IrFun] = mutable.Map.empty
+    var curFunTyOption: Option[FunTy] = None
+
+    def curFunTy: FunTy = curFunTyOption.get
 
     /* Entry Method */
 
@@ -93,27 +96,32 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
     /* Visitor Methods */
 
-    private def compileType(ty: Types.Ty, treatArrayAsPtr: Boolean = true): IrTy = ty match {
+    /** Compile type for use in normal situations (arguments, load, store). Compiles arrays and structs as pointers. */
+    private def compileBasicType(ty: Types.Ty): IrTy = ty match {
       case Types.VoidTy => IrTy.VoidTy
       case Types.CharTy => IrTy.Int64Ty
       case Types.IntTy => IrTy.Int64Ty
       case Types.DoubleTy => IrTy.DoubleTy
       case _: Types.PtrTy => IrTy.PtrTy
 
+      case _: Types.ArrayPtrTy | _: Types.StructTy => IrTy.PtrTy
+
+      case _: Types.FunTy => throw new UnsupportedOperationException(s"Cannot compile FunTy to IR type.")
+    }
+
+    /** Compile type for use in Alloc or GetElementPtr. Compiles arrays and structs as the full types. */
+    private def compileVarType(ty: Types.Ty): IrTy = ty match {
       case Types.ArrayPtrTy(elemTy, numElem) =>
-        if(treatArrayAsPtr)
-          IrTy.PtrTy
-        else
-          IrTy.ArrayTy(compileType(elemTy, treatArrayAsPtr = false), numElem)
+          IrTy.ArrayTy(compileVarType(elemTy), numElem)
 
       case Types.StructTy(_, fieldsOption) =>
         val fieldIrTys = fieldsOption match {
-          case Some(fields) => fields.map({ case (fieldTy, _) => compileType(fieldTy, treatArrayAsPtr = false) })
+          case Some(fields) => fields.map({ case (fieldTy, _) => compileVarType(fieldTy) })
           case None => throw new UnsupportedOperationException(s"Cannot compile incomplete struct type.")
         }
         IrTy.StructTy(fieldIrTys)
 
-      case _: Types.FunTy => throw new UnsupportedOperationException(s"Cannot compile FunTy to IR type.")
+      case ty => compileBasicType(ty)
     }
 
     private def compileStmt(node: AstNode): Unit = node match {
@@ -270,13 +278,18 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       }
 
       case node: AstReturn =>
-        node.expr match {
-          case Some(v) =>
-            val retVal = compileExpr(v) // TODO: cast return value
-            emit(new RetInsn(retVal, _))
+        curFunTy.returnTy match {
+          case VoidTy => emit(new RetVoidInsn(_))
 
-          case None =>
-            emit(new RetVoidInsn(bb))
+          case returnTy: StructTy =>
+            val retStructDest = emit(new LoadArgInsn(0, _)) // first argument contains the destination pointer
+            val retStructPtr = compileExprAndCastTo(node.expr.get, curFunTy.returnTy)
+            compileStructCopy(returnTy, retStructDest, retStructPtr, node.loc)
+            emit(new RetInsn(retStructDest, _))
+
+          case _ =>
+            val retVal = compileExprAndCastTo(node.expr.get, curFunTy.returnTy)
+            emit(new RetInsn(retVal, _))
         }
         appendAndEnterBlock(new BasicBlock("unreachable", fun))
 
@@ -295,15 +308,13 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileVarDecl(node: AstVarDecl): Unit = {
-      val varIrTy = compileType(node.varTy.ty, treatArrayAsPtr = false)
+      val varTy = node.varTy.ty
+      val varIrTy = compileVarType(varTy)
 
       allocMap(VarDecl(node)) = funOption match {
         case Some(fun) if fun != entryFun => // local variable
           val alloc = emit(new AllocLInsn(varIrTy, _)).name("local_" + node.symbol.name)
-          node.value.foreach(value => {
-            val compiledValue = compileExprAndCastTo(value, node.varTy.ty)
-            emit(new StoreInsn(alloc, compiledValue, _))
-          })
+          node.value.foreach(value => compileAssignment(varTy, alloc, value, node.loc))
           alloc
 
         case Some(fun) if fun == entryFun =>
@@ -313,10 +324,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           withEntryFun({
             // globals can have forward declarations - keep track of variable names in globalMap
             val alloc = globalMap.getOrElseUpdate(node.symbol, emit(new AllocGInsn(varIrTy, Seq.empty, _)).name("global_" + node.symbol.name))
-            node.value.foreach(value => {
-              val compiledValue = compileExprAndCastTo(value, node.varTy.ty)
-              emit(new StoreInsn(alloc, compiledValue, _))
-            })
+            node.value.foreach(value => compileAssignment(varTy, alloc, value, node.loc))
             alloc
           })
       }
@@ -324,34 +332,50 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
     private def compileFunDecl(node: AstFunDecl): Unit = {
       val funTy = node.ty.asInstanceOf[FunTy]
-      val irFun = funMap.getOrElseUpdate(node.symbol, new IrFun(
-        node.symbol.name,
-        compileType(funTy.returnTy),
-        funTy.argTys.map(compileType(_)),
-        program
-      ))
+      val irFun = funMap.getOrElseUpdate(node.symbol, {
+        new IrFun(node.symbol.name, compileFunType(funTy), program)
+      })
 
       appendAndEnterFun(irFun)
+      curFunTyOption = Some(funTy)
       if (node.body.isDefined) {
         appendAndEnterBlock(new BasicBlock("entry", fun))
 
-        // Load arguments into local variables (they could be mutated later in the body.
-        node.args.zip(irFun.argTys).zipWithIndex.foreach({ case (((_, argName), argTy), index) =>
-          val alloc = emit(new AllocLInsn(argTy, _)).name(s"arg_" + argName.name)
-          emit(new StoreInsn(alloc, emit(new LoadArgInsn(index, _)), _))
+        val loadArgOffset = funTy.returnTy match {
+          case _: StructTy => 1
+          case _ => 0
+        }
+
+        // Load arguments into local variables (they could be mutated later in the body)
+        val argNames = node.args.map(_._2)
+        funTy.argTys.zip(argNames).zipWithIndex.foreach({ case ((argTy, argName), index) =>
+          val varTy = compileVarType(argTy)
+          val alloc = emit(new AllocLInsn(varTy, _)).name(s"arg_" + argName.name)
+          val argValue = emit(new LoadArgInsn(index + loadArgOffset, _))
+
+          argTy match {
+            case argTy: StructTy =>
+              // argValue contains pointer to the first field
+              compileStructCopy(argTy, alloc, argValue, node.loc)
+
+            case _ => emit(new StoreInsn(alloc, argValue, _))
+          }
+
           allocMap(FunArgDecl(node, index)) = alloc
         })
 
         node.body.foreach(compileStmt)
 
+        // TODO: run dfs on the function body and check returns
         if (funTy.returnTy == Types.VoidTy)
           emit(new RetVoidInsn(bb)) // implicit return
       }
+      curFunTyOption = None
       exitFun()
     }
 
     private def compileMemberExprPtrHelper(structPtr: Insn, structTy: StructTy, member: Symbol): Insn = {
-      val structIrTy = compileType(structTy)
+      val structIrTy = compileVarType(structTy)
       val fieldIndex = structTy match {
         case StructTy(_, Some(fields)) => fields.indexWhere(f => f._2 == member)
       }
@@ -371,7 +395,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val ptr = compileExpr(node.expr)
         val IndexableTy(baseTy) = node.expr.ty
         val index = compileExpr(node.index)
-        emit(new GetElementPtrInsn(ptr, index, compileType(baseTy, treatArrayAsPtr = false), 0, _))
+        emit(new GetElementPtrInsn(ptr, index, compileVarType(baseTy), 0, _))
 
       case node: AstMember => // .
         compileMemberExprPtrHelper(compileExprPtr(node.expr), node.expr.ty.asInstanceOf[StructTy], node.member)
@@ -386,13 +410,15 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node => throw new TinyCCompilerException(Error, s"Expression '$node' is not a l-value.", node.loc)
     }
 
+    /** Compiles the AstExpression and returns the IR instruction, which holds the result.
+     * If the result of the expression is an static array or struct, returns address of the first element/field. */
     private def compileExpr(node: AstNode): Insn = node match {
       case node: AstInteger => emitIImm(node.value)
 
       case node: AstChar => emitIImm(node.value.toLong)
 
       case node: AstString =>
-        val varIrTy = compileType(node.ty, treatArrayAsPtr = false)
+        val varIrTy = compileVarType(node.ty)
         val initData = (node.value + 0.toChar).map(_.toLong)
         emit(new AllocGInsn(varIrTy, initData, _))
 
@@ -411,16 +437,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case _: AstRead => emit(new GetCharInsn(_))
 
       case node: AstAssignment =>
-        val lvalue = compileExprPtr(node.lvalue)
-        val value = compileExprAndCastTo(node.value, node.lvalue.ty)
-        emit(new StoreInsn(lvalue, value, _))
-        value
-
-      case node: AstIdentifier => node.ty match {
-        case _: FunTy | _: ArrayPtrTy | _: StructTy => compileExprPtr(node)
-
-        case _ => emit(new LoadInsn(compileType(node.ty), compileExprPtr(node), _))
-      }
+        compileAssignment(node.lvalue.ty, compileExprPtr(node.lvalue), node.value, node.loc)
 
       case node: AstAddress => compileExprPtr(node.expr)
 
@@ -430,22 +447,73 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
             id.decl match {
               case FunDecl(decl) =>
                 val funTy = decl.ty.asInstanceOf[FunTy]
-                emit(new CallInsn(funMap(decl.symbol), compileCallArgs(funTy.argTys, c.args).toIndexedSeq, _))
+                emit(new CallInsn(funMap(decl.symbol), compileCallArgs(funTy, c.args.toIndexedSeq), _))
               case _ => throw new TinyCCompilerException(Error, "call of non-function", c.loc)
             }
 
           case fun => // indirect call
             val funTy = fun.ty.asInstanceOf[FunTy]
             val funPtr = compileExpr(fun)
-            val funSig = compileFunSignature(funTy)
-            emit(new CallPtrInsn(funSig, funPtr, compileCallArgs(funTy.argTys, c.args).toIndexedSeq, _))
+            emit(new CallPtrInsn(compileFunType(funTy), funPtr, compileCallArgs(funTy, c.args.toIndexedSeq), _))
         }
 
       case node: AstCast =>
         val expr = compileExpr(node.expr)
         compileCastFromTo(expr, node.expr.ty, node.ty, node.loc)
 
-      case node => emit(new LoadInsn(compileType(node.ty), compileExprPtr(node), _))
+      case _: AstIdentifier | _: AstMember | _: AstMemberPtr => node.ty match {
+        // for functions, return theirs address
+        // for static arrays & structs, return address of the first element/field
+        case _: FunTy | _: ArrayPtrTy | _: StructTy => compileExprPtr(node)
+
+        case _ => emit(new LoadInsn(compileBasicType(node.ty), compileExprPtr(node), _))
+      }
+
+      case node => emit(new LoadInsn(compileBasicType(node.ty), compileExprPtr(node), _))
+    }
+
+    private def compileAssignment(destTy: Types.Ty, destPtr: Insn, srcNode: AstNode, loc: SourceLocation): Insn = {
+      val value = compileExprAndCastTo(srcNode, destTy)
+      destTy match {
+        case ty: StructTy => compileStructCopy(ty, destPtr, value, loc)
+        case _ => emit(new StoreInsn(destPtr, value, _))
+      }
+      value
+    }
+
+    private def compileStructCopy(ty: Types.StructTy, destPtr: Insn, srcPtr: Insn, loc: SourceLocation): Unit = {
+      def compileSmallValueCopy(irTy: IrTy, destPtr: Insn, srcPtr: Insn): Unit = irTy match {
+        case IrTy.VoidTy =>
+        case IrTy.Int64Ty | IrTy.DoubleTy =>
+          emit(new StoreInsn(destPtr, emit(new LoadInsn(irTy, srcPtr, _)), _))
+
+        case IrTy.StructTy(fields) =>
+          fields.zipWithIndex.foreach({ case (fieldTy, fieldIndex) =>
+            val izero = emitIImm(0)
+            val destFieldPtr = emit(new GetElementPtrInsn(destPtr, izero, irTy, fieldIndex, _))
+            val srcFieldPtr = emit(new GetElementPtrInsn(srcPtr, izero, irTy, fieldIndex, _))
+            compileSmallValueCopy(fieldTy, destFieldPtr, srcFieldPtr)
+          })
+
+        case IrTy.ArrayTy(baseTy, numElem) =>
+          0.until(numElem).foreach(index => {
+            val indexImm = emitIImm(index)
+            val destFieldPtr = emit(new GetElementPtrInsn(destPtr, indexImm, baseTy, 0, _))
+            val srcFieldPtr = emit(new GetElementPtrInsn(srcPtr, indexImm, baseTy, 0, _))
+            compileSmallValueCopy(baseTy, destFieldPtr, srcFieldPtr)
+          })
+      }
+
+      val irTy = compileVarType(ty)
+      if (irTy.sizeWords <= 3)
+        compileSmallValueCopy(irTy, destPtr, srcPtr)
+      else {
+        val memcpyFun = program.funs.find(_.name == "memcpy").getOrElse(throw new TinyCCompilerException(Error, "an implementation of memcpy is required for large struct support", loc))
+        if (memcpyFun.signature != IrFunSignature(IrTy.VoidTy, IndexedSeq(IrTy.PtrTy, IrTy.PtrTy, IrTy.Int64Ty)))
+          throw new TinyCCompilerException(Error, "invalid memcpy function signature", loc)
+        val sizeImm = emitIImm(irTy.sizeWords)
+        emit(new CallInsn(memcpyFun, IndexedSeq(destPtr, srcPtr, sizeImm), _))
+      }
     }
 
     @tailrec
@@ -486,15 +554,37 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case _ => compileExprAndCastTo(expr, IntTy)
     }
 
-    private def compileFunSignature(ty: FunTy): IrFunSignature =
-      IrFunSignature(compileType(ty.returnTy), ty.argTys.map(compileType(_)))
+    private def compileFunType(ty: FunTy): IrFunSignature = {
+      val returnIrTy = compileBasicType(ty.returnTy)
+      val origArgIrTys = ty.argTys.map(compileBasicType)
 
-    private def compileCallArgs(argTys: Seq[Ty], args: Seq[AstNode]): Seq[Insn] =
-      argTys.zip(args).map({ case (ty, arg) => compileExprAndCastTo(arg, ty) })
+      val argIrTys = ty.returnTy match {
+        case _: StructTy =>
+          // pass space for the returned struct as first argument
+          returnIrTy +: origArgIrTys
+
+        case _ => origArgIrTys
+      }
+
+      IrFunSignature(returnIrTy, argIrTys)
+    }
+
+    private def compileCallArgs(ty: FunTy, args: IndexedSeq[AstNode]): IndexedSeq[Insn] = {
+      def compileOrigArgs(): IndexedSeq[Insn] = ty.argTys.zip(args).map({ case (ty, arg) => compileExprAndCastTo(arg, ty) })
+
+      ty.returnTy match {
+        case _: StructTy =>
+          // allocate space for returned struct and pass it as first argument
+          val alloc = emit(new AllocLInsn(compileVarType(ty.returnTy), _)).name(s"struct_ret")
+          alloc +: compileOrigArgs()
+
+        case _ => compileOrigArgs()
+      }
+    }
 
     private def compileIncDec(op: Symbol, expr: AstNode, isPostfix: Boolean): Insn = {
       val exprPtr = compileExprPtr(expr)
-      val oldValue = emit(new LoadInsn(compileType(expr.ty), exprPtr, _))
+      val oldValue = emit(new LoadInsn(compileBasicType(expr.ty), exprPtr, _))
       val delta = if (op == Symbols.inc) 1 else -1
 
       val newValue = expr.ty match {
@@ -508,7 +598,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
         case PtrTy(baseTy) =>
           val deltaImm = emitIImm(delta)
-          emit(new GetElementPtrInsn(oldValue, deltaImm, compileType(baseTy), 0, _))
+          emit(new GetElementPtrInsn(oldValue, deltaImm, compileVarType(baseTy), 0, _))
       }
 
       emit(new StoreInsn(exprPtr, newValue, _))
@@ -589,7 +679,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           case Symbols.add => rightInt
           case Symbols.sub => emitBinaryArith(ISub, emitIImm(0), rightInt)
         }
-        emit(new GetElementPtrInsn(left, index, compileType(baseTy), 0, _))
+        emit(new GetElementPtrInsn(left, index, compileVarType(baseTy), 0, _))
     }
 
     private def compileCmpArithmeticHelper(op: Symbol, argTy: Types.Ty, leftPromoted: Insn, rightPromoted: Insn): Insn = (op, argTy) match {

@@ -266,14 +266,18 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
   override def toString: String = s"BasicBlock($name, fun=$fun)"
 }
 
-case class IrFunSignature(returnTy: IrTy, argTys: Seq[IrTy])
+case class IrFunSignature(returnTy: IrTy, argTys: IndexedSeq[IrTy])
 
-class IrFun(val _name: String, val returnTy: IrTy, val argTys: IndexedSeq[IrTy], val program: IrProgram) extends IrObject with UseTracking[IrFunRef, IrFun] {
+class IrFun(val _name: String, val signature: IrFunSignature, val program: IrProgram) extends IrObject with UseTracking[IrFunRef, IrFun] {
+  def this(_name: String, returnTy: IrTy, argTys: IndexedSeq[IrTy], program: IrProgram) = this(_name, IrFunSignature(returnTy, argTys), program)
+
   val name: String = program.nameGen(_name)
 
   val basicBlocks: mutable.IndexedBuffer[BasicBlock] = mutable.IndexedBuffer.empty
 
-  def signature: IrFunSignature = IrFunSignature(returnTy, argTys)
+  def returnTy: IrTy = signature.returnTy
+
+  def argTys: IndexedSeq[IrTy] = signature.argTys
 
   def insns: Iterable[Insn] = basicBlocks.flatMap(_.body)
 
