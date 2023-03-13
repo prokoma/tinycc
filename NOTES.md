@@ -92,15 +92,42 @@ int foo(double x){ return x; } // definition
 
 ## TODO
 
-- binary operator in type analysis
-- arrays
-- better error reporting for parser
-- rewrite Parsers
-- IR
-- IrBuilder
-- AstToIrLowering
-- printer & parser for IR
 - extract middle end to its own jar
 - instruction selection
+  - dynamic programming
+  - memory read operands
 - register allocation
-- asm output
+  - move coalescing
+
+## Thesis outline
+
+- introduction
+
+- the tiny c toolchain
+  - tinyc c language
+  - tinyc parser
+  - tiny86
+
+- parsing
+  - LL(1)
+  - parser combinators
+    - error handling
+
+- structs & arrays
+
+- intermediate representation
+  - conversion to ssa form (phi nodes, mem2reg)
+
+- instruction selection
+  - tree tiling
+  - peepholer
+
+- register allocation
+  - graph coloring
+
+- conclusion
+  - future work
+
+- appendix
+  - ir grammar and description
+  - user guide
