@@ -1,7 +1,7 @@
 package tinycc.common
 
-abstract class ProgramTransform[T] {
-  def name: String = this.getClass.getSimpleName
+import tinycc.util.Logging
 
+abstract class ProgramTransform[T] extends Logging {
   def transformProgram(program: T): Unit
 }

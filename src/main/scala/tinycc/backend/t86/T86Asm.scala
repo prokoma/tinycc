@@ -150,6 +150,9 @@ sealed trait T86Insn extends T86ListingElement {
   def validate(): Unit = {}
 
   def operands: Seq[Operand] = Seq.empty
+
+  override def toString: String =
+    op.toString + (if(operands.nonEmpty) " " + operands.mkString(", ") else "")
 }
 
 object T86Insn {
@@ -213,6 +216,8 @@ class T86Fun(var basicBlocks: IndexedSeq[T86BasicBlock], var localsSize: Long = 
 }
 
 class T86BasicBlock(var body: IndexedSeq[T86ListingElement], val irBasicBlock: Option[BasicBlock] = None) {
+  def name: String = irBasicBlock.map(_.uniqueName).getOrElse("<anon>")
+
   def insns: Seq[T86Insn] = body.collect({ case insn: T86Insn => insn })
 
   def insnRefs: Seq[T86InsnRef] = body.zipWithIndex.collect({ case (_: T86Insn, index) => T86InsnRef(this, index) })
@@ -224,4 +229,6 @@ class T86BasicBlock(var body: IndexedSeq[T86ListingElement], val irBasicBlock: O
 
 case class T86InsnRef(bb: T86BasicBlock, index: Int) {
   def apply(): T86Insn = bb.body(index).asInstanceOf[T86Insn]
+
+  override def toString: String = s"T86InsnRef(${apply()} at #$index in ${bb.name})"
 }

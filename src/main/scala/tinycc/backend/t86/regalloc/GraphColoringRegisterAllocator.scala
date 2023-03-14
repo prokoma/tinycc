@@ -4,7 +4,7 @@ import tinycc.backend.t86.T86Opcode.MOV
 import tinycc.backend.t86._
 import tinycc.common._
 import tinycc.common.analysis.LoopAnalysis
-import tinycc.util.DSU
+import tinycc.util.{DSU, Logging}
 
 import scala.collection.mutable
 
@@ -26,7 +26,7 @@ class GraphColoringRegisterAllocator extends T86RegisterAllocator {
             uses.intersect(spilledNodes).foreach(reg => {
               val newReg = fun.freshReg()
               newRegs += newReg
-              Console.err.println(s"Spilling $reg into $newReg")
+              log(s"spilling $reg into $newReg")
               regMap += (reg -> newReg)
               newBody += T86Insn(MOV, newReg, allocMap(reg))
             })
@@ -65,6 +65,7 @@ class GraphColoringRegisterAllocator extends T86RegisterAllocator {
               newBody += T86Insn(MOV, tmpReg, allocMap(freg))
               val newFreg = fun.freshFReg()
               newRegs += newFreg
+              log(s"spilling $freg into $newFreg")
               regMap += (freg -> newFreg)
               newBody += T86Insn(MOV, newFreg, tmpReg)
             })
@@ -90,14 +91,14 @@ class GraphColoringRegisterAllocator extends T86RegisterAllocator {
 
   def transformFun(fun: T86Fun): Unit = {
     // handle float regs first, because to spill them we need regular regs because of MOV operand limitations
-    Console.err.println(s"=== Allocating FRegs for ${fun.name}")
+    log(s"allocating FRegs for ${fun.name}")
     fregRegisterAllocator.transformFun(fun)
-    Console.err.println(s"=== Allocating Regs for ${fun.name}")
+    log(s"allocating Regs for ${fun.name}")
     regRegisterAllocator.transformFun(fun)
   }
 }
 
-trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegisterAllocator[T] {
+trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegisterAllocator[T] with Logging {
 
   // backwards must dataflow analysis
   class LivenessAnalysis(cfg: T86BasicBlockCfg)
@@ -162,19 +163,15 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
       def addEdge(u: T, v: T): Unit = {
         if (u != v) {
-          if (!machineRegs.contains(u)) {
-            _adjList(u) += v
-          }
-          if (!machineRegs.contains(v)) {
-            _adjList(v) += u
-          }
+          if (!machineRegs.contains(u)) _adjList(u) += v
+          if (!machineRegs.contains(v)) _adjList(v) += u
         }
       }
 
       val _defUseCountsInLoop = mutable.Map.empty[T, Int].withDefaultValue(0)
       val _defUseCountsOutsideLoop = mutable.Map.empty[T, Int].withDefaultValue(0)
 
-//      val _liveRangeSizes = mutable.Map.empty[T, Int].withDefaultValue(0)
+      val _liveRangeSizes = mutable.Map.empty[T, Int].withDefaultValue(0)
 
       cfg.nodes.foreach(bb => {
         var live = livenessResult.getLiveOut(bb)
@@ -220,9 +217,6 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
           _regRegMoveList(temp) = Set.empty
       }
 
-//      Console.err.println(_liveRangeSizes)
-      Console.err.println(_regRegMoveInsns, _regRegMoveList)
-
       new InterferenceGraph {
         override def nodes: Set[T] = _nodes
 
@@ -232,11 +226,11 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
         override val regRegMoveList: Map[T, Set[T86InsnRef]] = _regRegMoveList.toMap
 
-        override def getDefUseCountInLoop(node: T): Int = _defUseCountsInLoop.getOrElse(node, 0)
+        override def getDefUseCountInLoop(node: T): Int = _defUseCountsInLoop(node)
 
-        override def getDefUseCountOutsideLoop(node: T): Int = _defUseCountsOutsideLoop.getOrElse(node, 0)
+        override def getDefUseCountOutsideLoop(node: T): Int = _defUseCountsOutsideLoop(node)
 
-        override def getLiveRangeSize(node: T): Int = 0
+        override def getLiveRangeSize(node: T): Int = _liveRangeSizes(node)
       }
     }
   }
@@ -345,13 +339,6 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
           (interf.getDefUseCountInLoop(node) * 10 + interf.getDefUseCountOutsideLoop(node)).toDouble / _adjList2(node).size
       })
 
-      def getSpillCost(node: T): Double = _spillCosts(node)
-////        if (interf.getLiveRangeSize(node) == 1)
-////          Double.PositiveInfinity
-//
-//
-//      }
-
       def isMoveRelated(node: T): Boolean = _regRegMoveList(node).nonEmpty
 
       def degree(node: T): Int = _adjList(node).size
@@ -370,7 +357,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
       // move moves related to these nodes from _disabledMoves to _worklistMoves
       def enableRelatedMoves(nodes: Set[T]): Unit = {
         _disabledMoves = _disabledMoves.filter(insn => {
-          val BinaryT86Insn(_, dest: T, src: T) = insn()
+          val BinaryT86Insn(_, dest: T @unchecked, src: T @unchecked) = insn()
           if (nodes.contains(dest) || nodes.contains(src)) {
             _worklistMoves += insn
             false
@@ -381,19 +368,12 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
       // removes edge u -> v from the adjacency list (we usually remove u from the graph)
       // decrements degree of adj
       def removeEdge(node: T, adj: T): Unit = {
-        Console.err.println(s"removeEdge $node $adj")
-
         if(machineRegs.contains(adj))
           return
 
         _adjList(adj) -= node // decrement degree for nodes still in graph
-//        _adjList(node) -= adj
         if (degree(adj) == K - 1) { // node has no longer a significant degree
           enableRelatedMoves(_adjList(adj) + adj)
-
-//          assert(!_spilledNodes.contains(adj))
-//          assert(!_selectStack.contains(adj))
-//          assert(!_coalescedMoves.contains(adj))
 
           _spillWorklist -= adj
           if (isMoveRelated(adj))
@@ -426,14 +406,12 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
         })
       }
 
-      Console.err.println(s"worklistMoves ${_worklistMoves}")
-
       while (_simplifyWorklist.nonEmpty || _worklistMoves.nonEmpty || _spillWorklist.nonEmpty || _freezeWorklist.nonEmpty) {
         if (_simplifyWorklist.nonEmpty) {
           val node = _simplifyWorklist.head
           _simplifyWorklist -= node
 
-          Console.err.println(s"simplify $node")
+          log(s"simplify $node")
           _selectStack ::= node // mark node for coloring
           for (adj <- _adjList(node)) {
             removeEdge(node, adj)
@@ -466,8 +444,6 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
           def addEdge(u: T, v: T): Unit = {
             if (u != v) {
-              Console.err.println(s"addEdge $u $v")
-
               if (!machineRegs.contains(u)) {
                 _adjList(u) += v
                 _adjList2(u) += v
@@ -487,8 +463,6 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
             _coalescedNodes += v // mark node as coalesced
             _aliases.union(u, v)
 
-            Console.err.println(s"Combine: $u <- $v")
-
             // copy edges
             _spillCosts(u) += _spillCosts(v)
             _regRegMoveList(u) ++= _regRegMoveList(v)
@@ -504,7 +478,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
           }
 
           val (u, v) = {
-            val BinaryT86Insn(_, dest: T, src: T) = insn()
+            val BinaryT86Insn(_, dest: T @unchecked, src: T @unchecked) = insn()
             val rDest = _aliases.find(dest)
             val rSrc = _aliases.find(src)
             if (machineRegs.contains(rDest))
@@ -519,21 +493,23 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
             addWorkList(u)
           } else if (machineRegs.contains(v) || _adjList2(v).contains(u)) {
             // registers are interfering (we don't store edges between machineRegs in _origAdjList)
+            log(s"move $insn ($u, $v) constrained")
             _constrainedMoves ::= insn
             _regRegMoveList(u) -= insn
             _regRegMoveList(v) -= insn
             addWorkList(u)
             addWorkList(v)
           } else {
-            Console.err.println(s"Move $u $v candidate for coalescing")
+            log(s"move $insn ($u, $v) candidate for coalescing")
             if (shouldCoalesce(u, v)) {
+              log(s"combine $insn ($u, $v)")
               _coalescedMoves ::= insn
               _regRegMoveList(u) -= insn
               _regRegMoveList(v) -= insn
               combine(u, v) // combines u and v to uv
               addWorkList(u)
             } else {
-              Console.err.println(s"Move $u $v disabled (too high degree)")
+              log(s"disable $insn ($u, $v)")
               _disabledMoves += insn // mark move as pending, can be enabled later by enableRelatedMoves
             }
           }
@@ -544,11 +520,10 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
           freezeMoves(node)
         } else if (_spillWorklist.nonEmpty) {
-          val node = _spillWorklist.minBy(getSpillCost)
+          val node = _spillWorklist.minBy(_spillCosts)
           _spillWorklist -= node
 
-          Console.err.println(s"Candidate for spill: $node")
-
+          log(s"candidate for spill: $node")
           _simplifyWorklist += node
           freezeMoves(node)
         }
@@ -579,6 +554,8 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
       }
     }
   }
+
+  override def name: String = "GenericGraphColoringRegisterAllocator"
 
   def remapCalleeSaveRegs(fun: T86Fun): Unit = {
     val _calleeSaveRegs = calleeSaveRegs.toSeq
@@ -619,11 +596,11 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
           // live now contains registers that can be read after this instruction
 
           if (isRegRegMove(insn)) {
-            val BinaryT86Insn(_, dest: T, src: T) = insn
+            val BinaryT86Insn(_, dest: T @unchecked, src: T @unchecked) = insn
             if (dest != src && live.contains(dest))
               newBodyReversed += insn
             else
-              Console.err.println(s"Removed redundant move $insn")
+              log(s"removed redundant $insn")
           } else {
             newBodyReversed += insn
           }
@@ -652,13 +629,10 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
     var hasSpilledNodes = false
     do {
       val interferenceGraph = InterferenceGraph(cfg, blocksInLoop)
-      interferenceGraph.adjList.foreach({ case (u, set) =>
-          Console.err.println(s"$u -> $set")
-      })
-
+      log("interfering nodes: \n" + interferenceGraph.adjList.map({ case (u, set) => s"$u -> $set" }).mkString("\n"))
 
       val coloring = InterferenceGraphColoring(interferenceGraph)
-      //      Console.err.println(s"Registers to spill: ${coloring.spilledNodes}")
+      log("registers to spill: " + coloring.spilledNodes)
 
       if (coloring.spilledNodes.nonEmpty) {
         hasSpilledNodes = true
@@ -668,7 +642,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
         remapRegistersInFun(fun, coloring.colorMap.withDefault(reg => reg))
       }
 
-      Console.err.println(new T86AsmPrinter().printToString(fun.flatten))
+//      log(new T86AsmPrinter().printToString(fun.flatten))
     } while (hasSpilledNodes)
 
     removeRedundantMoves(cfg)
