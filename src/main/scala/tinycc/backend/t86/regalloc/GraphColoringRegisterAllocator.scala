@@ -3,6 +3,7 @@ package tinycc.backend.t86.regalloc
 import tinycc.backend.t86.T86Opcode.MOV
 import tinycc.backend.t86._
 import tinycc.common._
+import tinycc.util.DSU
 
 import scala.collection.mutable
 
@@ -88,9 +89,9 @@ class GraphColoringRegisterAllocator extends T86RegisterAllocator {
 
   def transformFun(fun: T86Fun): Unit = {
     // handle float regs first, because to spill them we need regular regs because of MOV operand limitations
-    Console.err.println("FReg")
+    Console.err.println(s"=== Allocating FRegs for ${fun.name}")
     fregRegisterAllocator.transformFun(fun)
-    //    Console.err.println("Reg")
+    Console.err.println(s"=== Allocating Regs for ${fun.name}")
     regRegisterAllocator.transformFun(fun)
   }
 }
@@ -135,8 +136,6 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
   trait InterferenceGraph {
     def nodes: Set[T]
 
-    def edgeSet: Set[(T, T)]
-
     def adjList: Map[T, Set[T]]
 
     def regRegMoveInsns: Set[T86InsnRef]
@@ -155,14 +154,11 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
     def apply(cfg: T86BasicBlockCfg, livenessResult: LivenessAnalysis.Result): InterferenceGraph = {
       val _regRegMoveList = mutable.Map.empty[T, Set[T86InsnRef]].withDefaultValue(Set.empty)
       var _regRegMoveInsns = Set.empty[T86InsnRef]
-      var _edgeSet = Set.empty[(T, T)]
       val _adjList = mutable.Map.empty[T, Set[T]].withDefaultValue(Set.empty)
       var _nodes = machineRegs
 
       def addEdge(u: T, v: T): Unit = {
-        if (u != v && !_edgeSet.contains((u, v))) {
-          _edgeSet += ((u, v))
-          _edgeSet += ((v, u))
+        if (u != v) {
           if (!machineRegs.contains(u)) {
             _adjList(u) += v
           }
@@ -190,16 +186,18 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
           if (isRegRegMove(insn)) {
             // We just copy one register to another of the same type
             // The live ranges don't overlap, because if we color the temps with the same color, the move is redundant
-            live --= uses
             for (temp <- defines ++ uses) {
               _regRegMoveList(temp) += insnRef
             }
             _regRegMoveInsns += insnRef
+
+            for (l <- live -- uses; d <- defines)
+              addEdge(d, l)
+          } else {
+            for (l <- live; d <- defines)
+              addEdge(d, l)
           }
 
-          live ++= defines
-          for (l <- live; d <- defines)
-            addEdge(d, l)
           live = (live -- defines) ++ uses
 
           for (l <- live)
@@ -207,22 +205,24 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
         }
       })
 
-      for (temp <- _nodes)
-        if (!_adjList.contains(temp))
+      for (temp <- _nodes) {
+        if (!machineRegs.contains(temp) && !_adjList.contains(temp))
           _adjList(temp) = Set.empty
+        if (!_regRegMoveList.contains(temp))
+          _regRegMoveList(temp) = Set.empty
+      }
 
-      Console.err.println(_liveRangeSizes)
+//      Console.err.println(_liveRangeSizes)
+      Console.err.println(_regRegMoveInsns, _regRegMoveList)
 
       new InterferenceGraph {
         override def nodes: Set[T] = _nodes
 
-        override def edgeSet: Set[(T, T)] = _edgeSet
-
-        override def adjList: Map[T, Set[T]] = _adjList.toMap
+        override val adjList: Map[T, Set[T]] = _adjList.toMap
 
         override def regRegMoveInsns: Set[T86InsnRef] = _regRegMoveInsns
 
-        override def regRegMoveList: Map[T, Set[T86InsnRef]] = _regRegMoveList.toMap
+        override val regRegMoveList: Map[T, Set[T86InsnRef]] = _regRegMoveList.toMap
 
         override def getDefUseCount(node: T): Int = _defUseCounts(node)
 
@@ -238,19 +238,94 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
   }
 
   object InterferenceGraphColoring {
+//    sealed trait NodeWorklist
+//
+//    object NodeWorklist {
+//      case object Initial extends NodeWorklist
+//      case object Simplify extends NodeWorklist
+//      case object Freeze extends NodeWorklist
+//      case object SelectStack extends NodeWorklist
+//      case object SpilledNodes extends NodeWorklist
+//      case object CoalescedNodes extends NodeWorklist
+//    }
+//
+//    class NodeWorklistSet(var initial: Set[T]) {
+//      import NodeWorklist._
+//
+//      val curWorklist: mutable.Map[T, NodeWorklist] = mutable.Map.from(initial.map(node => node -> Initial))
+//
+//      var simplify = List.empty[T]
+//      var freeze = List.empty[T]
+//      var spill = List.empty[T]
+//      var selectStack = List.empty[T]
+//      var spilledNodes = List.empty[T]
+//      var coalescedNodes = List.empty[T]
+//
+//      private def isInWorklistSlow(node: T, worklist: NodeWorklist): Boolean = worklist match {
+//        case Initial => initial.contains(node)
+//        case Simplify => simplify.contains(node)
+//        case Freeze => freeze.contains(node)
+//        case SelectStack => selectStack.contains(node)
+//        case SpilledNodes => spilledNodes.contains(node)
+//        case CoalescedNodes => coalescedNodes.contains(node)
+//      }
+//
+//      @inline
+//      def isInWorklist(node: T, worklist: NodeWorklist): Boolean = curWorklist(node) == worklist
+//
+//      def addToWorklist(node: T, worklist: NodeWorklist): Unit = {
+//        if(curWorklist(node) == worklist)
+//          return
+//
+//        assert(!isInWorklistSlow(node, curWorklist(node)), s"$node was not removed from ${curWorklist(node)}")
+//        curWorklist(node) = worklist
+//
+//        worklist match {
+//          case Initial => initial ::= node
+//          case Simplify => simplify ::= node
+//          case Freeze => freeze ::= node
+//          case SelectStack => selectStack ::= node
+//          case SpilledNodes => spilledNodes ::= node
+//          case CoalescedNodes => coalescedNodes ::= node
+//        }
+//      }
+//
+//      def popWorklist(worklist: NodeWorklist): Unit = worklist match {
+//        case Initial =>
+//        case Simplify =>
+//        case Freeze =>
+//        case SelectStack =>
+//        case SpilledNodes =>
+//        case CoalescedNodes =>
+//      }
+//    }
+
     def apply(interf: InterferenceGraph): InterferenceGraphColoring = {
-      var _selectStack = List.empty[T]
-      var _simplifyWorklist = List.empty[T]
+      val K = machineRegs.size
 
-      var _spillWorklist = Set.empty[T]
-      var _spilledNodes = Set.empty[T]
-
+      // mutually exclusive sets of nodes
       var _initial = interf.nodes -- machineRegs // set of nodes excluding precolored nodes
-      val _origAdjList = interf.adjList
-      val _adjList = mutable.Map.from(_origAdjList)
-      val _regRegMoveList = interf.regRegMoveList
+      var _simplifyWorklist = Set.empty[T]
+      var _freezeWorklist = Set.empty[T]
+      var _spillWorklist = Set.empty[T]
+      var _selectStack = List.empty[T] // removed from graph
+      var _spilledNodes = Set.empty[T] // removed from graph
+      var _coalescedNodes = Set.empty[T] // removed from graph
 
-      def isMoveRelated(node: T): Boolean = _regRegMoveList.contains(node)
+      // mutually exclusive sets of MOV Rx, Ry
+      var _worklistMoves = interf.regRegMoveInsns
+      var _disabledMoves = Set.empty[T86InsnRef]
+      var _coalescedMoves = List.empty[T86InsnRef] // removed from graph
+      var _constrainedMoves = List.empty[T86InsnRef] // removed from graph
+      var _frozenMoves = Set.empty[T86InsnRef] // removed from graph
+
+      val _aliases = new DSU[T] // aliases for coalesced nodes
+
+      val _origAdjList = interf.adjList
+
+      // adjacency list for nodes currently in the graph (_initial ++ _simplifyWorklist ++ _freezeWorklist ++ _spillWorklist)
+      val _adjList = mutable.Map.from(_origAdjList)
+      val _regRegMoveList = mutable.Map.from(interf.regRegMoveList)
 
       def getSpillCost(node: T): Double = {
         if (interf.getLiveRangeSize(node) == 1)
@@ -259,39 +334,195 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
           interf.getDefUseCount(node) / _origAdjList(node).size
       }
 
+      def isMoveRelated(node: T): Boolean = _regRegMoveList(node).nonEmpty
+
+      def degree(node: T): Int = _adjList(node).size
+
+      // sort nodes from _initial into worklists
       for (node <- _initial) {
-        if (_adjList(node).size >= machineRegs.size)
+        if (degree(node) >= K)
           _spillWorklist += node
-        //        else if(isMoveRelated(node))
-        //          freezeWorklist ::= node
+        else if (isMoveRelated(node))
+          _freezeWorklist += node
         else
-          _simplifyWorklist ::= node
+          _simplifyWorklist += node
       }
       _initial = Set.empty
 
-      while (_simplifyWorklist.nonEmpty || _spillWorklist.nonEmpty) {
+      // move moves related to these nodes from _disabledMoves to _worklistMoves
+      def enableRelatedMoves(nodes: Set[T]): Unit = {
+        _disabledMoves = _disabledMoves.filter(insn => {
+          val BinaryT86Insn(_, dest: T, src: T) = insn()
+          if (nodes.contains(dest) || nodes.contains(src)) {
+            _worklistMoves += insn
+            false
+          } else true
+        })
+      }
+
+      // removes edge u -> v from the adjacency list (we usually remove u from the graph)
+      // decrements degree of adj
+      def removeEdge(node: T, adj: T): Unit = {
+        if(machineRegs.contains(adj))
+          return
+
+        _adjList(adj) -= node // decrement degree for nodes still in graph
+//        _adjList(node) -= adj
+        if (degree(adj) == K - 1) { // node has no longer a significant degree
+          enableRelatedMoves(_adjList(adj) + adj)
+
+//          assert(!_spilledNodes.contains(adj))
+//          assert(!_selectStack.contains(adj))
+//          assert(!_coalescedMoves.contains(adj))
+
+          _spillWorklist -= adj
+          if (isMoveRelated(adj))
+            _freezeWorklist += adj
+          else
+            _simplifyWorklist += adj
+        }
+      }
+
+      def freezeMoves(node: T): Unit = {
+        val u = _aliases.find(node)
+        _regRegMoveList(node).foreach(insn => {
+          val v = {
+            val BinaryT86Insn(_, dest: T, src: T) = insn()
+            val rDest = _aliases.find(dest)
+            if (rDest == u)
+              _aliases.find(src)
+            else
+              rDest
+          }
+
+          _disabledMoves -= insn
+          _regRegMoveList(u) -= insn
+          _regRegMoveList(v) -= insn
+          _frozenMoves += insn
+          if (_freezeWorklist.contains(v) && !isMoveRelated(v)) {
+            _freezeWorklist -= v
+            _simplifyWorklist += v
+          }
+        })
+      }
+
+      Console.err.println(s"worklistMoves ${_worklistMoves}")
+
+      while (_simplifyWorklist.nonEmpty || _worklistMoves.nonEmpty || _spillWorklist.nonEmpty || _freezeWorklist.nonEmpty) {
         if (_simplifyWorklist.nonEmpty) {
           val node = _simplifyWorklist.head
-          _simplifyWorklist = _simplifyWorklist.tail
+          _simplifyWorklist -= node
 
           _selectStack ::= node // mark node for coloring
           for (adj <- _adjList(node)) {
-            _adjList(adj) -= node // decrement degree
-            if (_adjList(adj).size == machineRegs.size) { // this condition ensures that there are no dupes in _simplifyWorklist
-              _spillWorklist -= adj
-              //            if(isMoveRelated(adj))
-              //              freezeWorklist ::= adj
-              //            else
-              _simplifyWorklist ::= adj
+            removeEdge(node, adj)
+          }
+        } else if (_worklistMoves.nonEmpty) {
+          val insn = _worklistMoves.head
+          _worklistMoves -= insn
+
+          def addWorkList(node: T): Unit = {
+            if (!machineRegs.contains(node) && !isMoveRelated(node) && degree(node) < K) {
+              _freezeWorklist -= node
+              _simplifyWorklist += node
             }
           }
+
+          def shouldCoalesce(u: T, v: T): Boolean = {
+            if (machineRegs.contains(u)) { // u is machine reg, but v is not machine reg
+              _adjList(v).forall(adj => { // George
+                machineRegs.contains(adj) || {
+                  val tmp = _adjList(adj)
+                  tmp.size < K || tmp.contains(u)
+                }
+              })
+            } else { // both are not machine regs
+              // Briggs
+              (_adjList(u) ++ _adjList(v)).count(adj => machineRegs.contains(adj) || degree(adj) >= K) < K // after coalesce, number of nodes with significant degree is < K
+              // machineRegs.contains(adj) implies that degree(adj) >= K (K-1 remaining machineRegs + u + v)
+            }
+          }
+
+          def addEdge(u: T, v: T): Unit = {
+            if (u != v) {
+              if (!machineRegs.contains(u))
+                _adjList(u) += v
+              if (!machineRegs.contains(v))
+                _adjList(v) += u
+            }
+          }
+
+          def combine(u: T, v: T): Unit = {
+            // if we combine precolored and non-precolored nodes, we need to keep the precolored one (u) in the graph
+            // remove v from the graph
+            _freezeWorklist -= v
+            _spillWorklist -= v
+            _coalescedNodes += v // mark node as coalesced
+            _aliases.union(u, v)
+
+            Console.err.println(s"Combine: $u <- $v")
+
+            // copy edges
+            _regRegMoveList(u) ++= _regRegMoveList(v)
+            enableRelatedMoves(Set(v))
+            _adjList(v).foreach(adj => {
+              addEdge(u, adj)
+              removeEdge(v, adj)
+            })
+            if (_freezeWorklist.contains(u) && degree(u) >= K) {
+              _freezeWorklist -= u
+              _spillWorklist += u
+            }
+          }
+
+          val (u, v) = {
+            val BinaryT86Insn(_, dest: T, src: T) = insn()
+            val rDest = _aliases.find(dest)
+            val rSrc = _aliases.find(src)
+            if (machineRegs.contains(rDest))
+              (rDest, rSrc)
+            else (rSrc, rDest)
+          }
+
+          if (u == v) {
+            _coalescedMoves ::= insn
+            _regRegMoveList(u) -= insn
+            _regRegMoveList(v) -= insn
+            addWorkList(u)
+          } else if (machineRegs.contains(v) || _origAdjList(v).contains(u) || _adjList(v).contains(u)) {
+            // registers are interfering (we don't store edges between machineRegs in _origAdjList)
+            _constrainedMoves ::= insn
+            _regRegMoveList(u) -= insn
+            _regRegMoveList(v) -= insn
+            addWorkList(u)
+            addWorkList(v)
+          } else {
+            Console.err.println(s"Move $u $v candidate for coalescing")
+            if (shouldCoalesce(u, v)) {
+              _coalescedMoves ::= insn
+              _regRegMoveList(u) -= insn
+              _regRegMoveList(v) -= insn
+              combine(u, v) // combines u and v to uv
+              addWorkList(u)
+            } else {
+              Console.err.println(s"Move $u $v disabled (too high degree)")
+              _disabledMoves += insn // mark move as pending, can be enabled later by enableRelatedMoves
+            }
+          }
+        } else if (_freezeWorklist.nonEmpty) {
+          val node = _freezeWorklist.head
+          _freezeWorklist -= node
+          _simplifyWorklist += node
+
+          freezeMoves(node)
         } else if (_spillWorklist.nonEmpty) {
           val node = _spillWorklist.minBy(getSpillCost)
           _spillWorklist -= node
 
           Console.err.println(s"Candidate for spill: $node")
 
-          _simplifyWorklist ::= node
+          _simplifyWorklist += node
+          freezeMoves(node)
         }
       }
 
@@ -299,7 +530,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
       for (node <- _selectStack) {
         var okColors = machineRegs
         for (adj <- _origAdjList(node)) {
-          _colorMap.get(adj).foreach(color => okColors -= color)
+          _colorMap.get(_aliases.find(adj)).foreach(color => okColors -= color)
         }
         if (okColors.isEmpty) {
           _spilledNodes += node
@@ -307,6 +538,10 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
           val newColor = okColors.head
           _colorMap(node) = newColor
         }
+      }
+
+      for (node <- _coalescedNodes) {
+        _colorMap(node) = _colorMap(_aliases.find(node))
       }
 
       new InterferenceGraphColoring {
@@ -387,13 +622,14 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
     var hasSpilledNodes = false
     do {
-//      Console.err.println(new T86AsmPrinter().printToString(fun.flatten))
-
       val interferenceGraph = InterferenceGraph(cfg)
-      //      Console.err.println(s"Interfering registers for ${fun.irFun.get.name}: ${interferenceGraph.edgeSet}")
+      interferenceGraph.adjList.foreach({ case (u, set) =>
+          Console.err.println(s"$u -> $set")
+      })
+
 
       val coloring = InterferenceGraphColoring(interferenceGraph)
-//      Console.err.println(s"Registers to spill: ${coloring.spilledNodes}")
+      //      Console.err.println(s"Registers to spill: ${coloring.spilledNodes}")
 
       if (coloring.spilledNodes.nonEmpty) {
         hasSpilledNodes = true
@@ -402,6 +638,8 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
         hasSpilledNodes = false
         remapRegistersInFun(fun, coloring.colorMap.withDefault(reg => reg))
       }
+
+      Console.err.println(new T86AsmPrinter().printToString(fun.flatten))
     } while (hasSpilledNodes)
 
     removeRedundantMoves(cfg)

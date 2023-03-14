@@ -12,9 +12,9 @@ object T86Utils {
     })
   }
 
-  val machineRegCount: Int = 32
+  val machineRegCount: Int = 4
 
-  val machineFRegCount: Int = 8
+  val machineFRegCount: Int = 5
 
   val machineRegs: Set[Operand.Reg] = 0.until(machineRegCount).map(Operand.BasicReg(_)).toSet
 

@@ -145,7 +145,7 @@ trait T86RegRegisterAllocator extends T86GenericRegisterAllocator[Operand.Reg] {
 
   /** Returns true for MOV Rx, Ry where Rx and Ry are members of [[machineRegs]]. */
   override def isRegRegMove(insn: T86Insn): Boolean = insn match {
-    case BinaryT86Insn(MOV, r1: Operand.Reg, r2: Operand.Reg) if machineRegs.contains(r1) && machineRegs.contains(r2) => true
+    case BinaryT86Insn(MOV, r1: Operand.Reg, r2: Operand.Reg) if !ignoredRegs.contains(r1) && !ignoredRegs.contains(r2) => true
     case _ => false
   }
 
@@ -231,7 +231,7 @@ trait T86FRegRegisterAllocator extends T86GenericRegisterAllocator[Operand.FReg]
 
   /** Returns true for MOV Rx, Ry where Rx and Ry are members of [[machineRegs]]. */
   override def isRegRegMove(insn: T86Insn): Boolean = insn match {
-    case BinaryT86Insn(MOV, r1: Operand.FReg, r2: Operand.FReg) if machineRegs.contains(r1) && machineRegs.contains(r2) => true
+    case BinaryT86Insn(MOV, r1: Operand.FReg, r2: Operand.FReg) if !ignoredRegs.contains(r1) && !ignoredRegs.contains(r2) => true
     case _ => false
   }
 

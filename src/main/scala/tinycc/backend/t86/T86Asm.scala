@@ -186,9 +186,15 @@ class T86Program(var funs: IndexedSeq[T86Fun], var data: IndexedSeq[T86ListingEl
 }
 
 class T86Fun(var basicBlocks: IndexedSeq[T86BasicBlock], var localsSize: Long = 0, var nextReg: Long = 0, var nextFreg: Long = 0, val irFun: Option[IrFun] = None) {
+  def name: String = irFun.map(_.name).getOrElse("<anon>")
+
   def insns: Seq[T86Insn] = basicBlocks.flatMap(_.insns)
 
-  def flatten: T86Listing = basicBlocks.flatMap(_.flatten)
+  def flatten: T86Listing = (
+    Seq(T86Comment(""), T86Comment(s"=== FUNCTION $name START ==="), T86Comment("")) ++
+    basicBlocks.flatMap(_.flatten) ++
+    Seq(T86Comment(""), T86Comment(s"=== FUNCTION $name END ==="), T86Comment(""))
+  )
 
   def freshReg(): Operand.Reg = {
     nextReg += 1
