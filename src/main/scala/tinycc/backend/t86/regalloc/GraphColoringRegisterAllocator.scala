@@ -3,6 +3,7 @@ package tinycc.backend.t86.regalloc
 import tinycc.backend.t86.T86Opcode.MOV
 import tinycc.backend.t86._
 import tinycc.common._
+import tinycc.common.analysis.LoopAnalysis
 import tinycc.util.DSU
 
 import scala.collection.mutable
@@ -142,16 +143,18 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
     def regRegMoveList: Map[T, Set[T86InsnRef]]
 
-    def getDefUseCount(node: T): Int
+    def getDefUseCountInLoop(node: T): Int
+
+    def getDefUseCountOutsideLoop(node: T): Int
 
     def getLiveRangeSize(node: T): Int
   }
 
   object InterferenceGraph {
-    def apply(cfg: T86BasicBlockCfg): InterferenceGraph =
-      apply(cfg, new LivenessAnalysis(cfg).result())
+    def apply(cfg: T86BasicBlockCfg, blocksInLoop: Set[T86BasicBlock]): InterferenceGraph =
+      apply(cfg, new LivenessAnalysis(cfg).result(), blocksInLoop)
 
-    def apply(cfg: T86BasicBlockCfg, livenessResult: LivenessAnalysis.Result): InterferenceGraph = {
+    def apply(cfg: T86BasicBlockCfg, livenessResult: LivenessAnalysis.Result, blocksInLoop: Set[T86BasicBlock]): InterferenceGraph = {
       val _regRegMoveList = mutable.Map.empty[T, Set[T86InsnRef]].withDefaultValue(Set.empty)
       var _regRegMoveInsns = Set.empty[T86InsnRef]
       val _adjList = mutable.Map.empty[T, Set[T]].withDefaultValue(Set.empty)
@@ -168,19 +171,24 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
         }
       }
 
-      val _defUseCounts = mutable.Map.empty[T, Int].withDefaultValue(0)
-      val _liveRangeSizes = mutable.Map.empty[T, Int].withDefaultValue(0)
+      val _defUseCountsInLoop = mutable.Map.empty[T, Int].withDefaultValue(0)
+      val _defUseCountsOutsideLoop = mutable.Map.empty[T, Int].withDefaultValue(0)
+
+//      val _liveRangeSizes = mutable.Map.empty[T, Int].withDefaultValue(0)
 
       cfg.nodes.foreach(bb => {
         var live = livenessResult.getLiveOut(bb)
-        val inLoop = cfg.isInLoop(bb)
+        val inLoop = blocksInLoop.contains(bb)
 
         for ((insn, insnRef) <- bb.insnsWithRefs.reverse) {
           val DefUse(defines, uses) = getInsnDefUse(insn)
           _nodes ++= defines ++ uses
 
           (defines ++ uses).foreach(node => {
-            _defUseCounts(node) = _defUseCounts(node) + (if (inLoop) 10 else 1)
+            if(inLoop)
+              _defUseCountsInLoop(node) += 1
+            else
+              _defUseCountsOutsideLoop(node) += 1
           })
 
           if (isRegRegMove(insn)) {
@@ -200,8 +208,8 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
           live = (live -- defines) ++ uses
 
-          for (l <- live)
-            _liveRangeSizes(l) = _liveRangeSizes(l) + 1
+//          for (l <- live)
+//            _liveRangeSizes(l) = _liveRangeSizes(l) + 1
         }
       })
 
@@ -224,9 +232,11 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
         override val regRegMoveList: Map[T, Set[T86InsnRef]] = _regRegMoveList.toMap
 
-        override def getDefUseCount(node: T): Int = _defUseCounts(node)
+        override def getDefUseCountInLoop(node: T): Int = _defUseCountsInLoop.getOrElse(node, 0)
 
-        override def getLiveRangeSize(node: T): Int = _liveRangeSizes(node)
+        override def getDefUseCountOutsideLoop(node: T): Int = _defUseCountsOutsideLoop.getOrElse(node, 0)
+
+        override def getLiveRangeSize(node: T): Int = 0
       }
     }
   }
@@ -321,18 +331,26 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
       val _aliases = new DSU[T] // aliases for coalesced nodes
 
-      val _origAdjList = interf.adjList
-
-      // adjacency list for nodes currently in the graph (_initial ++ _simplifyWorklist ++ _freezeWorklist ++ _spillWorklist)
-      val _adjList = mutable.Map.from(_origAdjList)
+      /** Adjacency list containing edges currently in the graph. Defined for nodes in (_initial ++ _simplifyWorklist ++ _freezeWorklist ++ _spillWorklist). */
+      val _adjList = mutable.Map.from(interf.adjList)
       val _regRegMoveList = mutable.Map.from(interf.regRegMoveList)
 
-      def getSpillCost(node: T): Double = {
-        if (interf.getLiveRangeSize(node) == 1)
+      /** Adjacency list containing edges that are or sometime have been in the graph. */
+      val _adjList2 = mutable.Map.from(interf.adjList)
+
+      val _spillCosts = mutable.Map.empty[T, Double].withDefault(node => {
+        if(machineRegs.contains(node))
           Double.PositiveInfinity
         else
-          interf.getDefUseCount(node) / _origAdjList(node).size
-      }
+          (interf.getDefUseCountInLoop(node) * 10 + interf.getDefUseCountOutsideLoop(node)).toDouble / _adjList2(node).size
+      })
+
+      def getSpillCost(node: T): Double = _spillCosts(node)
+////        if (interf.getLiveRangeSize(node) == 1)
+////          Double.PositiveInfinity
+//
+//
+//      }
 
       def isMoveRelated(node: T): Boolean = _regRegMoveList(node).nonEmpty
 
@@ -363,6 +381,8 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
       // removes edge u -> v from the adjacency list (we usually remove u from the graph)
       // decrements degree of adj
       def removeEdge(node: T, adj: T): Unit = {
+        Console.err.println(s"removeEdge $node $adj")
+
         if(machineRegs.contains(adj))
           return
 
@@ -413,6 +433,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
           val node = _simplifyWorklist.head
           _simplifyWorklist -= node
 
+          Console.err.println(s"simplify $node")
           _selectStack ::= node // mark node for coloring
           for (adj <- _adjList(node)) {
             removeEdge(node, adj)
@@ -445,10 +466,16 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
           def addEdge(u: T, v: T): Unit = {
             if (u != v) {
-              if (!machineRegs.contains(u))
+              Console.err.println(s"addEdge $u $v")
+
+              if (!machineRegs.contains(u)) {
                 _adjList(u) += v
-              if (!machineRegs.contains(v))
+                _adjList2(u) += v
+              }
+              if (!machineRegs.contains(v)) {
                 _adjList(v) += u
+                _adjList2(v) += u
+              }
             }
           }
 
@@ -463,6 +490,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
             Console.err.println(s"Combine: $u <- $v")
 
             // copy edges
+            _spillCosts(u) += _spillCosts(v)
             _regRegMoveList(u) ++= _regRegMoveList(v)
             enableRelatedMoves(Set(v))
             _adjList(v).foreach(adj => {
@@ -489,7 +517,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
             _regRegMoveList(u) -= insn
             _regRegMoveList(v) -= insn
             addWorkList(u)
-          } else if (machineRegs.contains(v) || _origAdjList(v).contains(u) || _adjList(v).contains(u)) {
+          } else if (machineRegs.contains(v) || _adjList2(v).contains(u)) {
             // registers are interfering (we don't store edges between machineRegs in _origAdjList)
             _constrainedMoves ::= insn
             _regRegMoveList(u) -= insn
@@ -529,7 +557,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
       val _colorMap = mutable.Map.from(machineRegs.map(r => (r -> r)))
       for (node <- _selectStack) {
         var okColors = machineRegs
-        for (adj <- _origAdjList(node)) {
+        for (adj <- _adjList2(node)) {
           _colorMap.get(_aliases.find(adj)).foreach(color => okColors -= color)
         }
         if (okColors.isEmpty) {
@@ -619,10 +647,11 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
     remapCalleeSaveRegs(fun)
 
     val cfg = T86BasicBlockCfg(fun)
+    val blocksInLoop = new LoopAnalysis(cfg).result()
 
     var hasSpilledNodes = false
     do {
-      val interferenceGraph = InterferenceGraph(cfg)
+      val interferenceGraph = InterferenceGraph(cfg, blocksInLoop)
       interferenceGraph.adjList.foreach({ case (u, set) =>
           Console.err.println(s"$u -> $set")
       })
