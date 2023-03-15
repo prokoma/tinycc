@@ -1,11 +1,10 @@
 package tinycc.frontend.analysis
 
-import munit.FunSuite
-import tinycc.frontend.ast.{AstBlock, AstFunDecl, AstNamedType, AstVarDecl}
-import tinycc.frontend.parser.{Symbols, TinyCParser}
-import tinycc.util.parsing.SourceLocation
+import org.scalatest.funsuite.AnyFunSuite
+import tinycc.frontend.analysis.IdentifierDecl.VarDecl
+import tinycc.frontend.parser.TinyCParser
 
-class SemanticAnalysisTest extends FunSuite {
+class SemanticAnalysisTest extends AnyFunSuite {
   test("basic") {
     val ast = TinyCParser.parseProgram(
       """
@@ -16,12 +15,8 @@ class SemanticAnalysisTest extends FunSuite {
         |}
         |""".stripMargin)
 
-    val res = new SemanticAnalysis(ast).result
-    val decls = res.getOrElse(Map.empty)
-    val errors = res.left.getOrElse(Seq.empty)
-
-    assert(errors.isEmpty)
-    assertEquals(decls.size, 2)
+    val decls = new SemanticAnalysis(ast).result()
+    assert(decls.size == 2)
   }
 
   test("undeclared identifier") {
@@ -34,13 +29,11 @@ class SemanticAnalysisTest extends FunSuite {
         |}
         |""".stripMargin)
 
-    val res = new SemanticAnalysis(ast).result
-    val decls = res.getOrElse(Map.empty)
-    val errors = res.left.getOrElse(Seq.empty)
-
-    assert(decls.isEmpty)
-    assertEquals(errors.size, 1)
-    assertEquals(errors.head.getMessage, "identifier 'c' undeclared")
+    val caught = intercept[SemanticAnalysisException]({
+      new SemanticAnalysis(ast).result()
+    })
+    assert(caught.messages.size == 1)
+    assert(caught.messages.head.message == "semantic analysis: identifier 'c' undeclared")
   }
 
   test("scopes") {
@@ -58,12 +51,8 @@ class SemanticAnalysisTest extends FunSuite {
         |}
         |""".stripMargin)
 
-    val res = new SemanticAnalysis(ast).result
-    val decls = res.getOrElse(Map.empty)
-    val errors = res.left.getOrElse(Seq.empty)
-
-    assert(errors.isEmpty)
-    assertEquals(decls.size, 4)
+    val decls = new SemanticAnalysis(ast).result()
+    assert(decls.size == 4)
 
     val fooDecl = decls.collectFirst({ case (id, decl) if id.symbol.name == "foo" => decl })
     assert(fooDecl.isDefined)

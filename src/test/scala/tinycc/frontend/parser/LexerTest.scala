@@ -1,37 +1,49 @@
-package tinycc.frontend
+package tinycc.frontend.parser
 
-import tinycc.frontend.parser.{Lexer, Symbols}
+import org.scalatest.funsuite.AnyFunSuite
+import tinycc.util.parsing.ParserException
 
-class LexerTest extends munit.FunSuite {
+class LexerTest extends AnyFunSuite {
+
+  import Lexer.Token._
+  import Lexer.tokenize
+
   test("empty") {
-    val ti = new Lexer.TokenReader("")
-    assert(ti.isEmpty)
+    val tokens = tokenize("")
+    assert(tokens == Seq())
   }
 
   test("whitespace") {
-    val ti = new Lexer.TokenReader("    /* test */ // test\r\n   //test\n/********bla**/    \t\r\n")
-    assert(ti.isEmpty)
+    val tokens = tokenize("    /* test */ // test\r\n   //test\n/********bla**/    \t\r\n")
+    assert(tokens == Seq())
+  }
+
+  test("unclosed comment") {
+    assertThrows[ParserException](tokenize(" test /* another test"))
+    assertThrows[ParserException](tokenize(" test /* "))
+    assertThrows[ParserException](tokenize(" test /*"))
   }
 
   test("int literal") {
-    val ti = new Lexer.TokenReader(" 100 010 10000 9999 123")
-    assertEquals(ti.iterator.toSeq, Seq(IntLiteral(100), IntLiteral(10), IntLiteral(10000), IntLiteral(9999), IntLiteral(123)))
+    val tokens = tokenize(" 100 010 10000 9999 123")
+    assert(tokens == Seq(IntLiteral(100), IntLiteral(10), IntLiteral(10000), IntLiteral(9999), IntLiteral(123)))
   }
 
   test("double literal") {
-    val ti = new Lexer.TokenReader(" 1.012 32.12")
-    assertEquals(ti.iterator.toSeq, Seq(DoubleLiteral(1.012), DoubleLiteral(32.12)))
+    val tokens = tokenize(" 1.012 32.12")
+    assert(tokens == Seq(DoubleLiteral(1.012), DoubleLiteral(32.12)))
   }
 
   test("string literals") {
     val singleQuote = '\''
     val doubleQuote = '\"'
 
-    val ti = new Lexer.TokenReader(
+    val tokens = tokenize(
       """'a' '\rbc' '\'"\\' // comment
         |"fdafda\"rest'd"
         |""".stripMargin)
-    assertEquals(ti.iterator.toSeq, Seq(
+
+    assert(tokens == Seq(
       StringLiteral("a", singleQuote),
       StringLiteral("\rbc", singleQuote),
       StringLiteral("'\"\\", singleQuote),
@@ -40,7 +52,7 @@ class LexerTest extends munit.FunSuite {
   }
 
   test("mixed") {
-    val scanner = new Lexer.TokenReader(
+    val tokens = tokenize(
       """
         |/** function which adds two numbers */
         |int add(int a, int b) {
@@ -54,7 +66,7 @@ class LexerTest extends munit.FunSuite {
         |}
         |""".stripMargin)
 
-    assertEquals(scanner.iterator.toSeq, Seq(
+    assert(tokens == Seq(
       Special(Symbols.kwInt),
       Identifier(Symbol("add")),
       Special(Symbols.parOpen),

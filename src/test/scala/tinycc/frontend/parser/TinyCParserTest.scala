@@ -1,16 +1,18 @@
-package tinycc.frontend
+package tinycc.frontend.parser
 
-import munit.FunSuite
-import tinycc.frontend.parser.TinyCParser
+import org.scalatest.funsuite.AnyFunSuite
 
-class TinyCParserTest extends FunSuite {
+class TinyCParserTest extends AnyFunSuite {
+
+  import TinyCParser.parseProgram
+
   test("empty") {
-    val ast = TinyCParser.parseProgram("")
-    println(ast)
+    val ast = parseProgram("")
+    assert(ast.body.isEmpty)
   }
 
   test("simple") {
-    val ast = TinyCParser.parseProgram(
+    parseProgram(
       """
         |int main() {
         |  return 0;
@@ -19,13 +21,10 @@ class TinyCParserTest extends FunSuite {
         |  return 0;
         |}
         |""".stripMargin)
-
-    println(ast, ast.body)
-
   }
 
   test("multiple decls") {
-    val ast = TinyCParser.parseProgram(
+    parseProgram(
       """
         |/** function which adds two numbers */
         |int add(int a, int b) {
@@ -38,9 +37,6 @@ class TinyCParserTest extends FunSuite {
         |  return 0;
         |}
         |""".stripMargin)
-
-    println(ast)
   }
-
 }
 
