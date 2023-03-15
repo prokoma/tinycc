@@ -109,11 +109,11 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
     type NodeState = Set[T] // set of live-in variables for a basic block
 
-    override def nodeStateLattice: Lattice[NodeState] = Lattice.powersetLat(???)
+    override def nodeStateLattice: Lattice[NodeState] = Lattice.lazyPowersetLattice(throw new UnsupportedOperationException())
 
     override def cfgNodes: Seq[T86BasicBlock] = cfg.nodes
 
-    private val bbDefUse: Map[CfgNode, DefUse] = cfg.nodes.map(bb => bb -> getBasicBlockDefUse(bb)).toMap
+    private val bbDefUse: Map[Node, DefUse] = cfg.nodes.map(bb => bb -> getBasicBlockDefUse(bb)).toMap
 
     /** Returns live-in variables for this basic block. */
     override def transfer(bb: T86BasicBlock, liveOutVars: Set[T]): Set[T] = {

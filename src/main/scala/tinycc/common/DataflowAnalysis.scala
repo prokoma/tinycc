@@ -1,9 +1,11 @@
 package tinycc.common
 
+import tinycc.common.Lattice.MapLattice
+
 import scala.collection.mutable
 
 trait Lattice[T] {
-  type Inst = T
+  type Elem = T
 
   def top: T
 
@@ -17,83 +19,84 @@ trait Lattice[T] {
 }
 
 object Lattice {
-  def powersetLat[T](domain: => Set[T]): Lattice[Set[T]] = new Lattice[Set[T]] {
-    override lazy val top: Set[T] = domain
+  type PowersetLattice[T] = Lattice[Set[T]]
 
-    override val bot: Set[T] = Set.empty
+  type MapLattice[K, V] = Lattice[Map[K, V]]
 
-    override def lub(x: Set[T], y: Set[T]): Set[T] = x.union(y)
+  def lazyPowersetLattice[T](domain: => Set[T]): Lattice[Set[T]] = new Lattice[Set[T]] {
+    override lazy val top: Elem = domain
 
-    override def glb(x: Set[T], y: Set[T]): Set[T] = x.intersect(y)
+    override def bot: Elem = Set.empty
+
+    override def lub(x: Elem, y: Elem): Elem = x.union(y)
+
+    override def glb(x: Elem, y: Elem): Elem = x.intersect(y)
   }
-}
 
-case class MapLattice[K, V](domain: Iterable[K], sub: Lattice[V]) extends Lattice[Map[K, V]] {
-  override def top: Inst = domain.map(key => key -> sub.top).toMap
+  def lazyMapLattice[K, V](_domain: => Iterable[K], sub: Lattice[V]): Lattice[Map[K, V]] = new Lattice[Map[K, V]] {
+    private lazy val domain = _domain
 
-  override def bot: Inst = domain.map(key => key -> sub.bot).toMap
+    override lazy val top: Elem = domain.map(key => key -> sub.top).toMap
 
-  override def lub(x: Inst, y: Inst): Inst = x.transform((key, xVal) => sub.lub(xVal, y(key)))
+    override lazy val bot: Elem = domain.map(key => key -> sub.bot).toMap
 
-  override def glb(x: Inst, y: Inst): Inst = x.transform((key, xVal) => sub.glb(xVal, y(key)))
-}
+    override def lub(x: Elem, y: Elem): Elem = {
+      require(x.keys.size == y.keys.size)
+      x.transform((key, xVal) => sub.lub(xVal, y(key)))
+    }
 
-//case class PowersetLattice[T](lazyDomain: () => Set[T]) extends Lattice[Set[T]] {
-//  lazy val top: Inst = lazyDomain()
-//
-//  override def bot: Inst = Set.empty
-//
-//  override def lub(x: Set[T], y: Set[T]): Set[T] = x.union(y)
-//
-//  override def glb(x: Set[T], y: Set[T]): Set[T] = x.intersect(y)
-//}
+    override def glb(x: Elem, y: Elem): Elem = {
+      require(x.keys.size == y.keys.size)
+      x.transform((key, xVal) => sub.glb(xVal, y(key)))
+    }
+  }
 
-case class InvLattice[T](subLattice: Lattice[T]) extends Lattice[T] {
-  override def top: Inst = subLattice.bot
+  def invLattice[T](sub: Lattice[T]): Lattice[T] = new Lattice[T] {
+    override def top: Elem = sub.bot
 
-  override def bot: Inst = subLattice.top
+    override def bot: Elem = sub.top
 
-  override def lub(x: T, y: T): T = subLattice.glb(x, y)
+    override def lub(x: Elem, y: Elem): Elem = sub.glb(x, y)
 
-  override def glb(x: T, y: T): T = subLattice.lub(x, y)
+    override def glb(x: Elem, y: Elem): Elem = sub.lub(x, y)
+  }
 }
 
 trait DataflowAnalysis {
   type NodeState
-  type CfgNode
-  type CfgState = Map[CfgNode, NodeState]
+  type Node
+  type CfgState = Map[Node, NodeState]
 
   def nodeStateLattice: Lattice[NodeState]
 
-  def cfgStateLattice: MapLattice[CfgNode, NodeState]
+  def cfgStateLattice: MapLattice[Node, NodeState]
 
-  def transfer(node: CfgNode, joinedState: NodeState): NodeState
+  def transfer(node: Node, joinedState: NodeState): NodeState
 
   def forward: Boolean
 
-  def join(node: CfgNode, cfgState: CfgState): NodeState
+  def join(node: Node, cfgState: CfgState): NodeState
 
   def fixpoint(): CfgState
 }
 
 object DataflowAnalysis {
-  // TODO: maybe remove this class
   abstract class Builder[T](cfg: Cfg[T], val forward: Boolean) extends DataflowAnalysis {
-    type CfgNode = T
+    type Node = T
 
-    lazy val cfgStateLattice = new MapLattice[CfgNode, NodeState](cfg.nodes, nodeStateLattice)
+    lazy val cfgStateLattice: MapLattice[Node, NodeState] = Lattice.lazyMapLattice(cfg.nodes, nodeStateLattice)
 
-    protected def cfgNodes: Seq[CfgNode] = cfg.nodes
+    protected def cfgNodes: Seq[Node] = cfg.nodes
 
     /** Returns nodes over which we perform the join. */
-    protected def getNodeDependencies(node: CfgNode): Iterable[CfgNode] =
+    protected def getNodeDependencies(node: Node): Iterable[Node] =
       if (forward) cfg.getPred(node) else cfg.getSucc(node)
 
     /** Returns nodes which are affected by a change in the given node. Inverse of getNodeDependencies. */
-    protected def getNodeDependents(node: CfgNode): Iterable[CfgNode] =
+    protected def getNodeDependents(node: Node): Iterable[Node] =
       if (forward) cfg.getSucc(node) else cfg.getPred(node)
 
-    def join(node: CfgNode, cfgState: CfgState): NodeState = {
+    def join(node: Node, cfgState: CfgState): NodeState = {
       val prevStates = getNodeDependencies(node).map(w => cfgState(w)) // state of all preds (forward) or succ (reverse)
       prevStates.foldLeft(nodeStateLattice.bot)(nodeStateLattice.lub)
     }
@@ -117,9 +120,9 @@ object FixpointComputation {
   }
 
   trait Worklist extends DataflowAnalysis {
-    protected def getNodeDependents(node: CfgNode): Iterable[CfgNode]
+    protected def getNodeDependents(node: Node): Iterable[Node]
 
-    protected def cfgNodes: Seq[CfgNode]
+    protected def cfgNodes: Seq[Node]
 
     override def fixpoint(): CfgState = {
       val workList = mutable.Queue.from(if (forward) cfgNodes else cfgNodes.reverseIterator)

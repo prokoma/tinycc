@@ -4,7 +4,7 @@ import java.nio.file.Path
 import scala.util.Try
 
 trait CliParsers extends SeqParsers[String] {
-  override def elemToString(e: String): String = s"\"$e\""
+  override def elemToString(e: String): String = s"'$e'"
 
   def shortOpt(name: String): Parser[String] = elem(s"-$name")
 

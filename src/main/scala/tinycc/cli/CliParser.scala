@@ -11,9 +11,9 @@ object CliParser extends CliParsers {
 
   import Action._
 
-  lazy val output: Parser[Path] = (shortOpt("o") | longOpt("output")) ~> path
+  lazy val output: Parser[Path] = (shortOpt("o") | longOpt("output")) ~> commit(path)
 
-  lazy val prefix: Parser[String] = (shortOpt("p") | longOpt("prefix")) ~> elem
+  lazy val prefix: Parser[String] = (shortOpt("p") | longOpt("prefix")) ~> commit(elem)
 
   lazy val inFile: Parser[Path] = path.described("input file")
 

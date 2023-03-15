@@ -8,7 +8,7 @@ import tinycc.{ErrorLevel, ProgramException}
 
 import scala.collection.mutable
 
-class SemanticAnalysisException(messages: Seq[SemanticAnalysisException.Message]) extends ProgramException(messages.map(_.message).mkString("\n")) {
+class SemanticAnalysisException(val messages: Seq[SemanticAnalysisException.Message]) extends ProgramException(messages.map(_.message).mkString("\n")) {
   override def format(reporter: Reporter): String = messages.map(_.format(reporter)).mkString("\n")
 }
 

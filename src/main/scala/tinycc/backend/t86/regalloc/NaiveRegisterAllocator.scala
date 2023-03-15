@@ -12,9 +12,8 @@ trait GenericNaiveRegisterAllocator[T <: Operand] extends T86GenericRegisterAllo
     val availableRegs = mutable.Queue.from(machineRegs)
 
     fun.flatten.foreach({
-      case insn: T86Insn => {
+      case insn: T86Insn =>
         getInsnDefUse(insn).regs.foreach({ case reg => regMap.getOrElseUpdate(reg, availableRegs.dequeue()) })
-      }
 
       case _ =>
     })

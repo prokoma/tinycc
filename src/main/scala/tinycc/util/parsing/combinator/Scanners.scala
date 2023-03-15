@@ -12,6 +12,10 @@ trait Scanners extends Lexical {
   def handleReject(expected: ExpTree, remainder: Input): Nothing =
     throw new ParserException(formatErrorMessage(expected, remainder), remainder.loc)
 
+  def tokenize(in: CharReader): Seq[Token] = Scanner(in).iterator.toSeq
+
+  def tokenize(in: String): Seq[Token] = tokenize(CharReader(in))
+
   case class Scanner(in: CharReader) extends Reader[Token] {
     def this(in: String) = this(CharReader(in))
 

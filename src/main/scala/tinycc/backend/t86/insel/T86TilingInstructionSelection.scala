@@ -95,13 +95,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
   lazy val memAddr: AsmPat[Operand] = memReg | memAllocL | memAllocG
   lazy val memRegOrMemImm: AsmPat[Operand] = memReg | memAllocG
 
-  protected def emitCmpAndReturnJmpOp(jmpOp: T86Opcode.CondJmpOp): ((Insn, AsmEmitter[Operand.Reg], AsmEmitter[Operand])) => AsmEmitter[T86Opcode.CondJmpOp] = {
-    case (_, left, right) =>
-      (ctx: Context) => {
-        ctx.emit(CMP, left(ctx), right(ctx))
-        jmpOp
-      }
-  }
+
 
   lazy val icmpInsn: AsmPat[CondJmpOp] = (
     Pat(CmpIEq, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JZ) |
@@ -124,50 +118,15 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       }
     )
 
-  protected def emitFCmpAndReturnJmpOp(jmpOp: T86Opcode.CondJmpOp): ((Insn, AsmEmitter[Operand.FReg], AsmEmitter[Operand])) => AsmEmitter[T86Opcode.CondJmpOp] = {
-    case (_, left, right) =>
-      (ctx: Context) => {
-        ctx.emit(FCMP, left(ctx), right(ctx))
-        jmpOp
-      }
-  }
-
   lazy val fcmpInsn: AsmPat[CondJmpOp] = (
     Pat(CmpFEq, freg, fregOrFimm) ^^ emitFCmpAndReturnJmpOp(T86Opcode.JZ) |
       Pat(CmpFNe, freg, fregOrFimm) ^^ emitFCmpAndReturnJmpOp(T86Opcode.JNE) |
       Pat(CmpFLt, freg, fregOrFimm) ^^ emitFCmpAndReturnJmpOp(T86Opcode.JL) |
       Pat(CmpFLe, freg, fregOrFimm) ^^ emitFCmpAndReturnJmpOp(T86Opcode.JLE) |
       Pat(CmpFGt, freg, fregOrFimm) ^^ emitFCmpAndReturnJmpOp(T86Opcode.JG) |
-      Pat(CmpFGe, freg, fregOrFimm) ^^ emitFCmpAndReturnJmpOp(T86Opcode.JGE)
-
-    //      // cmpfeq (fsub %1, %2), (fimm 0)
-    //      Pat(CmpIEq, Pat(FSub, freg, fregOrFimm), constFImm(0)) ^^ { case (_, (_, left, right), _) =>
-    //        (ctx: Context) => {
-    //          ctx.emit(CMP, left(ctx), right(ctx))
-    //          T86Opcode.JZ
-    //        }
-    //      }
-    )
+      Pat(CmpFGe, freg, fregOrFimm) ^^ emitFCmpAndReturnJmpOp(T86Opcode.JGE))
 
   lazy val cmpInsn: AsmPat[CondJmpOp] = icmpInsn | fcmpInsn
-
-  protected def emitFloatBinArithInsn(op: T86Opcode.BinaryOp): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.FReg] = {
-    case (_, left, right) =>
-      (ctx: Context) => {
-        val res = ctx.copyToFreshFReg(left(ctx))
-        ctx.emit(op, res, right(ctx))
-        res
-      }
-  }
-
-  protected def emitBinArithInsn(op: T86Opcode.BinaryOp): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.Reg] = {
-    case (_, left, right) =>
-      (ctx: Context) => {
-        val res = ctx.copyToFreshReg(left(ctx))
-        ctx.emit(op, res, right(ctx))
-        res
-      }
-  }
 
   lazy val castSInt64ToDouble: AsmPat[Operand.FReg] = (
     Pat(SInt64ToDouble, RegVar) ^^ { case (_, reg) =>
@@ -188,11 +147,11 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
         ctx.emit(PUSH, arg(ctx))
       })
       ctx.emit(CallPrologueMarker)
-      ctx.emit(CALL, ctx.getFunLabel(insn.targetFunRef.get).toOperand)
+      ctx.emit(CALL, ctx.getFunLabel(insn.targetFun).toOperand)
       if (args.nonEmpty)
         ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
       ctx.emit(CallEpilogueMarker)
-      Operand.BasicReg(0)
+      T86Utils.returnValueReg
     }
   }
 
@@ -206,7 +165,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
       if (args.nonEmpty)
         ctx.emit(ADD, Operand.SP, Operand.Imm(args.size)) // pop arguments
       ctx.emit(CallEpilogueMarker)
-      Operand.BasicReg(0)
+      T86Utils.returnValueReg
     }
   }
 
@@ -246,9 +205,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     // %2 = condbr (cmpieq %0, %1)
     GenRule(RegVar, Pat(CondBr, cmpInsn) ^^ { case (condBrInsn: CondBrInsn, cmpInsn) =>
       (ctx: Context) => {
-        val jmpOp = cmpInsn(ctx)
-        ctx.emit(jmpOp, ctx.getBasicBlockLabel(condBrInsn.trueBlockRef.get).toOperand)
-        ctx.emit(JMP, ctx.getBasicBlockLabel(condBrInsn.falseBlockRef.get).toOperand)
+        emitCondJmp(cmpInsn(ctx), condBrInsn, ctx)
         ctx.freshReg()
       }
     }),
@@ -291,6 +248,19 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
           val fieldOffset = insn.elemTy.asInstanceOf[IrTy.StructTy].getFieldOffsetWords(insn.fieldIndex)
           ctx.emit(LEA, res, Operand.MemRegImmRegScaled(base(ctx), fieldOffset, index(ctx), insn.elemTy.sizeWords))
         }
+        res
+      }
+    }),
+    GenRule(RegVar, Pat(GetElementPtr, RegVar, imm) ^^ { case (insn: GetElementPtrInsn, base, index) =>
+      (ctx: Context) => {
+        val res = ctx.freshReg()
+        val fieldOffset = {
+          if (insn.fieldIndex == 0)
+            0
+          else
+            insn.elemTy.asInstanceOf[IrTy.StructTy].getFieldOffsetWords(insn.fieldIndex)
+        }
+        ctx.emit(LEA, res, Operand.MemRegImm(base(ctx), index(ctx).value * insn.elemTy.sizeWords + fieldOffset))
         res
       }
     }),
@@ -342,7 +312,7 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
 
     GenRule(RegVar, Pat(Ret, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
-        ctx.emit(MOV, Operand.BasicReg(0), reg(ctx))
+        ctx.emit(MOV, T86Utils.returnValueReg, reg(ctx))
         ctx.emit(T86Comment(s"${insn.fun.name} epilogue start"))
         ctx.emit(T86SpecialLabel.FunEpilogueMarker)
         ctx.emit(RET)
@@ -364,7 +334,8 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     }),
     GenRule(RegVar, Pat(Br) ^^ { case insn: BrInsn =>
       (ctx: Context) => {
-        ctx.emit(JMP, ctx.getBasicBlockLabel(insn.succBlockRef.get).toOperand)
+        if (!insn.basicBlock.linSucc.contains(insn.succBlock))
+          ctx.emit(JMP, ctx.getBasicBlockLabel(insn.succBlock).toOperand)
         ctx.freshReg()
       }
     }),
@@ -372,13 +343,14 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     GenRule(RegVar, Pat(CondBr, RegVar) ^^ { case (insn: CondBrInsn, reg) =>
       (ctx: Context) => {
         ctx.emit(CMP, reg(ctx), Operand.Imm(0))
-        ctx.emit(JZ, ctx.getBasicBlockLabel(insn.falseBlockRef.get).toOperand)
-        ctx.emit(JMP, ctx.getBasicBlockLabel(insn.trueBlockRef.get).toOperand)
+        emitCondJmp(JNZ, insn, ctx)
         ctx.freshReg()
       }
     }),
 
   ).flatMap(expandRule)
+
+  Console.err.println(s"Using ${rules.size} rules")
 
   def expandRule(rule: GenRule[_]): Iterable[GenRule[_]] = {
     def fregToReg(freg: AsmPat[Operand.FReg]): AsmPat[Operand.Reg] =
@@ -394,5 +366,50 @@ trait T86TilingInstructionSelection extends TilingInstructionSelection {
     expanded.flatMap(_.flatten)
   }
 
-  Console.err.println(s"Using ${rules.size} rules")
+  /** Copies destination operand into fresh register and emits BinaryOp instruction.*/
+  protected def emitBinArithInsn(op: T86Opcode.BinaryOp): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.Reg] = {
+    case (_, left, right) =>
+      (ctx: Context) => {
+        val res = ctx.copyToFreshReg(left(ctx))
+        ctx.emit(op, res, right(ctx))
+        res
+      }
+  }
+
+  /** Copies destination operand into fresh float register and emits BinaryOp instruction. */
+  protected def emitFloatBinArithInsn(op: T86Opcode.BinaryOp): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.FReg] = {
+    case (_, left, right) =>
+      (ctx: Context) => {
+        val res = ctx.copyToFreshFReg(left(ctx))
+        ctx.emit(op, res, right(ctx))
+        res
+      }
+  }
+
+  protected def emitCmpAndReturnJmpOp(jmpOp: T86Opcode.CondJmpOp): ((Insn, AsmEmitter[Operand.Reg], AsmEmitter[Operand])) => AsmEmitter[T86Opcode.CondJmpOp] = {
+    case (_, left, right) =>
+      (ctx: Context) => {
+        ctx.emit(CMP, left(ctx), right(ctx))
+        jmpOp
+      }
+  }
+
+  protected def emitFCmpAndReturnJmpOp(jmpOp: T86Opcode.CondJmpOp): ((Insn, AsmEmitter[Operand.FReg], AsmEmitter[Operand])) => AsmEmitter[T86Opcode.CondJmpOp] = {
+    case (_, left, right) =>
+      (ctx: Context) => {
+        ctx.emit(FCMP, left(ctx), right(ctx))
+        jmpOp
+      }
+  }
+
+  protected def emitCondJmp(jmpOp: CondJmpOp, insn: CondBrInsn, ctx: Context): Unit = {
+    if (insn.basicBlock.linSucc.contains(insn.trueBlock)) { // trueBlock is next in order
+      ctx.emit(jmpOp.neg, ctx.getBasicBlockLabel(insn.falseBlock).toOperand) // if false, jump, otherwise fall through to trueBlock
+    } else if (insn.basicBlock.linSucc.contains(insn.falseBlock)) { // falseBlock is next in order
+      ctx.emit(jmpOp, ctx.getBasicBlockLabel(insn.trueBlock).toOperand)
+    } else {
+      ctx.emit(jmpOp, ctx.getBasicBlockLabel(insn.trueBlock).toOperand)
+      ctx.emit(JMP, ctx.getBasicBlockLabel(insn.falseBlock).toOperand)
+    }
+  }
 }

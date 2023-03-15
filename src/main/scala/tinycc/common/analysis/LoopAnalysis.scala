@@ -23,17 +23,17 @@ class LoopAnalysis[T](cfg: Cfg[T]) {
   def result(): Set[T] = {
     // an implementation of Kosaraju's algorithm to find strongly connected components
     val componentSizes = mutable.Map.empty[T, Int].withDefaultValue(0)
-    var visited = Set.empty[T]
+    val nodeComponents = mutable.Map.empty[T, T]
     def assign(u: T, comp: T): Unit = {
-      if(visited(u))
+      if(nodeComponents.contains(u))
         return
-      visited += u
-      componentSizes(u) += 1
+      nodeComponents(u) = comp
+      componentSizes(comp) += 1
       cfg.getPred(u).foreach(v => assign(v, comp))
     }
     topsort().foreach(u => assign(u, u))
 
     // node is in loop if it is not alone in its strongly connected component or its is self loop
-    cfg.nodes.filter(u => componentSizes(u) > 1 || cfg.getSucc(u).contains(u)).toSet
+    cfg.nodes.filter(u => componentSizes(nodeComponents(u)) > 1 || cfg.getSucc(u).contains(u)).toSet
   }
 }

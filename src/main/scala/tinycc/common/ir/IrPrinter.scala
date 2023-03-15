@@ -153,6 +153,19 @@ class IrPrinter extends IndentPrinter[IrObject] {
           printSuccBlocks(insn, out)
         }
 
+      // %0 = phi [ %1, label %firstPred ], [ %2, label %secondPred ]
+      case insn: PhiInsn =>
+        if(insn.argRefs.nonEmpty) {
+          out.write(" ")
+          insn.argRefs.foreachSep({ case (insn, bb) =>
+            out.write("[ ")
+            printInsnRef(insn, out)
+            out.write(", ")
+            printBasicBlockRef(bb, out)
+            out.write(" ]")
+          }, out.write(", "))
+        }
+
       // %0 = iadd %1, %2
       case insn =>
         if (insn.operandRefs.nonEmpty) {

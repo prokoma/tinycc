@@ -25,6 +25,9 @@ sealed trait TerminatorInsn extends Insn {
     succBlockRefs.zipWithIndex.foreach({ case (ref, index) =>
       assert(ref.isDefined, s"succesor block #$index is not defined")
     })
+    succBlocks.foreach(bb => {
+      assert(bb.fun == fun, s"terminator references block $bb from other function")
+    })
   }
 }
 
@@ -344,6 +347,28 @@ class GetCharInsn(val basicBlock: BasicBlock) extends Insn {
   override def copy(newBlock: BasicBlock): GetCharInsn = new GetCharInsn(newBlock)
 }
 
+class PhiInsn(_args: IndexedSeq[(Option[Insn], Option[BasicBlock])], val basicBlock: BasicBlock) extends Insn {
+//  def this(_args: IndexedSeq[(Insn, BasicBlock)], basicBlock: BasicBlock) = this(_args.map({ case (insn, bb) => (Some(insn), Some(bb)) }), basicBlock)
+
+  val argRefs: IndexedSeq[(OperandRef, BasicBlockRef)] = _args.map({ case (insn, bb) => (new OperandRef(this, insn), new BasicBlockRef(bb)) })
+
+  def args: IndexedSeq[(Insn, BasicBlock)] = argRefs.map({ case (insn, bb) => (insn.get, bb.get) })
+
+  override def op: IrOpcode = IrOpcode.Phi
+
+  override def operandRefs: IndexedSeq[OperandRef] = argRefs.map(_._1)
+
+  override def resultTy: IrTy = args.head._1.resultTy
+
+  override def validate(): Unit = {
+    super.validate()
+    assert(args.nonEmpty)
+    assert(args.map(_._2).toSet == basicBlock.pred.toSet, s"phi node must reference all predecessors of the basic block it is in")
+  }
+
+  override def copy(newBlock: BasicBlock): Insn = new PhiInsn(argRefs.map({ case (insnRef, bbRef) => (insnRef(), bbRef()) }), newBlock)
+}
+
 class CastInsn(val op: IrOpcode.CastOp, _arg: Option[Insn], val basicBlock: BasicBlock) extends Insn {
   def this(op: IrOpcode.CastOp, _arg: Insn, basicBlock: BasicBlock) = this(op, Some(_arg), basicBlock)
 
@@ -370,11 +395,11 @@ sealed trait IrFunExitPoint extends TerminatorInsn
 class RetInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends IrFunExitPoint {
   def this(_arg: Insn, basicBlock: BasicBlock) = this(Some(_arg), basicBlock)
 
-  override def op: IrOpcode = IrOpcode.Ret
-
   val argRef: OperandRef = new OperandRef(this, _arg)
 
   def arg: Insn = argRef.get
+
+  override def op: IrOpcode = IrOpcode.Ret
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
 
@@ -412,11 +437,11 @@ class HaltInsn(val basicBlock: BasicBlock) extends IrFunExitPoint {
 class BrInsn(_succBlock: Option[BasicBlock], val basicBlock: BasicBlock) extends TerminatorInsn {
   def this(_succBlock: BasicBlock, basicBlock: BasicBlock) = this(Some(_succBlock), basicBlock)
 
-  override def op: IrOpcode = IrOpcode.Br
-
   val succBlockRef: TerminatorSuccRef = new TerminatorSuccRef(this, _succBlock)
 
   def succBlock: BasicBlock = succBlockRef.get
+
+  override def op: IrOpcode = IrOpcode.Br
 
   override def succBlockRefs: Seq[TerminatorSuccRef] = Seq(succBlockRef)
 

@@ -210,20 +210,6 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
   def releaseRefs(): Unit =
     body.foreach(_.releaseRefs())
 
-  def insertInsnBefore(newInsn: Insn, mark: Insn): Insn = {
-    if (newInsn.basicBlock != this)
-      throw new IrException(s"Cannot insert '$newInsn' owned by '${newInsn.basicBlock.name}.'")
-    body = body.filterNot(_ == newInsn)
-
-    findInsn(mark) match {
-      case Some(idx) =>
-        body = body.patch(idx, Seq(newInsn), 0)
-        newInsn
-      case None =>
-        throw new IrException(s"Invalid insertion marker '$mark' owned by '${mark.basicBlock.name}'.")
-    }
-  }
-
   // Insn Ops
 
   def findInsn(insn: Insn): Option[Int] = body.indexOf(insn) match {
@@ -342,20 +328,6 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
 
     basicBlock.releaseRefs()
     basicBlocks = basicBlocks.filterNot(_ == basicBlock)
-  }
-
-  def insertBlockBefore(newBlock: BasicBlock, mark: BasicBlock): BasicBlock = {
-    if (newBlock.fun != this)
-      throw new IrException(s"Cannot insert '$newBlock' owned by '${newBlock.fun}.'")
-    basicBlocks = basicBlocks.filterNot(_ == newBlock)
-
-    findBlock(mark) match {
-      case Some(idx) =>
-        basicBlocks = basicBlocks.patch(idx, Seq(newBlock), 0)
-        newBlock
-      case None =>
-        throw new IrException(s"Invalid insertion marker '$mark' owned by '${mark.fun}'.")
-    }
   }
 
   /** Get successor of the block in program order (not cfg). */
