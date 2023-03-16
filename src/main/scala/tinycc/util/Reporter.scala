@@ -1,6 +1,5 @@
 package tinycc.util
 
-import tinycc.ErrorLevel
 import tinycc.util.parsing.SourceLocation
 
 import java.nio.file.{Files, Path}

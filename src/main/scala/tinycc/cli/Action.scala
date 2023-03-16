@@ -3,7 +3,8 @@ package tinycc.cli
 import tinycc.ProgramException
 import tinycc.backend.t86.insel.T86InstructionSelection
 import tinycc.backend.t86.regalloc.T86RegisterAllocator
-import tinycc.backend.t86.{T86AsmPrinter, T86FunProcessor, T86LabelProcessor}
+import tinycc.backend.t86.{T86AsmPrinter, T86Backend, T86FunProcessor, T86LabelProcessor}
+import tinycc.common.Optimizer
 import tinycc.common.ir.parser.IrParser
 import tinycc.common.ir.{IrPrinter, IrProgram}
 import tinycc.common.transform.{AllocOrdering, BasicBlockScheduling, MemToReg}
@@ -21,61 +22,61 @@ trait Action extends Product with Serializable {
   def execute(): Unit
 }
 
-trait ActionInfo {
-  def synopsis: String
-
-  def description: String
-}
-
-trait StdoutOrFileOutput {
-  def outFile: Option[Path]
-
-  def withPrintStream[T](f: PrintStream => T): T = outFile match {
-    case Some(path) =>
-      util.Using(new PrintStream(Files.newOutputStream(path)))(f).get
-
-    case None =>
-      f(Console.out)
-  }
-}
-
-trait FileInput {
-  def inFile: Path
-
-  def getSource(): String = {
-    try
-      Files.readString(inFile)
-    catch {
-      case ex: IOException => throw new CliException("failed to read input file", ex)
-    }
-  }
-
-  def withSource[T](f: String => T): T = {
-    val source = getSource()
-    val reporter = new Reporter(source, Some(inFile.getFileName.toString))
-    try
-      f(source)
-    catch {
-      case ex: ProgramException => throw new CliException(ex.format(reporter))
-    }
-  }
-}
-
-trait TinyCSourceFileInput extends FileInput {
-  def withParsedProgram[T](f: AstProgram => T): T =
-    withSource(source => f(TinyCParser.parseProgram(source)))
-}
-
-trait IrFileInput extends FileInput {
-  def withParsedProgram[T](f: IrProgram => T): T =
-    withSource(source => f(IrParser.parseProgram(source)))
-}
-
 object Action {
 
   import Console.{BOLD, RESET}
 
   private def bold(s: String): String = BOLD + s + RESET
+
+  trait ActionInfo {
+    def synopsis: String
+
+    def description: String
+  }
+
+  trait StdoutOrFileOutput {
+    def outFile: Option[Path]
+
+    def withPrintStream[T](f: PrintStream => T): T = outFile match {
+      case Some(path) =>
+        util.Using(new PrintStream(Files.newOutputStream(path)))(f).get
+
+      case None =>
+        f(Console.out)
+    }
+  }
+
+  trait FileInput {
+    def inFile: Path
+
+    def readSource(): String = {
+      try
+        Files.readString(inFile)
+      catch {
+        case ex: IOException => throw new CliException("failed to read input file", ex)
+      }
+    }
+
+    def withSource[T](f: String => T): T = {
+      val source = readSource()
+      val reporter = new Reporter(source, Some(inFile.getFileName.toString))
+      try
+        f(source)
+      catch {
+        case ex: ProgramException => throw new CliException(ex.format(reporter))
+      }
+    }
+  }
+
+  trait TinyCSourceFileInput extends FileInput {
+    def withParsedProgram[T](f: AstProgram => T): T =
+      withSource(source => f(TinyCParser.parseProgram(source)))
+  }
+
+  trait IrFileInput extends FileInput {
+    def withParsedProgram[T](f: IrProgram => T): T =
+      withSource(source => f(IrParser.parseProgram(source)))
+  }
 
   case class Format(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
     override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
@@ -104,9 +105,7 @@ object Action {
 
   case class CompileToIr(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
     override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
-      val declarations = new SemanticAnalysis(ast).result()
-      val typeMap = new TypeAnalysis(ast, declarations).result()
-      val irProgram = new TinyCCompiler(ast, declarations, typeMap).result()
+      val irProgram = TinyCCompiler(ast).result()
       out.println(new IrPrinter().printToString(irProgram))
     }))
   }
@@ -121,20 +120,11 @@ object Action {
     override def execute(): Unit = withPrintStream(out => withParsedProgram(irProgram => {
       Console.err.println(new IrPrinter().printToString(irProgram))
 
-      new BasicBlockScheduling().transformProgram(irProgram)
-      new AllocOrdering().transformProgram(irProgram)
-      new MemToReg().transformProgram(irProgram)
+      new Optimizer().transformProgram(irProgram)
       Console.err.println(new IrPrinter().printToString(irProgram))
-
       irProgram.validate()
-      val t86Program = T86InstructionSelection(irProgram).result()
-      Console.err.println(new T86AsmPrinter().printToString(t86Program.flatten))
 
-      T86RegisterAllocator().transformProgram(t86Program)
-      new T86FunProcessor().transformProgram(t86Program)
-      val t86Listing = new T86LabelProcessor(t86Program.flatten).result()
-
-      out.print(new T86AsmPrinter().printToString(t86Listing))
+      out.print(new T86Backend(irProgram).resultAsString())
     }))
   }
 
@@ -146,32 +136,13 @@ object Action {
 
   case class Compile(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
     override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
-      val startTime = System.currentTimeMillis()
+      val irProgram = TinyCCompiler(ast).result()
 
-      val declarations = new SemanticAnalysis(ast).result()
-      val typeMap = new TypeAnalysis(ast, declarations).result()
-      val irProgram = new TinyCCompiler(ast, declarations, typeMap).result()
+      new Optimizer().transformProgram(irProgram)
       Console.err.println(new IrPrinter().printToString(irProgram))
-      val frontendTime = System.currentTimeMillis()
-
-      new BasicBlockScheduling().transformProgram(irProgram)
-      new AllocOrdering().transformProgram(irProgram)
-//      new MemToReg().transformProgram(irProgram)
-      Console.err.println(new IrPrinter().printToString(irProgram))
-
       irProgram.validate()
-      val t86Program = T86InstructionSelection(irProgram).result()
-      Console.err.println(new T86AsmPrinter().printToString(t86Program.flatten))
-      val inselTime = System.currentTimeMillis()
 
-      T86RegisterAllocator().transformProgram(t86Program)
-      new T86FunProcessor().transformProgram(t86Program)
-      val t86Listing = new T86LabelProcessor(t86Program.flatten).result()
-      val regallocTime = System.currentTimeMillis()
-
-      Console.err.println(s"frontend: ${frontendTime-startTime} ms, insel: ${inselTime-frontendTime} ms, regalloc: ${regallocTime-inselTime} ms")
-
-      out.print(new T86AsmPrinter().printToString(t86Listing))
+      out.print(new T86Backend(irProgram).resultAsString())
     }))
   }
 

@@ -2,9 +2,9 @@ package tinycc.frontend.analysis
 
 import tinycc.frontend.Declarations
 import tinycc.frontend.ast._
-import tinycc.util.Reporter
+import tinycc.util.{ErrorLevel, Reporter}
 import tinycc.util.parsing.SourceLocation
-import tinycc.{ErrorLevel, ProgramException}
+import tinycc.ProgramException
 
 import scala.collection.mutable
 

@@ -1,58 +1,24 @@
 package tinycc.frontend
 
+import tinycc.ProgramException
 import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
 import tinycc.frontend.Types._
-import tinycc.frontend.analysis.IdentifierDecl
 import tinycc.frontend.analysis.IdentifierDecl.{FunArgDecl, FunDecl, VarDecl}
+import tinycc.frontend.analysis.{IdentifierDecl, SemanticAnalysis, TypeAnalysis}
 import tinycc.frontend.ast._
 import tinycc.frontend.parser.Symbols
-import tinycc.util.Reporter
 import tinycc.util.parsing.SourceLocation
-import tinycc.{ErrorLevel, ProgramException}
+import tinycc.util.{ErrorLevel, Reporter}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.math.Ordered.orderingToOrdered
 
-class TinyCCompilerException(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(message) {
-  override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
-}
-
-trait TinyCIrProgramBuilder extends IrProgramBuilder {
-  val program: IrProgram = new IrProgram
-  val entryFun: IrFun = program.appendEntryFun()
-
-  var breakTargetOption: Option[BasicBlock] = None
-  var contTargetOption: Option[BasicBlock] = None
-
-  def withEntryFun[T](thunk: => T): T = withFun(entryFun, thunk)
-
-  def withBreakTarget[T](breakTarget: BasicBlock, thunk: => T): T = {
-    val oldBreakTargetOption = breakTargetOption
-    breakTargetOption = Some(breakTarget)
-    try
-      thunk
-    finally {
-      breakTargetOption = oldBreakTargetOption
-    }
-  }
-
-  def withBreakContTarget[T](breakTarget: BasicBlock, contTarget: BasicBlock, thunk: => T): T = {
-    val oldBreakTargetOption = breakTargetOption
-    val oldContTargetOption = contTargetOption
-    breakTargetOption = Some(breakTarget)
-    contTargetOption = Some(contTarget)
-    try
-      thunk
-    finally {
-      breakTargetOption = oldBreakTargetOption
-      contTargetOption = oldContTargetOption
-    }
-  }
-}
-
 final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typeMap: TypeMap) {
+
+  import TinyCCompiler._
+
   implicit protected def declarations: Declarations = _declarations
 
   implicit protected def typeMap: TypeMap = _typeMap
@@ -112,7 +78,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     /** Compile type for use in Alloc or GetElementPtr. Compiles arrays and structs as the full types. */
     private def compileVarType(ty: Types.Ty): IrTy = ty match {
       case Types.ArrayPtrTy(elemTy, numElem) =>
-          IrTy.ArrayTy(compileVarType(elemTy), numElem)
+        IrTy.ArrayTy(compileVarType(elemTy), numElem)
 
       case Types.StructTy(_, fieldsOption) =>
         val fieldIrTys = fieldsOption match {
@@ -762,5 +728,49 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         emit(new LoadInsn(IrTy.Int64Ty, resultPtr, _))
     }
   }
+}
 
+object TinyCCompiler {
+  class TinyCCompilerException(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(message) {
+    override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
+  }
+
+  trait TinyCIrProgramBuilder extends IrProgramBuilder {
+    val program: IrProgram = new IrProgram
+    val entryFun: IrFun = program.appendEntryFun()
+
+    var breakTargetOption: Option[BasicBlock] = None
+    var contTargetOption: Option[BasicBlock] = None
+
+    def withEntryFun[T](thunk: => T): T = withFun(entryFun, thunk)
+
+    def withBreakTarget[T](breakTarget: BasicBlock, thunk: => T): T = {
+      val oldBreakTargetOption = breakTargetOption
+      breakTargetOption = Some(breakTarget)
+      try
+        thunk
+      finally {
+        breakTargetOption = oldBreakTargetOption
+      }
+    }
+
+    def withBreakContTarget[T](breakTarget: BasicBlock, contTarget: BasicBlock, thunk: => T): T = {
+      val oldBreakTargetOption = breakTargetOption
+      val oldContTargetOption = contTargetOption
+      breakTargetOption = Some(breakTarget)
+      contTargetOption = Some(contTarget)
+      try
+        thunk
+      finally {
+        breakTargetOption = oldBreakTargetOption
+        contTargetOption = oldContTargetOption
+      }
+    }
+  }
+
+  def apply(program: AstProgram): TinyCCompiler = {
+    val declarations = new SemanticAnalysis(program).result()
+    val typeMap = new TypeAnalysis(program, declarations).result()
+    new TinyCCompiler(program, declarations, typeMap)
+  }
 }

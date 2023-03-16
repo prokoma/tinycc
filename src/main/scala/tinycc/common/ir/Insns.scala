@@ -5,9 +5,9 @@ import tinycc.util.NameGen
 
 /** An instruction, which terminates a BasicBlock. */
 sealed trait TerminatorInsn extends Insn {
-  def succBlockRefs: Seq[TerminatorSuccRef]
+  def succBlockRefs: Seq[OperandBlockRef]
 
-  def succBlocks: Seq[BasicBlock] = succBlockRefs.flatMap(_())
+  def succBlocks: Seq[BasicBlock] = succBlockRefs.map(_.get)
 
   override def resultTy: IrTy = VoidTy
 
@@ -17,7 +17,7 @@ sealed trait TerminatorInsn extends Insn {
 
   override def releaseRefs(): Unit = {
     super.releaseRefs()
-    succBlockRefs.foreach(_.apply(None))
+    succBlockRefs.foreach(_.release())
   }
 
   override def validate(): Unit = {
@@ -202,9 +202,14 @@ class SizeOfInsn(val varTy: IrTy, val basicBlock: BasicBlock) extends Insn {
 class GetFunPtrInsn(_targetFun: Option[IrFun], val basicBlock: BasicBlock) extends Insn {
   def this(_targetFun: IrFun, basicBlock: BasicBlock) = this(Some(_targetFun), basicBlock)
 
-  val targetFunRef: IrFunRef = new IrFunRef(_targetFun)
+  val targetFunRef: OperandFunRef = new OperandFunRef(this, _targetFun)
 
   def targetFun: IrFun = targetFunRef.get
+
+  override def releaseRefs(): Unit = {
+    super.releaseRefs()
+    targetFunRef.release()
+  }
 
   override def op: IrOpcode = IrOpcode.GetFunPtr
 
@@ -245,7 +250,8 @@ sealed trait CallInsnBase extends Insn {
 class CallInsn(_targetFun: Option[IrFun], _args: IndexedSeq[Option[Insn]], val basicBlock: BasicBlock) extends CallInsnBase {
   def this(_targetFun: IrFun, _args: IndexedSeq[Insn], basicBlock: BasicBlock) = this(Some(_targetFun), _args.map(Some(_)), basicBlock)
 
-  val targetFunRef: IrFunRef = new IrFunRef(_targetFun)
+  val targetFunRef: OperandFunRef = new OperandFunRef(this, _targetFun)
+
   override val argRefs: IndexedSeq[OperandRef] = _args.map(new OperandRef(this, _))
 
   def targetFun: IrFun = targetFunRef.get
@@ -262,7 +268,7 @@ class CallInsn(_targetFun: Option[IrFun], _args: IndexedSeq[Option[Insn]], val b
 
   override def releaseRefs(): Unit = {
     super.releaseRefs()
-    targetFunRef.apply(None)
+    targetFunRef.release()
   }
 }
 
@@ -350,7 +356,7 @@ class GetCharInsn(val basicBlock: BasicBlock) extends Insn {
 class PhiInsn(_args: IndexedSeq[(Option[Insn], Option[BasicBlock])], val basicBlock: BasicBlock) extends Insn {
 //  def this(_args: IndexedSeq[(Insn, BasicBlock)], basicBlock: BasicBlock) = this(_args.map({ case (insn, bb) => (Some(insn), Some(bb)) }), basicBlock)
 
-  val argRefs: IndexedSeq[(OperandRef, BasicBlockRef)] = _args.map({ case (insn, bb) => (new OperandRef(this, insn), new BasicBlockRef(bb)) })
+  val argRefs: IndexedSeq[(OperandRef, OperandBlockRef)] = _args.map({ case (insn, bb) => (new OperandRef(this, insn), new OperandBlockRef(this, bb)) })
 
   def args: IndexedSeq[(Insn, BasicBlock)] = argRefs.map({ case (insn, bb) => (insn.get, bb.get) })
 
@@ -403,7 +409,7 @@ class RetInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends IrFunExitP
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
 
-  override def succBlockRefs: Seq[TerminatorSuccRef] = Seq.empty
+  override def succBlockRefs: Seq[OperandBlockRef] = Seq.empty
 
   override def validate(): Unit = {
     super.validate()
@@ -416,7 +422,7 @@ class RetInsn(_arg: Option[Insn], val basicBlock: BasicBlock) extends IrFunExitP
 class RetVoidInsn(val basicBlock: BasicBlock) extends IrFunExitPoint {
   override def op: IrOpcode = IrOpcode.RetVoid
 
-  override def succBlockRefs: Seq[TerminatorSuccRef] = Seq.empty
+  override def succBlockRefs: Seq[OperandBlockRef] = Seq.empty
 
   override def validate(): Unit = {
     super.validate()
@@ -429,7 +435,7 @@ class RetVoidInsn(val basicBlock: BasicBlock) extends IrFunExitPoint {
 class HaltInsn(val basicBlock: BasicBlock) extends IrFunExitPoint {
   override def op: IrOpcode = IrOpcode.Halt
 
-  override def succBlockRefs: Seq[TerminatorSuccRef] = Seq.empty
+  override def succBlockRefs: Seq[OperandBlockRef] = Seq.empty
 
   override def copy(newBlock: BasicBlock): HaltInsn = new HaltInsn(newBlock)
 }
@@ -437,13 +443,13 @@ class HaltInsn(val basicBlock: BasicBlock) extends IrFunExitPoint {
 class BrInsn(_succBlock: Option[BasicBlock], val basicBlock: BasicBlock) extends TerminatorInsn {
   def this(_succBlock: BasicBlock, basicBlock: BasicBlock) = this(Some(_succBlock), basicBlock)
 
-  val succBlockRef: TerminatorSuccRef = new TerminatorSuccRef(this, _succBlock)
+  val succBlockRef: OperandBlockRef = new OperandBlockRef(this, _succBlock)
 
   def succBlock: BasicBlock = succBlockRef.get
 
   override def op: IrOpcode = IrOpcode.Br
 
-  override def succBlockRefs: Seq[TerminatorSuccRef] = Seq(succBlockRef)
+  override def succBlockRefs: Seq[OperandBlockRef] = Seq(succBlockRef)
 
   override def copy(newBlock: BasicBlock): BrInsn = new BrInsn(succBlockRef(), newBlock)
 }
@@ -456,8 +462,8 @@ class CondBrInsn(_arg: Option[Insn], _trueBlock: Option[BasicBlock], _falseBlock
 
   val argRef: OperandRef = new OperandRef(this, _arg)
 
-  val trueBlockRef: TerminatorSuccRef = new TerminatorSuccRef(this, _trueBlock)
-  val falseBlockRef: TerminatorSuccRef = new TerminatorSuccRef(this, _falseBlock)
+  val trueBlockRef: OperandBlockRef = new OperandBlockRef(this, _trueBlock)
+  val falseBlockRef: OperandBlockRef = new OperandBlockRef(this, _falseBlock)
 
   def arg: Insn = argRef.get
 
@@ -467,7 +473,7 @@ class CondBrInsn(_arg: Option[Insn], _trueBlock: Option[BasicBlock], _falseBlock
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
 
-  override def succBlockRefs: Seq[TerminatorSuccRef] = Seq(trueBlockRef, falseBlockRef)
+  override def succBlockRefs: Seq[OperandBlockRef] = Seq(trueBlockRef, falseBlockRef)
 
   override def copy(newBlock: BasicBlock): CondBrInsn = new CondBrInsn(argRef(), trueBlockRef(), falseBlockRef(), newBlock)
 

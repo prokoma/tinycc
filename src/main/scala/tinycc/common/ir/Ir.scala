@@ -16,7 +16,9 @@ object IrObject {
   val printer: IrPrinter = new IrPrinter
 }
 
-trait Ref[T] extends IterableOnce[T] {
+trait Ref[T <: IrObject] extends IterableOnce[T] {
+  def owner: IrObject
+
   def apply(): Option[T]
 
   def apply(t: Option[T]): Unit
@@ -29,7 +31,7 @@ trait Ref[T] extends IterableOnce[T] {
 
   override def iterator: Iterator[T] = apply().iterator
 
-  def get: T = apply().get
+  def get: T = apply().getOrElse(throw new NoSuchElementException(s"Cannot dereference empty $this"))
 
   def isEmpty: Boolean = apply().isEmpty
 
@@ -42,13 +44,15 @@ trait Ref[T] extends IterableOnce[T] {
   def map[B](f: T => B): Option[B] = apply().map(f)
 
   def flatMap[B](f: T => Option[B]): Option[B] = apply().flatMap(f)
+
+  override def toString: String = s"Ref(owner=$owner, target=${apply().getOrElse("<null>")})"
 }
 
 object Ref {
-  def unapply[T](ref: Ref[T]): Option[T] = ref()
+  def unapply[T <: IrObject](ref: Ref[T]): Option[(IrObject, Option[T])] = Some((ref.owner, ref()))
 }
 
-trait UseTracking[R <: Ref[T], T] {
+trait UseTracking[R <: Ref[T], T <: IrObject] {
   val uses: mutable.Set[R] = mutable.Set.empty[R]
 
   def replaceUses(rep: Option[T]): Unit = uses.foreach(_.apply(rep))
@@ -59,7 +63,7 @@ trait UseTracking[R <: Ref[T], T] {
 }
 
 /** A smart reference to IR instruction. */
-class InsnRef(private var target: Option[Insn]) extends Ref[Insn] {
+abstract class InsnRef(private var target: Option[Insn]) extends Ref[Insn] {
   def this(target: Insn) = this(Some(target))
 
   target.foreach(_.uses.add(this))
@@ -74,19 +78,16 @@ class InsnRef(private var target: Option[Insn]) extends Ref[Insn] {
 }
 
 /** An instruction operand. */
-class OperandRef(val insn: Insn, target: Option[Insn]) extends InsnRef(target) {
-  def apply(insn: Insn, target: Insn) = new OperandRef(insn, Some(target))
-
-  override def get: Insn = apply()
-    .getOrElse(throw new IrException(s"Cannot access null operand of $insn"))
+class OperandRef(val owner: Insn, _target: Option[Insn]) extends InsnRef(_target) {
+  override def toString: String = s"OperandRef(owner=$owner, target=${apply().getOrElse("<null>")})"
 }
 
 object OperandRef {
-  def unapply(ref: OperandRef): Option[(Insn, Option[Insn])] = Some((ref.insn, ref()))
+  def unapply(ref: OperandRef): Option[(Insn, Option[Insn])] = Some((ref.owner, ref()))
 }
 
 /** A smart reference to BasicBlock. */
-class BasicBlockRef(private var target: Option[BasicBlock]) extends Ref[BasicBlock] {
+abstract class BasicBlockRef(private var target: Option[BasicBlock]) extends Ref[BasicBlock] {
   def this(target: BasicBlock) = this(Some(target))
 
   target.foreach(_.uses.add(this))
@@ -100,11 +101,15 @@ class BasicBlockRef(private var target: Option[BasicBlock]) extends Ref[BasicBlo
   }
 }
 
-class TerminatorSuccRef(val insn: TerminatorInsn, target: Option[BasicBlock]) extends BasicBlockRef(target) {
-  def this(insn: TerminatorInsn, target: BasicBlock) = this(insn, Some(target))
+class OperandBlockRef(val owner: Insn, _target: Option[BasicBlock]) extends BasicBlockRef(_target) {
+  override def toString: String = s"OperandBlockRef(owner=$owner, target=${apply().getOrElse("<null>")})"
 }
 
-class IrFunRef(private var target: Option[IrFun]) extends Ref[IrFun] {
+class EntryBlockRef(val owner: IrFun, _target: Option[BasicBlock]) extends BasicBlockRef(_target) {
+  override def toString: String = s"EntryBlockRef(owner=$owner, target=${apply().getOrElse("<null>")})"
+}
+
+abstract class IrFunRef(private var target: Option[IrFun]) extends Ref[IrFun] {
   def this(target: IrFun) = this(Some(target))
 
   if (target.isDefined)
@@ -117,6 +122,14 @@ class IrFunRef(private var target: Option[IrFun]) extends Ref[IrFun] {
     target = t
     target.foreach(_.uses.add(this))
   }
+}
+
+class OperandFunRef(val owner: Insn, _target: Option[IrFun]) extends IrFunRef(_target) {
+  override def toString: String = s"OperandFunRef(owner=$owner, target=${apply().getOrElse("<null>")})"
+}
+
+class EntryFunRef(val owner: IrProgram, _target: Option[IrFun]) extends IrFunRef(_target) {
+  override def toString: String = s"EntryFunRef(owner=$owner, target=${apply().getOrElse("<null>")})"
 }
 
 trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
@@ -240,7 +253,7 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
     if (removeUses)
       insn.removeUses()
     else if (insn.uses.nonEmpty)
-      throw new IrException(s"Cannot remove still referenced insn '$insn'.")
+      throw new IrException(s"Cannot remove still referenced insn '$insn' (referenced by ${insn.uses}).")
 
     insn.releaseRefs()
     body = body.filterNot(_ == insn)
@@ -268,7 +281,7 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
 
   def getBlockPred(basicBlock: BasicBlock): Seq[BasicBlock] = basicBlocks.filter(_.succ.contains(basicBlock)).toSeq
 
-  val entryBlockRef: BasicBlockRef = new BasicBlockRef(None)
+  val entryBlockRef: EntryBlockRef = new EntryBlockRef(this, None)
 
   def entryBlock: BasicBlock = entryBlockRef.get
 
@@ -350,7 +363,7 @@ class IrProgram extends IrObject {
 
   def insns: Iterable[Insn] = funs.flatMap(_.insns)
 
-  val entryFunRef: IrFunRef = new IrFunRef(None)
+  val entryFunRef: EntryFunRef = new EntryFunRef(this, None)
 
   def entryFun: IrFun = entryFunRef.get
 

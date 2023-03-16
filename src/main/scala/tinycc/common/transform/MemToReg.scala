@@ -18,7 +18,8 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
 
     // collect allocl instructions, which are only used as operands of load and store instructions
     val localsToOptimize: Set[Insn] = fun.locals.filter(_.uses.forall({
-      case OperandRef(_: LoadInsn | _: StoreInsn, _) => true
+      case OperandRef(_: LoadInsn, _) => true
+      case ref@OperandRef(owner: StoreInsn, _) if ref == owner.ptrRef => true //
       case _ => false
     })).toSet
 

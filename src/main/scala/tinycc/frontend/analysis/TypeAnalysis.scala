@@ -4,9 +4,9 @@ import tinycc.frontend.Types._
 import tinycc.frontend.ast._
 import tinycc.frontend.parser.Symbols
 import tinycc.frontend.{Declarations, TypeMap}
-import tinycc.util.Reporter
+import tinycc.util.{ErrorLevel, Reporter}
 import tinycc.util.parsing.SourceLocation
-import tinycc.{ErrorLevel, ProgramException}
+import tinycc.ProgramException
 
 import scala.annotation.tailrec
 import scala.collection.mutable
