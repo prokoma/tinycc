@@ -132,14 +132,10 @@ class EntryFunRef(val owner: IrProgram, _target: Option[IrFun]) extends IrFunRef
   override def toString: String = s"EntryFunRef(owner=$owner, target=${apply().getOrElse("<null>")})"
 }
 
-trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
-  def op: IrOpcode
-
+abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObject with UseTracking[InsnRef, Insn] {
   def pred: Option[Insn] = basicBlock.getInsnPred(this)
 
   def succ: Option[Insn] = basicBlock.getInsnSucc(this)
-
-  def basicBlock: BasicBlock
 
   def fun: IrFun = basicBlock.fun
 
