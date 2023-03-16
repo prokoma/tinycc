@@ -6,7 +6,7 @@ import tinycc.backend.t86.regalloc.T86RegisterAllocator
 import tinycc.backend.t86.{T86AsmPrinter, T86FunProcessor, T86LabelProcessor}
 import tinycc.common.ir.parser.IrParser
 import tinycc.common.ir.{IrPrinter, IrProgram}
-import tinycc.common.transform.{AllocOrdering, BasicBlockScheduling}
+import tinycc.common.transform.{AllocOrdering, BasicBlockScheduling, MemToReg}
 import tinycc.frontend.TinyCCompiler
 import tinycc.frontend.analysis.{SemanticAnalysis, TypeAnalysis}
 import tinycc.frontend.ast.{AstPrinterC, AstProgram}
@@ -123,6 +123,7 @@ object Action {
 
       new BasicBlockScheduling().transformProgram(irProgram)
       new AllocOrdering().transformProgram(irProgram)
+      new MemToReg().transformProgram(irProgram)
       Console.err.println(new IrPrinter().printToString(irProgram))
 
       irProgram.validate()
@@ -155,6 +156,7 @@ object Action {
 
       new BasicBlockScheduling().transformProgram(irProgram)
       new AllocOrdering().transformProgram(irProgram)
+//      new MemToReg().transformProgram(irProgram)
       Console.err.println(new IrPrinter().printToString(irProgram))
 
       irProgram.validate()

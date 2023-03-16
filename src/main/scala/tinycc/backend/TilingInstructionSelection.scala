@@ -1,6 +1,6 @@
 package tinycc.backend
 
-import tinycc.common.ir.{CallInsn, CallPtrInsn, Insn, IrOpcode}
+import tinycc.common.ir.{CallInsn, CallPtrInsn, Insn, IrFun, IrOpcode, PhiInsn}
 
 import scala.language.implicitConversions
 
@@ -10,9 +10,7 @@ trait TilingInstructionSelection {
   type AsmEmitter[+A] = Context => A
 
   /** A nonterminal (LHS of RewriteRule). */
-  trait Var[T] {
-    type ValueTy = T
-
+  trait Var[+T] {
     def resolveValue(insn: Insn): T
   }
 
@@ -170,6 +168,7 @@ trait TilingInstructionSelection {
     override def toString(): String = s"$pat.filter($f)"
   }
 
+  /** Alternate. If [[pat]] matches, returns its result. Otherwise tries to match [[pat2]] . */
   case class OrPat[T](pat: Pat[T], pat2: Pat[T]) extends Pat[T] {
     override def size: Int = Math.min(pat.size, pat2.size)
 
@@ -183,6 +182,7 @@ trait TilingInstructionSelection {
     override def toString(): String = s"($pat | $pat2)"
   }
 
+  /** Increases cost of [[pat]] by [[by]]. Useful to prioritize hand-optimized tiles over automatically generated ones. */
   case class IncreaseCostPat[T](pat: Pat[T], by: Int) extends Pat[T] {
     override def size: Int = pat.size
 
@@ -206,6 +206,7 @@ trait TilingInstructionSelection {
     }
   }
 
+  /** Matches CallInsn if [[arg]] matches all of its arguments. */
   case class CallInsnPat[A](arg: Pat[A]) extends Pat[(CallInsn, IndexedSeq[A])] {
     override def size: Int = arg.size + 1
 
@@ -215,7 +216,7 @@ trait TilingInstructionSelection {
       if (insn.op == IrOpcode.Call) {
         val callInsn = insn.asInstanceOf[CallInsn]
         for {
-          Pat.Match(args, coveredInsns, requiredInsns) <- matchIndexedSeq(callInsn.argRefs.map(_.get), arg)
+          Pat.Match(args, coveredInsns, requiredInsns) <- matchIndexedSeq(callInsn.args, arg)
         } yield Pat.Match((callInsn, args), insn :: coveredInsns, requiredInsns)
       } else None
 
@@ -236,8 +237,8 @@ trait TilingInstructionSelection {
       if (insn.op == IrOpcode.CallPtr) {
         val callInsn = insn.asInstanceOf[CallPtrInsn]
         for (
-          Pat.Match(ptr, ptrCoveredInsns, ptrRequiredInsns) <- ptr(callInsn.funPtrRef.get);
-          Pat.Match(args, argsCoveredInsns, argsRequiredInsns) <- matchIndexedSeq(callInsn.argRefs.map(_.get), arg)
+          Pat.Match(ptr, ptrCoveredInsns, ptrRequiredInsns) <- ptr(callInsn.funPtr);
+          Pat.Match(args, argsCoveredInsns, argsRequiredInsns) <- matchIndexedSeq(callInsn.args, arg)
         ) yield Pat.Match((callInsn, ptr, args), insn :: ptrCoveredInsns ++ argsCoveredInsns, ptrRequiredInsns ++ argsRequiredInsns)
       } else None
 
@@ -250,9 +251,30 @@ trait TilingInstructionSelection {
     override def toString(): String = s"CallPtrInsnPat($arg)"
   }
 
+  case class PhiInsnPat[A](arg: Pat[A]) extends Pat[(PhiInsn, IndexedSeq[A])] {
+    override def size: Int = arg.size + 1
+
+    override def cost: Int = arg.cost
+
+    override def apply(insn: Insn): Option[Pat.Match[(PhiInsn, IndexedSeq[A])]] =
+      if (insn.op == IrOpcode.Phi) {
+        val phiInsn = insn.asInstanceOf[PhiInsn]
+        for {
+          Pat.Match(args, coveredInsns, requiredInsns) <- matchIndexedSeq(phiInsn.args.map(_._1), arg)
+        } yield Pat.Match((phiInsn, args), insn :: coveredInsns, requiredInsns)
+      } else None
+
+    override def flatten: Iterable[PhiInsnPat[A]] =
+      for {
+        arg <- arg.flatten
+      } yield PhiInsnPat(arg)
+
+    override def toString(): String = s"PhiInsnPat($arg)"
+  }
+
   type AsmPat[T] = Pat[AsmEmitter[T]]
 
-  case class GenRule[T](v: Var[AsmEmitter[T]], rhs: AsmPat[T]) extends (Insn => Option[GenRule.Match[T]]) {
+  case class GenRule[T](variable: Var[AsmEmitter[T]], rhs: Pat[AsmEmitter[T]]) extends (Insn => Option[GenRule.Match[T]]) {
     override def apply(insn: Insn): Option[GenRule.Match[T]] = {
       try
         rhs(insn).map(GenRule.Match(this, _))
@@ -264,13 +286,15 @@ trait TilingInstructionSelection {
     def flatten: Iterable[GenRule[T]] =
       for {
         rhs <- rhs.flatten
-      } yield GenRule(v, rhs)
+      } yield GenRule(variable, rhs)
 
-    override def toString(): String = s"($v -> $rhs)"
+    override def toString(): String = s"($variable -> $rhs)"
   }
 
   object GenRule {
     case class Match[T](rule: GenRule[T], patMatch: Pat.Match[AsmEmitter[T]]) {
+      def variable: Var[AsmEmitter[T]] = rule.variable
+
       def value: AsmEmitter[T] = patMatch.value
 
       def coveredInsns: List[Insn] = patMatch.coveredInsns
@@ -280,4 +304,17 @@ trait TilingInstructionSelection {
   }
 
   implicit def var2pat[T](v: Var[T]): VarPat[T] = VarPat(v)
+
+  /** A set of variables (nonterminals) used in the tree rewriting grammar */
+  def variables: Seq[Var[AsmEmitter[_]]]
+
+  /** A set of rewrite rules */
+  def rules: Seq[GenRule[_]]
+
+  /** Returns true, if the instruction can be covered by multiple tiles. */
+  def canCoverByMultipleTiles(insn: Insn): Boolean
+
+  /** Computes some covering of all instructions in the given [[fun]]. Every instruction can be at root of at most one tile.
+   * Every instruction should be covered by at most one tile, except when allowed by [[canCoverByMultipleTiles]]. */
+  def getTileMapForFun(fun: IrFun): Map[Insn, GenRule.Match[_]]
 }

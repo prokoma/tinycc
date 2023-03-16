@@ -1,5 +1,5 @@
-int heap[512];
 int brk = 0;
+int heap[512];
 
 void* malloc(int n) {
     void * res = &heap[brk];
@@ -31,6 +31,18 @@ int main() {
 
     list* l = cons(1, cons(2, cons(3, nil)));
     list* l2 = cons(0, l);
+
+    printnum(l->car);
+    printnum(l->cdr->car);
+    printnum(l->cdr->cdr->car);
+    printnum(cast<int>(l->cdr->cdr->cdr));
+// > 1
+// > 2
+// > 3
+// > 0
+
+    printnum(-1);
+// > -1
 
     print_list(l);
 // > 1

@@ -5,6 +5,7 @@ import tinycc.common.ir.{AllocGInsn, AllocLInsn, IrFun, IrProgram}
 import scala.collection.mutable
 
 class T86ProgramBuilder(irProgram: Option[IrProgram] = None) {
+  def this(irProgram: IrProgram) = this(Some(irProgram))
 
   protected var _data: mutable.Builder[T86ListingElement, IndexedSeq[T86ListingElement]] = IndexedSeq.newBuilder[T86ListingElement]
   protected var _globalsSize: Long = 0
@@ -14,7 +15,7 @@ class T86ProgramBuilder(irProgram: Option[IrProgram] = None) {
   def freshGlobal(size: Long, initData: Seq[Long] = Seq.empty): Operand.MemImm = {
     require(initData.size <= size)
     _data ++= initData.map(T86DataWord(_))
-    if(initData.size < size)
+    if (initData.size < size)
       _data += T86DataWord(0, size - initData.size)
     _globalsSize += size
     Operand.MemImm(_globalsSize - size)
@@ -34,6 +35,7 @@ class T86ProgramBuilder(irProgram: Option[IrProgram] = None) {
 }
 
 class T86FunBuilder(irFun: Option[IrFun] = None) {
+  def this(irFun: IrFun) = this(Some(irFun))
 
   protected var localsSize: Long = 0
   protected val localsMap = mutable.Map.empty[AllocLInsn, Operand.MemRegImm]

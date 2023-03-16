@@ -216,6 +216,8 @@ class T86Fun(var basicBlocks: IndexedSeq[T86BasicBlock], var localsSize: Long = 
 }
 
 class T86BasicBlock(var body: IndexedSeq[T86ListingElement], val irBasicBlock: Option[BasicBlock] = None) {
+  def this(body: IndexedSeq[T86ListingElement], irBasicBlock: BasicBlock) = this(body, Some(irBasicBlock))
+
   def name: String = irBasicBlock.map(_.uniqueName).getOrElse("<anon>")
 
   def insns: Seq[T86Insn] = body.collect({ case insn: T86Insn => insn })

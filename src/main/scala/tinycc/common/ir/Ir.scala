@@ -81,6 +81,10 @@ class OperandRef(val insn: Insn, target: Option[Insn]) extends InsnRef(target) {
     .getOrElse(throw new IrException(s"Cannot access null operand of $insn"))
 }
 
+object OperandRef {
+  def unapply(ref: OperandRef): Option[(Insn, Option[Insn])] = Some((ref.insn, ref()))
+}
+
 /** A smart reference to BasicBlock. */
 class BasicBlockRef(private var target: Option[BasicBlock]) extends Ref[BasicBlock] {
   def this(target: BasicBlock) = this(Some(target))
@@ -153,14 +157,14 @@ trait Insn extends IrObject with UseTracking[InsnRef, Insn] {
     })
   }
 
-  def remove(force: Boolean = false): Unit = basicBlock.removeInsn(this, force)
-
-  def replace(newInsn: Insn, replaceUses: Boolean = false): Unit = basicBlock.replaceInsn(this, newInsn, replaceUses)
+  def remove(removeUses: Boolean = false): Unit = basicBlock.removeInsn(this, removeUses)
 
   def copy(newBlock: BasicBlock): Insn
 
-  def releaseRefs(): Unit =
+  def releaseRefs(): Unit = {
+    parentNameGen.releaseName(name)
     operandRefs.foreach(_.apply(None))
+  }
 
   override def toString: String = s"${getClass.getSimpleName}(${super.toString})"
 }
@@ -207,8 +211,10 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
     assert(body.count(_.isInstanceOf[TerminatorInsn]) == 1, "multiple terminator instructions in a basic block")
   }
 
-  def releaseRefs(): Unit =
+  def releaseRefs(): Unit = {
+    fun.bbNameGen.releaseName(name)
     body.foreach(_.releaseRefs())
+  }
 
   // Insn Ops
 
@@ -227,33 +233,20 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
     case idx => Some(body(idx - 1))
   })
 
-  def removeInsn(insn: Insn, force: Boolean = false): Unit = {
+  def removeInsn(insn: Insn, removeUses: Boolean = false): Unit = {
     if (insn.basicBlock != this)
       throw new IrException(s"Cannot remove insn '$insn' owned by '${insn.basicBlock.name}' from '$name'.")
 
-    if (force)
+    if (removeUses)
       insn.removeUses()
     else if (insn.uses.nonEmpty)
       throw new IrException(s"Cannot remove still referenced insn '$insn'.")
 
-    insn.parentNameGen.releaseName(insn.name)
     insn.releaseRefs()
     body = body.filterNot(_ == insn)
   }
 
-  def replaceInsn(insn: Insn, newInsn: Insn, replaceUses: Boolean = false): Unit = {
-    if (newInsn.basicBlock != this)
-      throw new IrException(s"Cannot replace insn '$insn' with '$newInsn' owned by '${newInsn.basicBlock.name}' inside '$name'.")
-
-    if (replaceUses)
-      insn.replaceUses(newInsn)
-    else if (insn.uses.nonEmpty)
-      throw new IrException(s"Cannot replace still referenced insn '$insn'.")
-
-    insn.releaseRefs()
-    val idx = findInsn(insn).get
-    body = body.updated(idx, newInsn)
-  }
+  def remove(removeUses: Boolean = false): Unit = fun.removeBlock(this, removeUses)
 
   override def toString: String = s"BasicBlock($name, fun=$fun)"
 }
@@ -271,7 +264,7 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
 
   def argTys: IndexedSeq[IrTy] = signature.argTys
 
-  def insns: Iterable[Insn] = basicBlocks.flatMap(_.body)
+  def insns: Seq[Insn] = basicBlocks.flatMap(_.body)
 
   def getBlockPred(basicBlock: BasicBlock): Seq[BasicBlock] = basicBlocks.filter(_.succ.contains(basicBlock)).toSeq
 
@@ -281,11 +274,17 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
 
   def exitPoints: Seq[IrFunExitPoint] = basicBlocks.flatMap(_.terminator).collect({ case ep: IrFunExitPoint => ep }).toSeq
 
-  def locals: Iterable[AllocLInsn] = insns.collect({ case al: AllocLInsn => al })
+  def locals: Seq[AllocLInsn] = insns.collect({ case al: AllocLInsn => al })
 
   val nameGen: NameGen = program.nameGen.newChild()
 
   val bbNameGen: NameGen = new NameGen
+
+  def releaseRefs(): Unit = {
+    program.nameGen.releaseName(name)
+    entryBlockRef.release()
+    basicBlocks.foreach(_.releaseRefs())
+  }
 
   def append(basicBlock: BasicBlock): BasicBlock = {
     if (!basicBlocks.contains(basicBlock))
@@ -317,11 +316,11 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
     case idx => Some(idx)
   }
 
-  def removeBlock(basicBlock: BasicBlock, force: Boolean = false): Unit = {
+  def removeBlock(basicBlock: BasicBlock, removeUses: Boolean = false): Unit = {
     if (basicBlock.fun != this)
       throw new IrException(s"Cannot remove block '${basicBlock.name}' owned by '${basicBlock.fun.name}' from '$name'.")
 
-    if (force)
+    if (removeUses)
       basicBlock.removeUses()
     else if (basicBlock.uses.nonEmpty)
       throw new IrException(s"Cannot remove still referenced block '${basicBlock.name}'.")
