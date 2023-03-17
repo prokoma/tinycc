@@ -268,10 +268,11 @@ trait GenRules extends T86TilingInstructionSelection {
     GenRule(RegVar, Pat(BitcastInt64ToDouble, RegVar) ^^ { case (_, reg) => reg }),
 
     GenRule(RegVar, PhiInsnPat(RegVar) ^^ { case (insn, _) =>
-      (ctx: Context) => ctx.resolvePhiReg(RegVar, insn)
+      // copy on each use, because the phi could reference instruction in the current basic block
+      (ctx: Context) => ctx.copyToFreshReg(ctx.resolvePhiReg(RegVar, insn))
     }),
     GenRule(FRegVar, PhiInsnPat(FRegVar) ^^ { case (insn, _) =>
-      (ctx: Context) => ctx.resolvePhiFReg(FRegVar, insn)
+      (ctx: Context) => ctx.copyToFreshFReg(ctx.resolvePhiFReg(FRegVar, insn))
     }),
 
     GenRule(RegVar, Pat(Ret, RegVar) ^^ { case (insn, reg) =>

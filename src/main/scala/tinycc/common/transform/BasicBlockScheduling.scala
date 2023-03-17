@@ -29,6 +29,10 @@ class BasicBlockScheduling extends ProgramTransform[IrProgram] {
     }
 
     dfs(fun.entryBlock)
+    for (bb <- fun.basicBlocks if !visitedBlocks.contains(bb)) {
+      log(s"removed unreachable $bb")
+      bb.releaseRefs()
+    }
     fun.basicBlocks = sortedBasicBlocks.result()
   }
 }

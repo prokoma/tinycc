@@ -16,7 +16,7 @@ class T86AsmPrinter extends IndentPrinter[T86Listing] {
         out.write(s"# $value\n")
 
     case el: T86SpecialLabel =>
-      out.write(s"# $el\n")
+      out.write(s"#     $el\n")
 
     case T86SectionLabel(symbol) =>
 //      out.dedent()
@@ -27,6 +27,7 @@ class T86AsmPrinter extends IndentPrinter[T86Listing] {
     case T86Label(symbol) =>
 //      out.dedent()
       out.write(symbol.name + ":")
+      out.nl()
 //      out.indent()
 
     case T86DataWord(value, rep) =>

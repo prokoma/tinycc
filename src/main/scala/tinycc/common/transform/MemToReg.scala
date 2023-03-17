@@ -1,11 +1,13 @@
 package tinycc.common.transform
 
 import tinycc.common.ProgramTransform
-import tinycc.common.ir.IrManipulation.prependInsnTo
+import tinycc.common.ir.IrManipulation.{prependInsnTo, replaceInsnWith}
 import tinycc.common.ir._
 
 import scala.collection.mutable
 
+/** Replaces locals with Phi nodes.
+ * An implementation of https://pp.info.uni-karlsruhe.de/uploads/publikationen/braun13cc.pdf */
 class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram] {
   override def transformProgram(program: IrProgram): Unit =
     program.funs.foreach(transformFun)
@@ -48,10 +50,6 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
       phi.basicBlock.pred.zipWithIndex.foreach({ case (pred, index) =>
         phi.argRefs(index)._1(readVariable(pred))
       })
-      tryRemoveTrivialPhi(phi)
-    }
-
-    def tryRemoveTrivialPhi(phi: PhiInsn): Insn = {
       phi
     }
 
@@ -82,14 +80,40 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
       sealedBlocks += block
     }
 
+    var removedPhis = Set.empty[PhiInsn]
+    def tryRemoveTrivialPhi(phi: PhiInsn): Insn = {
+      val uniqueOperands = phi.operands.filterNot(_ == phi).toSet
+      if (uniqueOperands.isEmpty) {
+        log(s"self-referencing phi $phi")
+        phi
+      } else if (uniqueOperands.size == 1) {
+        val phiPhiUsers = phi.uses.collect({ case OperandRef(owner: PhiInsn, _) if owner != phi => owner })
+        phi.replaceUses(uniqueOperands.head)
+        phi.remove()
+        removedPhis += phi
+        // recurse into users of the phi instruction
+        // we have now one phi less, so this has to stop at some point
+        phiPhiUsers.foreach(tryRemoveTrivialPhi)
+        uniqueOperands.head
+      } else {
+        // non-trivial phi
+        phi
+      }
+    }
+
     fun.basicBlocks.foreach(fillBlock)
     fun.basicBlocks.foreach(sealBlock)
+    fun.insns.foreach({
+      case phi: PhiInsn if !removedPhis.contains(phi) => tryRemoveTrivialPhi(phi)
+      case _ =>
+    })
 
     if (removeLocals)
       local.remove()
   }
 
   def transformFun(fun: IrFun): Unit = {
+    // only optimize locals that are used as address in Load and Store instructions, because we can be sure that they are not aliased
     val localsToOptimize = fun.locals.filter(_.uses.forall({
       case OperandRef(_: LoadInsn, _) => true
       case ref@OperandRef(owner: StoreInsn, _) if ref == owner.ptrRef => true
