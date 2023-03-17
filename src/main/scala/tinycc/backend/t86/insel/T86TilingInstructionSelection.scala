@@ -153,16 +153,16 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
 
       override def resolvePhiReg(variable: AsmVar[Operand.Reg], insn: PhiInsn): Operand.Reg = {
         val res = freshReg()
-        insn.args.foreach({ case (argInsn, _) =>
-          basicBlockPhis(argInsn.basicBlock) = basicBlockPhis(argInsn.basicBlock).appended((variable, argInsn, res)) // i want the result of variable for argInsn copied into res
+        insn.args.foreach({ case (argInsn, argBlock) =>
+          basicBlockPhis(argBlock) = basicBlockPhis(argBlock).appended((variable, argInsn, res)) // i want the result of variable for argInsn copied into res
         })
         res
       }
 
       override def resolvePhiFReg(variable: AsmVar[Operand.FReg], insn: PhiInsn): Operand.FReg = {
         val res = freshFReg()
-        insn.args.foreach({ case (argInsn, _) =>
-          basicBlockPhis(argInsn.basicBlock) = basicBlockPhis(argInsn.basicBlock).appended((variable, argInsn, res)) // i want the result of variable for argInsn copied into res
+        insn.args.foreach({ case (argInsn, argBlock) =>
+          basicBlockPhis(argBlock) = basicBlockPhis(argBlock).appended((variable, argInsn, res)) // i want the result of variable for argInsn copied into res
         })
         res
       }

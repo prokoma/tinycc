@@ -53,7 +53,7 @@ run_test () {
   local asmerr="$asmfile.err"
   local asmout="$asmfile.out"
 
-  if ! "$tinycc" compile -o "$asmfile" "$file" &>"$asmerr"; then
+  if ! "$tinycc" compile --verbose --profile --optimize -o "$asmfile" "$file" &>"$asmerr"; then
     cat "$asmerr" >&2
     return 1
   fi
