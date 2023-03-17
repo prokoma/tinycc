@@ -3,7 +3,6 @@ package tinycc.util
 import tinycc.util.Profiler.Task
 
 import java.io.{PrintStream, PrintWriter}
-import scala.util.Using
 
 class Profiler {
   val rootTask = new Task("")
@@ -28,6 +27,7 @@ class Profiler {
   }
 
   def printReport(out: IndentWriter): Unit = {
+    out.write("======= PROFILER REPORT =======\n")
     rootTask.children.foreach(_.printReport(out))
   }
 
@@ -39,7 +39,9 @@ class Profiler {
 }
 
 object Profiler {
-  val theProfiler: Profiler = new Profiler
+  val instance: Profiler = new Profiler
+
+  def profile[T](name: String, thunk: => T): T = instance.profile(name, thunk)
 
   class Task(val name: String, var children: Seq[Task] = Seq.empty) {
     var startTime: Long = 0

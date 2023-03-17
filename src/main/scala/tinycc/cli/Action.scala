@@ -1,19 +1,15 @@
 package tinycc.cli
 
 import tinycc.ProgramException
-import tinycc.backend.t86.insel.T86InstructionSelection
-import tinycc.backend.t86.regalloc.T86RegisterAllocator
-import tinycc.backend.t86.{T86AsmPrinter, T86Backend, T86FunProcessor, T86LabelProcessor}
+import tinycc.backend.t86.T86Backend
 import tinycc.common.Optimizer
 import tinycc.common.ir.parser.IrParser
 import tinycc.common.ir.{IrPrinter, IrProgram}
-import tinycc.common.transform.{AllocOrdering, BasicBlockScheduling, MemToReg}
 import tinycc.frontend.TinyCCompiler
-import tinycc.frontend.analysis.{SemanticAnalysis, TypeAnalysis}
-import tinycc.frontend.ast.{AstPrinterC, AstProgram}
+import tinycc.frontend.ast.{AstPrinter, AstPrinterC, AstProgram}
 import tinycc.frontend.parser.TinyCParser
-import tinycc.util.Profiler.theProfiler
-import tinycc.util.{IndentWriter, Profiler, Reporter}
+import tinycc.util.Profiler.{instance, profile}
+import tinycc.util.{IndentWriter, Logging, Profiler, Reporter}
 
 import java.io.{IOException, PrintStream, PrintWriter}
 import java.nio.file.{Files, Path}
@@ -25,9 +21,11 @@ trait Action extends Product with Serializable {
 
 object Action {
 
-  import Console.{BOLD, RESET}
+  import Console.{BOLD, RESET, UNDERLINED}
 
   private def bold(s: String): String = BOLD + s + RESET
+
+  private def underlined(s: String): String = UNDERLINED + s + RESET
 
   trait ActionInfo {
     def synopsis: String
@@ -71,94 +69,133 @@ object Action {
 
   trait TinyCSourceFileInput extends FileInput {
     def withParsedProgram[T](f: AstProgram => T): T =
-      withSource(source => f(TinyCParser.parseProgram(source)))
+      withSource(source => f(profile("tinyCParser", TinyCParser.parseProgram(source))))
   }
 
   trait IrFileInput extends FileInput {
     def withParsedProgram[T](f: IrProgram => T): T =
-      withSource(source => f(IrParser.parseProgram(source)))
+      withSource(source => f(profile("irParser", IrParser.parseProgram(source))))
   }
 
-  case class Format(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
-    override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
-      out.println(new AstPrinterC().printToString(ast))
-    }))
+  trait VerboseLogging {
+    def verbose: Boolean
+
+    def withVerboseLogging[T](f: => T): T = {
+      Logging.enableLogging = verbose
+      f
+    }
+  }
+
+  trait Profiling {
+    def profile: Boolean
+
+    def withProfiling[T](f: => T): T = {
+      if (profile) {
+        val result = Profiler.profile("program", f)
+        Profiler.instance.printReport(Console.err)
+        result
+      } else f
+    }
+  }
+
+  case class Format(inFile: Path, profile: Boolean = false, verbose: Boolean = false, outFile: Option[Path] = None)
+    extends Action with TinyCSourceFileInput with StdoutOrFileOutput with Profiling with VerboseLogging {
+
+    override def execute(): Unit = withVerboseLogging(withPrintStream(out => withParsedProgram(ast => {
+      out.println(new AstPrinter().printToString(ast))
+    })))
   }
 
   object Format extends ActionInfo {
-    val synopsis: String = s"${bold("tinycc format")} [-o <file> | --output=<file>] <file>"
+    val synopsis: String = s"${bold("tinycc format")} [-v | --verbose] [--profile] [-o <file> | --output=<file>] <file>"
 
-    val description: String = "Parse the given TinyC source <file> and print it again, this time formatted. The result is either written to a file, or printed to the standard output."
+    val description: String = s"Parse the given TinyC source ${underlined("<file>")} and print it again, this time formatted. The result is either written to a file, or printed to the standard output."
   }
 
-  case class TranspileToC(inFile: Path, outFile: Option[Path] = None, prefix: Seq[String] = Seq.empty) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
-    override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
+  case class TranspileToC(inFile: Path, profile: Boolean = false, verbose: Boolean = false, outFile: Option[Path] = None, prefix: Seq[String] = Seq.empty)
+    extends Action with TinyCSourceFileInput with StdoutOrFileOutput with Profiling with VerboseLogging {
+
+    override def execute(): Unit = withVerboseLogging(withPrintStream(out => withParsedProgram(ast => {
       prefix.foreach(out.println)
       out.println(new AstPrinterC().printToString(ast))
-    }))
+    })))
   }
 
   object TranspileToC extends ActionInfo {
-    val synopsis: String = s"${bold("tinycc transpile-to-c")} [-p <string> | --prefix=<string>] [-o <file> | --output=<file>] <file>"
+    val synopsis: String = s"${bold("tinycc transpile-to-c")} [-v | --verbose] [--profile] [-p <string> | --prefix=<string>] [-o <file> | --output=<file>] <file>"
 
-    val description: String = "Transpile the given TinyC source <file> to C66 source code with optional prefix. The result is either written to a file, or printed to the standard output."
+    val description: String = s"Transpile the given TinyC source ${underlined("<file>")} to C66 source code with optional prefix. The result is either written to a file, or printed to the standard output."
   }
 
-  case class CompileToIr(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
-    override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
-      val irProgram = TinyCCompiler(ast).result()
+  case class CompileToIr(inFile: Path, profile: Boolean = false, verbose: Boolean = false, optimize: Boolean = false, outFile: Option[Path] = None)
+    extends Action with TinyCSourceFileInput with StdoutOrFileOutput with Profiling with VerboseLogging {
+
+    override def execute(): Unit = withVerboseLogging(withProfiling(withPrintStream(out => withParsedProgram(ast => {
+      val irProgram = Profiler.profile("frontend", TinyCCompiler(ast).result())
+
+      if (optimize) {
+        Profiler.profile("middleend", {
+          new Optimizer(true).transformProgram(irProgram)
+          irProgram.validate()
+        })
+      }
+
       out.println(new IrPrinter().printToString(irProgram))
-    }))
+    }))))
   }
 
   object CompileToIr extends ActionInfo {
-    val synopsis: String = s"${bold("tinycc compile-to-ir")} [-o <file> | --output=<file>] <file>"
+    val synopsis: String = s"${bold("tinycc compile-to-ir")} [-v | --verbose] [--profile] [--optimize] [-o <file> | --output=<file>] <file>"
 
-    val description: String = s"Compile the given TinyC source <file> to intermediate representation. The result is either written to a file, or printed to the standard output."
+    val description: String = s"Compile the given TinyC source ${underlined("<file>")} to intermediate representation. If ${underlined("--optimize")} is specified, apply MemToReg and SingleFunExit transforms. The result is either written to a file, or printed to the standard output."
   }
 
-  case class Codegen(inFile: Path, outFile: Option[Path] = None) extends Action with IrFileInput with StdoutOrFileOutput {
-    override def execute(): Unit = withPrintStream(out => withParsedProgram(irProgram => {
+  case class Codegen(inFile: Path, profile: Boolean = false, verbose: Boolean = false, optimize: Boolean = false, outFile: Option[Path] = None)
+    extends Action with IrFileInput with StdoutOrFileOutput with Profiling with VerboseLogging {
+
+    override def execute(): Unit = withVerboseLogging(withProfiling(withPrintStream(out => withParsedProgram(irProgram => {
       Console.err.println(new IrPrinter().printToString(irProgram))
 
-      new Optimizer().transformProgram(irProgram)
-      Console.err.println(new IrPrinter().printToString(irProgram))
-      irProgram.validate()
-
-      out.print(new T86Backend(irProgram).resultAsString())
-    }))
-  }
-
-  object Codegen extends ActionInfo {
-    val synopsis: String = s"${bold("tinycc codegen")} [-o <file> | --output=<file>] <file>"
-
-    val description: String = s"Compile the given intermediate code stored in <file> to Tiny86 assembly listing. The result is either written to a file, or printed to the standard output."
-  }
-
-  case class Compile(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
-    override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
-      val irProgram = theProfiler.profile("frontend", TinyCCompiler(ast).result())
-
-      theProfiler.profile("middleend", {
-        new Optimizer().transformProgram(irProgram)
-        Console.err.println(new IrPrinter().printToString(irProgram))
+      Profiler.profile("middleend", {
+        new Optimizer(optimize).transformProgram(irProgram)
         irProgram.validate()
       })
 
-      val asmString = theProfiler.profile("backend", new T86Backend(irProgram).resultAsString())
+      val asmString = Profiler.profile("backend", new T86Backend(irProgram).resultAsString())
       out.print(asmString)
+    }))))
+  }
 
-      theProfiler.printReport(Console.err)
-    }))
+  object Codegen extends ActionInfo {
+    val synopsis: String = s"${bold("tinycc codegen")} [-v | --verbose] [--profile] [--optimize] [-o <file> | --output=<file>] <file>"
+
+    val description: String = s"Compile the given intermediate code stored in ${underlined("<file>")} to Tiny86 assembly listing. If ${underlined("--optimize")} is specified, apply MemToReg and SingleFunExit transforms. The result is either written to a file, or printed to the standard output."
+  }
+
+  case class Compile(inFile: Path, profile: Boolean = false, verbose: Boolean = false, optimize: Boolean = false, outFile: Option[Path] = None)
+    extends Action with TinyCSourceFileInput with StdoutOrFileOutput with Profiling with VerboseLogging {
+
+    override def execute(): Unit = withVerboseLogging(withProfiling(withPrintStream(out => withParsedProgram(ast => {
+      val irProgram = Profiler.profile("frontend", TinyCCompiler(ast).result())
+
+      Profiler.profile("middleend", {
+        new Optimizer(optimize).transformProgram(irProgram)
+        irProgram.validate()
+      })
+
+      val asmString = Profiler.profile("backend", new T86Backend(irProgram).resultAsString())
+      out.print(asmString)
+    }))))
   }
 
   object Compile extends ActionInfo {
-    val synopsis: String = s"${bold("tinycc compile")} [-o <file> | --output=<file>] <file>"
+    val synopsis: String = s"${bold("tinycc compile")} [-v | --verbose] [--profile] [--optimize] [-o <file> | --output=<file>] <file>"
 
-    val description: String = s"Compile the given TinyC source <file> to Tiny86 assembly listing. Combines the ${bold("compile-to-ir")} and ${bold("codegen")} actions. The result is either written to a file, or printed to the standard output."
+    val description: String = s"Compile the given TinyC source ${underlined("<file>")} to Tiny86 assembly listing. If ${underlined("--optimize")} is specified, apply MemToReg and SingleFunExit transforms. Combines the ${bold("compile-to-ir")} and ${bold("codegen")} actions. The result is either written to a file, or printed to the standard output."
   }
 
   case object Help extends Action with ActionInfo {
+
     override def execute(): Unit = {
       Using(new IndentWriter(new PrintWriter(Console.err), " " * 3))(out => {
         out.write(bold("NAME"))

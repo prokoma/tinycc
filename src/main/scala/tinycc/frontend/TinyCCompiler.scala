@@ -8,7 +8,7 @@ import tinycc.frontend.analysis.IdentifierDecl.{FunArgDecl, FunDecl, VarDecl}
 import tinycc.frontend.analysis.{IdentifierDecl, SemanticAnalysis, TypeAnalysis}
 import tinycc.frontend.ast._
 import tinycc.frontend.parser.Symbols
-import tinycc.util.Profiler.theProfiler
+import tinycc.util.Profiler.profile
 import tinycc.util.parsing.SourceLocation
 import tinycc.util.{ErrorLevel, Reporter}
 
@@ -770,8 +770,8 @@ object TinyCCompiler {
   }
 
   def apply(program: AstProgram): TinyCCompiler = {
-    val declarations = theProfiler.profile("semanticAnalysis", new SemanticAnalysis(program).result())
-    val typeMap = theProfiler.profile("typeAnalysis", new TypeAnalysis(program, declarations).result())
+    val declarations = profile("semanticAnalysis", new SemanticAnalysis(program).result())
+    val typeMap = profile("typeAnalysis", new TypeAnalysis(program, declarations).result())
     new TinyCCompiler(program, declarations, typeMap)
   }
 }
