@@ -10,6 +10,6 @@ void printnum(int64_t num) {
     printf("%" PRId64 "\n", num);
 }
 
-char read() {
+char scan() {
     return getchar();
 }

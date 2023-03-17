@@ -24,6 +24,12 @@ class AstPrinterC extends AstPrinter {
           case None => semicolon
         }
 
+      case node: AstSequence =>
+        if(isStmt && node.body.exists(_.isInstanceOf[AstVarDecl]))
+          node.body.foreach(printAsStmt(_, out))
+        else
+          super.printNode(node, isStmt, out)
+
 //      case node: AstStructDecl =>
 //        out.write(s"typedef struct ")
 //        node.fields.foreach(fields => {

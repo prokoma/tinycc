@@ -12,7 +12,8 @@ import tinycc.frontend.TinyCCompiler
 import tinycc.frontend.analysis.{SemanticAnalysis, TypeAnalysis}
 import tinycc.frontend.ast.{AstPrinterC, AstProgram}
 import tinycc.frontend.parser.TinyCParser
-import tinycc.util.{IndentWriter, Reporter}
+import tinycc.util.Profiler.theProfiler
+import tinycc.util.{IndentWriter, Profiler, Reporter}
 
 import java.io.{IOException, PrintStream, PrintWriter}
 import java.nio.file.{Files, Path}
@@ -136,13 +137,18 @@ object Action {
 
   case class Compile(inFile: Path, outFile: Option[Path] = None) extends Action with TinyCSourceFileInput with StdoutOrFileOutput {
     override def execute(): Unit = withPrintStream(out => withParsedProgram(ast => {
-      val irProgram = TinyCCompiler(ast).result()
+      val irProgram = theProfiler.profile("frontend", TinyCCompiler(ast).result())
 
-      new Optimizer().transformProgram(irProgram)
-      Console.err.println(new IrPrinter().printToString(irProgram))
-      irProgram.validate()
+      theProfiler.profile("middleend", {
+        new Optimizer().transformProgram(irProgram)
+        Console.err.println(new IrPrinter().printToString(irProgram))
+        irProgram.validate()
+      })
 
-      out.print(new T86Backend(irProgram).resultAsString())
+      val asmString = theProfiler.profile("backend", new T86Backend(irProgram).resultAsString())
+      out.print(asmString)
+
+      theProfiler.printReport(Console.err)
     }))
   }
 

@@ -15,6 +15,17 @@ fancy_diff () {
   diff -us "$1" "$2" | colordiff
 }
 
+extract_template () {
+  ( cd "$(dirname "$2")" && awk '
+match($0, /^\/\/ '$1' (.+)/, m) { print m[1] }
+match($0, /^\/\/ '$1'! (.+)/, m) {
+  while((getline < m[1]) == 1) {
+    print
+  }
+}' "$(basename "$2")" )
+}
+
+
 run_test () {
   local file="$1"
   local name="$(basename $1)"
@@ -22,8 +33,11 @@ run_test () {
 
   echo "== $name =="
 
-  local expected="$out_base.expected"
-  awk 'match($0, /^\/\/ > (.+)/, m) { print m[1] }' "$file" >"$expected"
+  local in="$out_base.in"
+  local ref="$out_base.ref"
+
+  extract_template "<" "$file" >"$in"
+  extract_template ">" "$file" >"$ref"
 
   local cfile="$out_base.transpiled.c"
   local cbin="$out_base.transpiled"
@@ -31,9 +45,9 @@ run_test () {
 
   "$tinycc" transpile-to-c --prefix='#include "gcc_runtime.h"' -o "$cfile" "$file"
   gcc -Wall --std=c99 -I "$root_dir" -fno-builtin -fsigned-char "$cfile" "$output_dir/gcc_runtime.o" -o "$cbin"
-  "$cbin" >"$cout"
+  "$cbin" <"$in" >"$cout"
 
-  fancy_diff "$expected" "$cout"
+  fancy_diff "$ref" "$cout"
 
   local asmfile="$out_base.t86"
   local asmerr="$asmfile.err"
@@ -45,13 +59,13 @@ run_test () {
   fi
 
   echo "Running t86-cli..." >>"$asmerr"
-  if ! "$t86_cli" run "$asmfile" -registerCnt=32 -floatRegisterCnt=8 >"$asmout" 2>>"$asmerr"; then
+  if ! "$t86_cli" run "$asmfile" -registerCnt=32 -floatRegisterCnt=8 <"$in" >"$asmout" 2>>"$asmerr"; then
     cat "$asmerr" >&2
-    fancy_diff "$expected" "$asmout"
+    fancy_diff "$ref" "$asmout"
     return 1
   fi
 
-  fancy_diff "$expected" "$asmout"
+  fancy_diff "$ref" "$asmout"
 }
 
 mkdir -p "$output_dir"
@@ -60,7 +74,11 @@ gcc -fsigned-char -c gcc_runtime.c -o "$output_dir/gcc_runtime.o"
 
 if [ $# -gt 0 ]; then
   for file in "$@"; do
-    run_test "$input_dir/$(basename "$file")"
+    if [ -f "$file" ]; then
+      run_test "$file"
+    else
+      run_test "$input_dir/$(basename "$file")"
+    fi
   done
 else
   test_files="$(find "$input_dir" -iname '*.c' -print | sort)"

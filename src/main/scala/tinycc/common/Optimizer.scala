@@ -2,6 +2,7 @@ package tinycc.common
 
 import tinycc.common.ir.{IrPrinter, IrProgram}
 import tinycc.common.transform.{AllocOrdering, BasicBlockScheduling, MemToReg, SingleFunExit}
+import tinycc.util.Profiler.theProfiler
 
 class Optimizer extends ProgramTransform[IrProgram] {
   val allocOrdering = new AllocOrdering
@@ -14,10 +15,10 @@ class Optimizer extends ProgramTransform[IrProgram] {
   override def transformProgram(program: IrProgram): Unit = {
     log("before\n" + printer.printToString(program))
 
-    basicBlockScheduling.transformProgram(program)
-    allocOrdering.transformProgram(program)
-    memToReg.transformProgram(program)
-    singleFunExit.transformProgram(program)
+    theProfiler.profile("basicBlockScheduling", basicBlockScheduling.transformProgram(program))
+    theProfiler.profile("allocOrdering", allocOrdering.transformProgram(program))
+    theProfiler.profile("memToReg", memToReg.transformProgram(program))
+    theProfiler.profile("singleFunExit", singleFunExit.transformProgram(program))
 
     log("after\n" + printer.printToString(program))
   }
