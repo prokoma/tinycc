@@ -10,53 +10,43 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
   override def transformProgram(program: IrProgram): Unit =
     program.funs.foreach(transformFun)
 
-  def transformFun(fun: IrFun): Unit = {
-    val currentDef = mutable.Map.empty[AllocLInsn, Map[BasicBlock, Insn]].withDefaultValue(Map.empty)
-    val incompletePhis = mutable.Map.empty[BasicBlock, Map[AllocLInsn, PhiInsn]].withDefaultValue(Map.empty)
-    var openBlocks = Set.empty[BasicBlock]
+  private def optimizeLocal(fun: IrFun, local: AllocLInsn): Unit = {
+    val currentDef = mutable.Map.empty[BasicBlock, Insn]
     var sealedBlocks = Set.empty[BasicBlock]
+    val incompletePhis = mutable.Map.empty[BasicBlock, PhiInsn]
 
-    // collect allocl instructions, which are only used as operands of load and store instructions
-    val localsToOptimize: Set[Insn] = fun.locals.filter(_.uses.forall({
-      case OperandRef(_: LoadInsn, _) => true
-      case ref@OperandRef(owner: StoreInsn, _) if ref == owner.ptrRef => true //
-      case _ => false
-    })).toSet
-
-    def writeVariable(variable: AllocLInsn, block: BasicBlock, value: Insn): Unit =
-      currentDef(variable) += (block -> value)
-
-    def readVariable(variable: AllocLInsn, block: BasicBlock): Insn = {
-      if(!openBlocks.contains(block))
-        fillBlock(block)
-
-      currentDef(variable).getOrElse(block, readVariableRecursive(variable, block))
+    def writeVariable(block: BasicBlock, value: Insn): Unit = {
+//      log(s"writeVariable $block $value")
+      currentDef(block) = value
     }
 
-    def readVariableRecursive(variable: AllocLInsn, block: BasicBlock): Insn = {
-      assert(block.pred.nonEmpty, s"uninitialized load of $variable in $block")
+    def readVariable(block: BasicBlock): Insn = {
+//      log(s"readVariable $block")
+      currentDef.getOrElse(block, readVariableRecursive(block))
+    }
 
-      log(s"$block ${block.pred}")
+    def readVariableRecursive(block: BasicBlock): Insn = {
+      assert(block.pred.nonEmpty, s"uninitialized load in $block")
 
-      val value = /*if(!sealedBlocks.contains(block)) {
-        val emptyPhi = insertInsnBefore(new PhiInsn(block.pred.map(bb => (None, Some(bb))).toIndexedSeq, block), loc)
-        incompletePhis(block) += (variable -> emptyPhi)
+      val value = if (!sealedBlocks.contains(block)) {
+        val emptyPhi = prependInsnTo(new PhiInsn(block.pred.map(bb => (None, Some(bb))).toIndexedSeq, block), block)
+        incompletePhis(block) = emptyPhi
         emptyPhi
-      } else */if (block.pred.size == 1) {
-        readVariable(variable, block.pred.head)
+      } else if (block.pred.size == 1) {
+        readVariable(block.pred.head)
       } else {
         val emptyPhi = prependInsnTo(new PhiInsn(block.pred.map(bb => (None, Some(bb))).toIndexedSeq, block), block)
-        writeVariable(variable, block, emptyPhi)
-        addPhiOperands(variable, emptyPhi)
+        writeVariable(block, emptyPhi)
+        addPhiOperands(emptyPhi)
       }
 
-      writeVariable(variable, block, value)
+      writeVariable(block, value)
       value
     }
 
-    def addPhiOperands(variable: AllocLInsn, phi: PhiInsn): Insn = {
+    def addPhiOperands(phi: PhiInsn): Insn = {
       phi.basicBlock.pred.zipWithIndex.foreach({ case (pred, index) =>
-        phi.argRefs(index)._1(readVariable(variable, pred))
+        phi.argRefs(index)._1(readVariable(pred))
       })
       tryRemoveTrivialPhi(phi)
     }
@@ -66,39 +56,46 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
     }
 
     def fillBlock(block: BasicBlock): Unit = {
-      openBlocks += block
+//      log(s"enter $block")
 
       block.body.foreach({
-        case insn: LoadInsn if localsToOptimize.contains(insn.ptr) =>
-          val value = readVariable(insn.ptr.asInstanceOf[AllocLInsn], block)
+        case insn: LoadInsn if insn.ptr == local =>
+          val value = readVariable(block)
           log(s"replaced $insn with $value")
           insn.replaceUses(value)
-          if(removeLocals)
+          if (removeLocals)
             insn.remove()
 
-        case insn: StoreInsn if localsToOptimize.contains(insn.ptr) =>
-          writeVariable(insn.ptr.asInstanceOf[AllocLInsn], block, insn.value)
-          if(removeLocals)
+        case insn: StoreInsn if insn.ptr == local =>
+          writeVariable(block, insn.value)
+          if (removeLocals)
             insn.remove()
 
         case _ =>
       })
 
-//      sealBlock(block)
+//      log(s"exit $block")
     }
 
     def sealBlock(block: BasicBlock): Unit = {
-      incompletePhis(block).foreach({ case (variable, phi) =>
-        addPhiOperands(variable, phi)
-      })
+      incompletePhis.get(block).foreach(addPhiOperands)
       sealedBlocks += block
     }
 
-    fun.basicBlocks.foreach(bb => {
-      fillBlock(bb)
-    })
+    fun.basicBlocks.foreach(fillBlock)
+    fun.basicBlocks.foreach(sealBlock)
 
-    if(removeLocals)
-      localsToOptimize.foreach(_.remove())
+    if (removeLocals)
+      local.remove()
+  }
+
+  def transformFun(fun: IrFun): Unit = {
+    val localsToOptimize = fun.locals.filter(_.uses.forall({
+      case OperandRef(_: LoadInsn, _) => true
+      case ref@OperandRef(owner: StoreInsn, _) if ref == owner.ptrRef => true
+      case _ => false
+    }))
+
+    localsToOptimize.foreach(optimizeLocal(fun, _))
   }
 }

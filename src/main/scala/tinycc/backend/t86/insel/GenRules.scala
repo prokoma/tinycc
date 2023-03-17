@@ -13,6 +13,20 @@ trait GenRules extends T86TilingInstructionSelection {
 
   override val variables: Seq[Var[AsmEmitter[_]]] = Seq(RegVar, FRegVar)
 
+  override def canCastFromTo(from: AsmVar[_], to: AsmVar[_]): Boolean = (from, to) match {
+    case _ if from == to => true
+    case (RegVar, FRegVar) => true
+    case (FRegVar, RegVar) => true
+    case _ => false
+  }
+
+  override def emitCastFromTo[F, T](value: F, from: AsmVar[F], to: AsmVar[T]): AsmEmitter[T] = (from, to) match {
+    case _ if from == to => pure(value.asInstanceOf[T])
+    case (RegVar, FRegVar) => (ctx: Context) => ctx.copyToFreshFReg(value.asInstanceOf[Operand.Reg]).asInstanceOf[T]
+    case (FRegVar, RegVar) => (ctx: Context) => ctx.copyToFreshReg(value.asInstanceOf[Operand.FReg]).asInstanceOf[T]
+    case _ => throw new IllegalArgumentException(s"cannot cast $value from $from to $to")
+  }
+
   def pure[T](value: T): AsmEmitter[T] = (ctx: Context) => value
 
   def constImm(v: Long): AsmPat[Operand.Imm] = Pat(IImm)
@@ -28,8 +42,8 @@ trait GenRules extends T86TilingInstructionSelection {
   lazy val regOrImm: AsmPat[Operand] = imm | RegVar
 
   lazy val fimm: AsmPat[Operand.FImm] = Pat(FImm) ^^ { case insn: FImmInsn => pure(Operand.FImm(insn.value)) }
-  lazy val freg: AsmPat[Operand.FReg] = FRegVar | (RegVar ^^ { reg => (ctx: Context) => ctx.copyToFreshFReg(reg(ctx)) }) // TODO: increase cost for casting between register types
-  lazy val fregOrFimm: AsmPat[Operand] = freg | fimm
+  lazy val freg: AsmPat[Operand.FReg] = FRegVar/* | (RegVar ^^ { reg => (ctx: Context) => ctx.copyToFreshFReg(reg(ctx)) } cost 1)*/
+  lazy val fregOrFimm: AsmPat[Operand] = FRegVar | fimm
   lazy val regOrFregOrFimm: AsmPat[Operand] = RegVar | fregOrFimm
 
   lazy val memReg: AsmPat[Operand.MemReg] = RegVar ^^ { reg => (ctx: Context) => reg(ctx).mem }
@@ -304,9 +318,15 @@ trait GenRules extends T86TilingInstructionSelection {
     def fregToReg(freg: AsmPat[Operand.FReg]): AsmPat[Operand.Reg] =
       freg ^^ { freg => (ctx: Context) => ctx.copyToFreshReg(freg(ctx)) } cost 1
 
+    def regToFreg(reg: AsmPat[Operand.Reg]): AsmPat[Operand.FReg] =
+      reg ^^ { reg => (ctx: Context) => ctx.copyToFreshFReg(reg(ctx)) } cost 1
+
     val expanded = rule match {
       case GenRule(FRegVar, rhs: AsmPat[Operand.FReg]@unchecked) =>
         Iterable(rule, GenRule(RegVar, fregToReg(rhs)))
+
+      case GenRule(RegVar, rhs: AsmPat[Operand.Reg]@unchecked) =>
+        Iterable(rule, GenRule(FRegVar, regToFreg(rhs)))
 
       case rule => Iterable(rule)
     }

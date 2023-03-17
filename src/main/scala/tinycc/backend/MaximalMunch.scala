@@ -17,15 +17,28 @@ trait MaximalMunch extends TilingInstructionSelection {
 
     val tileMap = mutable.Map.empty[Insn, GenRule.Match[_]]
 
-    def selectTile(rules: Seq[GenRule[_]], insn: Insn): GenRule.Match[_] =
-      rules.view.flatMap(_(insn)).find(m => {
+    def selectTile(rules: Seq[GenRule[_]], insn: Insn): GenRule.Match[_] = {
+      val insnMatches = rules.view.flatMap(_(insn)).filter(m => {
+        // check that the tile doesn't cover any frozen insn (except the root)
         !m.coveredInsns.exists(i => i != insn && frozenInsns.contains(i))
-      }).getOrElse(throw new BackendException(s"Failed to select tile for $insn (${rules.size} rules)"))
+      })
+
+      insnMatches.find(m => {
+        // check that for every required insn, we can supply a value of the specific type
+        m.requiredInsns.forall({ case (nt, insn) => {
+          val insnMatch = tileMap.get(insn)
+          insnMatch.isEmpty || insnMatch.get.variable == nt
+        }})
+        // if that fails, accept anything, but that means we will have to do some casting
+      }).orElse(insnMatches.headOption).getOrElse(throw new BackendException(s"Failed to select tile for $insn (${rules.size} rules)"))
+    }
 
     def dfs(insn: Insn): Unit = {
       val filteredRules = allRequiredInsns.get(insn) match {
         case Some(variable) =>
-          assert(!tileMap.contains(insn) || tileMap(insn).variable == variable, s"cannot cover already covered $insn with different variable")
+          val prevVariable = tileMap.get(insn).map(_.variable)
+          assert(prevVariable.isEmpty || prevVariable.get == variable || canCastFromTo(prevVariable.get, variable.asInstanceOf[AsmVar[_]]),
+            s"cannot cover already covered $insn with different incompatible variable (prev: ${tileMap(insn).variable}, current: $variable)")
           sortedRulesByVariable(variable)
 
         case None => sortedRules

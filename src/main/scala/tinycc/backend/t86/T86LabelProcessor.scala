@@ -11,7 +11,7 @@ class T86LabelProcessor(listing: T86Listing) {
   protected def resolveLabelsInOperand(operand: Operand): (Operand, List[T86Comment]) = operand match {
     case Operand.Label(symbol) =>
       val addr = labelAddressMap.getOrElse(symbol, throw new BackendException(s"Undefined label $symbol"))
-      (Operand.Imm(addr), List(T86Comment(s"${symbol.name} -> $addr")))
+      (Operand.Imm(addr), List(T86Comment(s"$addr -> ${symbol.name}")))
 
     case operand => (operand, Nil)
   }
@@ -47,12 +47,35 @@ class T86LabelProcessor(listing: T86Listing) {
         newProgram += BinaryT86Insn(op, newOperand0, newOperand1)
 
       case T86Label(symbol) =>
-        newProgram += T86Comment(s"${symbol.name}:")
+        newProgram += T86Comment(s"${symbol.name}:", false)
 
       case elem =>
         newProgram += elem
     })
 
     newProgram.result()
+  }
+}
+
+object T86LabelProcessor {
+  def computeAddresses(listing: T86Listing): Seq[(Long, T86ListingElement)] = {
+    val addrMap = mutable.Map.empty[Symbol, Long].withDefaultValue(0)
+    var curSection = Symbol("")
+
+    listing.map({
+      case elem@T86SectionLabel(name) =>
+        curSection = name
+        (addrMap(curSection), elem)
+
+      case insn: T86Insn =>
+        addrMap(curSection) += 1
+        (addrMap(curSection) - 1, insn)
+
+      case dw@T86DataWord(value, rep) =>
+        addrMap(curSection) += rep
+        (addrMap(curSection) - rep, dw)
+
+      case elem => (addrMap(curSection), elem)
+    })
   }
 }

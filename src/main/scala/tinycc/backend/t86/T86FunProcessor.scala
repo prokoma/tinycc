@@ -14,7 +14,8 @@ class T86FunProcessor extends ProgramTransform[T86Program] {
     val prologueBuilder = Seq.newBuilder[T86Insn]
     prologueBuilder += T86Insn(PUSH, Operand.BP)
     prologueBuilder += T86Insn(MOV, Operand.BP, Operand.SP)
-    prologueBuilder += T86Insn(SUB, Operand.SP, Operand.Imm(fun.localsSize))
+    if(fun.localsSize > 0)
+      prologueBuilder += T86Insn(SUB, Operand.SP, Operand.Imm(fun.localsSize))
     val prologue = prologueBuilder.result()
 
     val epilogueBuilder = Seq.newBuilder[T86Insn]
@@ -26,6 +27,8 @@ class T86FunProcessor extends ProgramTransform[T86Program] {
       bb.body = bb.body.flatMap({
         case T86SpecialLabel.FunPrologueMarker => prologue
         case T86SpecialLabel.FunEpilogueMarker => epilogue
+        case T86SpecialLabel.CallPrologueMarker => Seq.empty
+        case T86SpecialLabel.CallEpilogueMarker => Seq.empty
 
         case elem => Seq(elem)
       })

@@ -116,7 +116,7 @@ object Operand {
 
 sealed trait T86ListingElement extends Product with Serializable
 
-case class T86Comment(value: String) extends T86ListingElement
+case class T86Comment(value: String, indent: Boolean = true) extends T86ListingElement
 
 case class T86SectionLabel(symbol: Symbol) extends T86ListingElement
 
@@ -194,9 +194,9 @@ class T86Fun(var basicBlocks: IndexedSeq[T86BasicBlock], var localsSize: Long = 
   def insns: Seq[T86Insn] = basicBlocks.flatMap(_.insns)
 
   def flatten: T86Listing = (
-    Seq(T86Comment(""), T86Comment(s"=== FUNCTION $name START ==="), T86Comment("")) ++
+    Seq(T86Comment(""), T86Comment(s"======= FUNCTION $name START =======", false)) ++
     basicBlocks.flatMap(_.flatten) ++
-    Seq(T86Comment(""), T86Comment(s"=== FUNCTION $name END ==="), T86Comment(""))
+    Seq(T86Comment(s"======= FUNCTION $name END =======", false), T86Comment(""))
   )
 
   def freshReg(): Operand.Reg = {

@@ -14,6 +14,8 @@ trait TilingInstructionSelection {
     def resolveValue(insn: Insn): T
   }
 
+  type AsmVar[+T] = Var[AsmEmitter[T]]
+
   /** A pattern, which matches a tree of instructions. */
   trait Pat[+A] extends (Insn => Option[Pat.Match[A]]) {
     /** Number of covered instructions by this pattern. */
@@ -274,7 +276,7 @@ trait TilingInstructionSelection {
 
   type AsmPat[T] = Pat[AsmEmitter[T]]
 
-  case class GenRule[T](variable: Var[AsmEmitter[T]], rhs: Pat[AsmEmitter[T]]) extends (Insn => Option[GenRule.Match[T]]) {
+  case class GenRule[T](variable: AsmVar[T], rhs: AsmPat[T]) extends (Insn => Option[GenRule.Match[T]]) {
     override def apply(insn: Insn): Option[GenRule.Match[T]] = {
       try
         rhs(insn).map(GenRule.Match(this, _))
@@ -293,7 +295,7 @@ trait TilingInstructionSelection {
 
   object GenRule {
     case class Match[T](rule: GenRule[T], patMatch: Pat.Match[AsmEmitter[T]]) {
-      def variable: Var[AsmEmitter[T]] = rule.variable
+      def variable: AsmVar[T] = rule.variable
 
       def value: AsmEmitter[T] = patMatch.value
 
@@ -306,10 +308,14 @@ trait TilingInstructionSelection {
   implicit def var2pat[T](v: Var[T]): VarPat[T] = VarPat(v)
 
   /** A set of variables (nonterminals) used in the tree rewriting grammar */
-  def variables: Seq[Var[AsmEmitter[_]]]
+  def variables: Seq[AsmVar[_]]
 
   /** A set of rewrite rules */
   def rules: Seq[GenRule[_]]
+
+  def canCastFromTo(from: AsmVar[_], to: AsmVar[_]): Boolean
+
+  def emitCastFromTo[F, T](value: F, from: AsmVar[F], to: AsmVar[T]): AsmEmitter[T]
 
   /** Returns true, if the instruction can be covered by multiple tiles. */
   def canCoverByMultipleTiles(insn: Insn): Boolean

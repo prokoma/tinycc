@@ -4,7 +4,7 @@ import tinycc.backend.TilingInstructionSelection
 import tinycc.backend.t86.T86Opcode._
 import tinycc.backend.t86.T86Utils.buildArgsMap
 import tinycc.backend.t86._
-import tinycc.common.ir.IrOpcode.{AllocG, AllocL}
+import tinycc.common.ir.IrOpcode.{AllocG, AllocL, FImm, GetElementPtr, GetFunPtr, IImm, SizeOf}
 import tinycc.common.ir._
 import tinycc.util.{Logging, NameGen}
 
@@ -60,12 +60,12 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
     /** Can return either MemRegImm or Reg depending on calling conventions. */
     def resolveLoadArg(insn: LoadArgInsn): Operand
 
-    def resolvePhiReg(variable: Var[AsmEmitter[Operand.Reg]], insn: PhiInsn): Operand.Reg
+    def resolvePhiReg(variable: AsmVar[Operand.Reg], insn: PhiInsn): Operand.Reg
 
-    def resolvePhiFReg(variable: Var[AsmEmitter[Operand.FReg]], insn: PhiInsn): Operand.FReg
+    def resolvePhiFReg(variable: AsmVar[Operand.FReg], insn: PhiInsn): Operand.FReg
   }
 
-  trait T86Var[+T] extends Var[AsmEmitter[T]] {
+  trait T86Var[+T] extends AsmVar[T] {
     override def resolveValue(insn: Insn): AsmEmitter[T] =
       (ctx: Context) => ctx.resolveVar(this, insn)
   }
@@ -90,12 +90,12 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
     val tileResults = mutable.Map.empty[Insn, Any]
     /** Holds the code that was emitted by each tile. */
     val tileCode = mutable.Map.empty[Insn, T86Listing]
-    val basicBlockPhis = mutable.Map.empty[BasicBlock, Seq[(Var[_], Insn, Operand)]].withDefaultValue(Seq.empty)
+    val basicBlockPhis = mutable.Map.empty[BasicBlock, Seq[(AsmVar[_], Insn, Operand)]].withDefaultValue(Seq.empty)
     val bbNameGens = mutable.Map.empty[BasicBlock, NameGen]
 
     var openInsns = Set.empty[Insn]
 
-    def _resolveVar[T](variable: Var[AsmEmitter[T]], insn: Insn, onlyAlreadyResolved: Boolean = false): T = {
+    def _resolveVar[T](variable: AsmVar[T], insn: Insn, onlyAlreadyResolved: Boolean = false): T = {
       assert(tileMap(insn).variable == variable, s"requested unplanned $variable for $insn")
       tileResults.getOrElseUpdate(insn, {
         assert(!onlyAlreadyResolved, s"missing value for $variable for $insn")
@@ -114,11 +114,18 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
     }
 
     def newBuilderContext(bb: BasicBlock): Context with T86ListingBuilder = new Context with T86ListingBuilder {
-      override def resolveVar[T](variable: Var[AsmEmitter[T]], insn: Insn): T = _resolveVar(variable, insn)
+      override def resolveVar[T](variable: Var[AsmEmitter[T]], insn: Insn): T = {
+        val tileMatch = tileMap(insn)
+        if(tileMatch.variable != variable) {
+          log(s"casting result of $insn from ${tileMatch.variable} to $variable")
+          emitCastFromTo(_resolveVar(tileMatch.variable, insn), tileMatch.variable, variable)(this)
+        } else
+          _resolveVar(tileMatch.variable, insn).asInstanceOf[T]
+      }
 
       override def freshLabel(prefix: String): T86Label = {
         val nameGen = bbNameGens.getOrElseUpdate(bb, new NameGen)
-        T86Label(bb.uniqueName + "$" + nameGen(name))
+        T86Label(bb.uniqueName + "$" + nameGen(prefix))
       }
 
       override def freshReg(): Operand.Reg = funBuilder.freshReg()
@@ -127,24 +134,24 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
 
       override def resolveAllocL(insn: AllocLInsn): Operand.MemRegImm = {
         val res = funBuilder.resolveAllocL(insn)
-        emit(T86Comment(s"$res -> ${insn.name}"))
+        emit(T86Comment(s"$res -> %${insn.name}"))
         res
       }
 
       override def resolveAllocG(insn: AllocGInsn): Operand.MemImm = {
         val res = programBuilder.resolveAllocG(insn)
-        emit(T86Comment(s"$res -> ${insn.name}"))
+        emit(T86Comment(s"$res -> %${insn.name}"))
         res
       }
 
       /** Can return either MemRegImm or Reg depending on calling conventions. */
       override def resolveLoadArg(insn: LoadArgInsn): Operand = {
         val res = argsMap(insn.index)
-        emit(T86Comment(s"$res -> arg ${insn.index}"))
+        emit(T86Comment(s"$res -> arg #${insn.index}"))
         res
       }
 
-      override def resolvePhiReg(variable: Var[AsmEmitter[Operand.Reg]], insn: PhiInsn): Operand.Reg = {
+      override def resolvePhiReg(variable: AsmVar[Operand.Reg], insn: PhiInsn): Operand.Reg = {
         val res = freshReg()
         insn.args.foreach({ case (argInsn, _) =>
           basicBlockPhis(argInsn.basicBlock) = basicBlockPhis(argInsn.basicBlock).appended((variable, argInsn, res)) // i want the result of variable for argInsn copied into res
@@ -152,7 +159,7 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
         res
       }
 
-      override def resolvePhiFReg(variable: Var[AsmEmitter[Operand.FReg]], insn: PhiInsn): Operand.FReg = {
+      override def resolvePhiFReg(variable: AsmVar[Operand.FReg], insn: PhiInsn): Operand.FReg = {
         val res = freshFReg()
         insn.args.foreach({ case (argInsn, _) =>
           basicBlockPhis(argInsn.basicBlock) = basicBlockPhis(argInsn.basicBlock).appended((variable, argInsn, res)) // i want the result of variable for argInsn copied into res
@@ -187,7 +194,7 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
         if (insn.isInstanceOf[TerminatorInsn]) {
           // emit all MOVs for Phis just before terminator, so their live range is shorter
           basicBlockPhis(bb).foreach({ case (variable, argInsn, dest) =>
-            val src = _resolveVar(variable.asInstanceOf[Var[AsmEmitter[Operand]]], argInsn, onlyAlreadyResolved = true)
+            val src = _resolveVar(variable.asInstanceOf[AsmVar[Operand]], argInsn, onlyAlreadyResolved = true)
             (dest, src) match {
               case (dest: Operand.Reg, src: Operand.Reg) => bodyBuilder += T86Insn(MOV, dest, src)
               case (dest: Operand.FReg, src: Operand.FReg) => bodyBuilder += T86Insn(MOV, dest, src)
@@ -222,6 +229,9 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
 
   override def name: String = "T86TilingInstructionSelection"
 
-  override def canCoverByMultipleTiles(insn: Insn): Boolean =
-    insn.op == AllocL || insn.op == AllocG
+  override def canCoverByMultipleTiles(insn: Insn): Boolean = insn.op match {
+    case AllocL | AllocG => true
+    case IImm | FImm | SizeOf | GetFunPtr | GetElementPtr => true
+    case _ => false
+  }
 }

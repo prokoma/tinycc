@@ -8,6 +8,8 @@ import tinycc.util.Logging
 class T86Backend(program: IrProgram) extends Logging {
   def result(): T86Listing = {
     val t86Program = T86InstructionSelection(program).result()
+    log(new T86AsmPrinter().printToString(t86Program.flatten))
+
     T86RegisterAllocator().transformProgram(t86Program)
     new T86FunProcessor().transformProgram(t86Program)
 

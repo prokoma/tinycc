@@ -6,7 +6,7 @@ import tinycc.common.transform.{AllocOrdering, BasicBlockScheduling, MemToReg}
 class Optimizer extends ProgramTransform[IrProgram] {
   val allocOrdering = new AllocOrdering
   val basicBlockScheduling = new BasicBlockScheduling
-  val memToReg = new MemToReg
+  val memToReg = new MemToReg(removeLocals = true)
 
   val printer = new IrPrinter()
 
