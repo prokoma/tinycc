@@ -113,15 +113,17 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
       }).asInstanceOf[T]
     }
 
+    def _resolveVarWithCasting[T](variable: AsmVar[T], insn: Insn, onlyAlreadyResolved: Boolean = false): AsmEmitter[T] = {
+      val tileMatch = tileMap(insn)
+      if (tileMatch.variable != variable) {
+        log(s"casting result of $insn from ${tileMatch.variable} to $variable")
+        emitCastFromTo(_resolveVar(tileMatch.variable, insn), tileMatch.variable, variable)
+      } else
+        (ctx: Context) => _resolveVar(tileMatch.variable, insn).asInstanceOf[T]
+    }
+
     def newBuilderContext(bb: BasicBlock): Context with T86ListingBuilder = new Context with T86ListingBuilder {
-      override def resolveVar[T](variable: Var[AsmEmitter[T]], insn: Insn): T = {
-        val tileMatch = tileMap(insn)
-        if(tileMatch.variable != variable) {
-          log(s"casting result of $insn from ${tileMatch.variable} to $variable")
-          emitCastFromTo(_resolveVar(tileMatch.variable, insn), tileMatch.variable, variable)(this)
-        } else
-          _resolveVar(tileMatch.variable, insn).asInstanceOf[T]
-      }
+      override def resolveVar[T](variable: Var[AsmEmitter[T]], insn: Insn): T = _resolveVarWithCasting(variable, insn)(this)
 
       override def freshLabel(prefix: String): T86Label = {
         val nameGen = bbNameGens.getOrElseUpdate(bb, new NameGen)
@@ -193,14 +195,16 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
       bb.body.foreach(insn => {
         if (insn.isInstanceOf[TerminatorInsn]) {
           // emit all MOVs for Phis just before terminator, so their live range is shorter
+          val phiCtx = newBuilderContext(bb)
           basicBlockPhis(bb).foreach({ case (variable, argInsn, dest) =>
-            val src = _resolveVar(variable.asInstanceOf[AsmVar[Operand]], argInsn, onlyAlreadyResolved = true)
+            val src = _resolveVarWithCasting(variable.asInstanceOf[AsmVar[Operand]], argInsn, onlyAlreadyResolved = true)(phiCtx)
             (dest, src) match {
-              case (dest: Operand.Reg, src: Operand.Reg) => bodyBuilder += T86Insn(MOV, dest, src)
-              case (dest: Operand.FReg, src: Operand.FReg) => bodyBuilder += T86Insn(MOV, dest, src)
+              case (dest: Operand.Reg, src: Operand.Reg) => phiCtx.emit(MOV, dest, src)
+              case (dest: Operand.FReg, src: Operand.FReg) => phiCtx.emit(MOV, dest, src)
               case _ => throw new UnsupportedOperationException(s"cannot move $src into $dest")
             }
           })
+          bodyBuilder ++= phiCtx.result()
         }
 
         tileCode.get(insn) match {

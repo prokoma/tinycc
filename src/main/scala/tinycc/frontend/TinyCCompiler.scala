@@ -606,7 +606,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileBinaryArith(node: AstBinaryOp): Insn = (node.op, node.ty) match {
-      case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor, resultTy: IntegerTy) =>
+      case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor | Symbols.shiftLeft | Symbols.shiftRight, resultTy: IntegerTy) =>
         val leftInt = compileExprAndCastTo(node.left, IntTy)
         val rightInt = compileExprAndCastTo(node.right, IntTy)
         val resultInt = node.op match {
@@ -623,10 +623,12 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           case Symbols.bitAnd => emitBinaryArith(IAnd, leftInt, rightInt)
           case Symbols.bitOr => emitBinaryArith(IOr, leftInt, rightInt)
           case Symbols.bitXor => emitBinaryArith(IXor, leftInt, rightInt)
+          case Symbols.shiftLeft => emitBinaryArith(IShl, leftInt, rightInt)
+          case Symbols.shiftRight => emitBinaryArith(IShr, leftInt, rightInt)
         }
         compileCastFromTo(resultInt, IntTy, resultTy, node.loc)
 
-      case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod, DoubleTy) =>
+      case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div, DoubleTy) =>
         val leftDouble = compileExprAndCastTo(node.left, DoubleTy)
         val rightDouble = compileExprAndCastTo(node.right, DoubleTy)
         node.op match {
@@ -686,7 +688,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileBinaryOp(node: AstBinaryOp): Insn = node.op match {
-      case Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor =>
+      case Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor | Symbols.shiftLeft | Symbols.shiftRight =>
         compileBinaryArith(node)
 
       case Symbols.eq | Symbols.ne | Symbols.lt | Symbols.le | Symbols.gt | Symbols.ge =>

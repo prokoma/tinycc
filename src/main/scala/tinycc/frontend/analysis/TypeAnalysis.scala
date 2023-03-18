@@ -345,7 +345,7 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
           case _ => errorInvalidOperands
         }
 
-        case Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.`bitXor` => (leftTy, rightTy) match {
+        case Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.`bitXor` | Symbols.shiftLeft | Symbols.shiftRight => (leftTy, rightTy) match {
           case (leftTy: IntegerTy, rightTy: IntegerTy) =>
             promoteArithmeticTys(leftTy, rightTy)
 
