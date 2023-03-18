@@ -106,7 +106,7 @@ object IrParser extends Parsers {
   lazy val FUN_DECL: Parser[Context => Any] =
     (kwFn ~> RET_TYPE) ~ identifier ~ (parOpen ~> repsep(ARG_TYPE, comma)) ~ (parClose ~> curlyOpen ~> FUN_BODY) <~ curlyClose ^^ {
       case returnTy ~ name ~ argTys ~ bodyGen => (ctx: Context) => {
-        ctx.appendAndEnterFun(new IrFun(name.name, returnTy, argTys.toIndexedSeq, _))
+        ctx.appendAndEnterFun(new IrFun(name.name, returnTy, argTys.toIndexedSeq, ctx.program))
         bodyGen(ctx)
       }
     } described "function declaration"
@@ -144,7 +144,7 @@ object IrParser extends Parsers {
   lazy val BINARY_ARITH: Parser[Context => BinaryArithInsn] =
     (IAdd | ISub | IAnd | IOr | IXor | IShl | IShr | UMul | SMul | UDiv | SDiv | FAdd | FSub | FMul | FDiv) ~ insnRef ~ (comma ~> insnRef) ^^ { case op ~ leftFuture ~ rightFuture =>
       (ctx: Context) => {
-        val insn = ctx.emit(new BinaryArithInsn(op, None, None, _))
+        val insn = ctx.emit(new BinaryArithInsn(op, None, None, ctx.bb))
         leftFuture(ctx)(insn.leftRef.apply)
         rightFuture(ctx)(insn.rightRef.apply)
         insn
@@ -155,7 +155,7 @@ object IrParser extends Parsers {
   lazy val CMP: Parser[Context => CmpInsn] =
     (CmpIEq | CmpINe | CmpULt | CmpULe | CmpUGt | CmpUGe | CmpSLt | CmpSLe | CmpSGt | CmpSGe | CmpFEq | CmpFNe | CmpFLt | CmpFLe | CmpFGt | CmpFGe) ~ insnRef ~ (comma ~> insnRef) ^^ { case op ~ leftFuture ~ rightFuture =>
       (ctx: Context) => {
-        val insn = ctx.emit(new CmpInsn(op, None, None, _))
+        val insn = ctx.emit(new CmpInsn(op, None, None, ctx.bb))
         leftFuture(ctx)(insn.leftRef.apply)
         rightFuture(ctx)(insn.rightRef.apply)
         insn
@@ -163,29 +163,29 @@ object IrParser extends Parsers {
     }
 
   /** ALLOCL := 'allocl' VAR_TYPE */
-  lazy val ALLOCL: Parser[Context => AllocLInsn] = AllocL ~> VAR_TYPE ^^ { varTy => _.emit(new AllocLInsn(varTy, _)) }
+  lazy val ALLOCL: Parser[Context => AllocLInsn] = AllocL ~> VAR_TYPE ^^ { varTy => (ctx: Context) => ctx.emit(new AllocLInsn(varTy, ctx.bb)) }
 
   /** ALLOCG := 'allocg' VAR_TYPE [ ',' integer { integer } ] */
   lazy val ALLOCG: Parser[Context => AllocGInsn] = AllocG ~> VAR_TYPE ~ opt(comma ~> rep1(integer)) ^^ { case varTy ~ initData =>
-    _.emit(new AllocGInsn(varTy, initData.getOrElse(Seq.empty), _))
+    (ctx: Context) => ctx.emit(new AllocGInsn(varTy, initData.getOrElse(Seq.empty), ctx.bb))
   }
 
   /** STORE := 'store' SCALAR_TYPE insnRef  */
   lazy val LOAD: Parser[Context => LoadInsn] = (Load ~> SCALAR_TYPE) ~ insnRef ^^ { case valueTy ~ ptrFuture =>
     (ctx: Context) => {
-      val insn = ctx.emit(new LoadInsn(valueTy, None, _))
+      val insn = ctx.emit(new LoadInsn(valueTy, None, ctx.bb))
       ptrFuture(ctx)(insn.ptrRef.apply)
       insn
     }
   }
 
   /** STORE := 'loadarg' integer  */
-  lazy val LOADARG: Parser[Context => LoadArgInsn] = LoadArg ~> integer ^^ { index => _.emit(new LoadArgInsn(index.toInt, _)) }
+  lazy val LOADARG: Parser[Context => LoadArgInsn] = LoadArg ~> integer ^^ { index => (ctx: Context) => ctx.emit(new LoadArgInsn(index.toInt, ctx.bb)) }
 
   /** STORE := 'store' insnRef ',' insnRef  */
   lazy val STORE: Parser[Context => StoreInsn] = (Store ~> insnRef) ~ (comma ~> insnRef) ^^ { case ptrFuture ~ valueFuture =>
     (ctx: Context) => {
-      val insn = ctx.emit(new StoreInsn(None, None, _))
+      val insn = ctx.emit(new StoreInsn(None, None, ctx.bb))
       ptrFuture(ctx)(insn.ptrRef.apply)
       valueFuture(ctx)(insn.valueRef.apply)
       insn
@@ -196,7 +196,7 @@ object IrParser extends Parsers {
   lazy val GETELEMENTPTR: Parser[Context => GetElementPtrInsn] =
     (GetElementPtr ~> VAR_TYPE) ~ (comma ~> kwPtr ~> insnRef) ~ (comma ~> squareOpen ~> insnRef) ~ (squareClose ~> dot ~> integer) ^^ { case elemTy ~ ptrFuture ~ indexFuture ~ fieldIndex =>
       (ctx: Context) => {
-        val insn = ctx.emit(new GetElementPtrInsn(None, None, elemTy, fieldIndex.toInt, _))
+        val insn = ctx.emit(new GetElementPtrInsn(None, None, elemTy, fieldIndex.toInt, ctx.bb))
         ptrFuture(ctx)(insn.ptrRef.apply)
         indexFuture(ctx)(insn.indexRef.apply)
         insn
@@ -205,13 +205,13 @@ object IrParser extends Parsers {
 
   /** SIZEOF := 'sizeof' VAR_TYPE */
   lazy val SIZEOF: Parser[Context => SizeOfInsn] = SizeOf ~> VAR_TYPE ^^ { varTy =>
-    (ctx: Context) => ctx.emit(new SizeOfInsn(varTy, _))
+    (ctx: Context) => ctx.emit(new SizeOfInsn(varTy, ctx.bb))
   }
 
   /** GETFUNPTR := 'getfunptr' funRef */
   lazy val GETFUNPTR: Parser[Context => GetFunPtrInsn] = (GetFunPtr ~> funRef) ^^ { targetFunFuture =>
     (ctx: Context) => {
-      val insn = ctx.emit(new GetFunPtrInsn(None, _))
+      val insn = ctx.emit(new GetFunPtrInsn(None, ctx.bb))
       targetFunFuture(ctx)(insn.targetFunRef.apply)
       insn
     }
@@ -220,7 +220,7 @@ object IrParser extends Parsers {
   /** CALL := 'call' RET_TYPE funRef '(' CALL_ARGS ')' */
   lazy val CALL: Parser[Context => CallInsn] = (Call ~> RET_TYPE) ~ funRef ~ (parOpen ~> CALL_ARGS) <~ parClose ^^ { case returnTy ~ targetFunFuture ~ args =>
     (ctx: Context) => {
-      val insn = ctx.emit(new CallInsn(None, args.map(_ => None), _))
+      val insn = ctx.emit(new CallInsn(None, args.map(_ => None), ctx.bb))
       targetFunFuture(ctx)(insn.targetFunRef.apply)
       args.zip(insn.argRefs).foreach({ case ((argTy, argFuture), argRef) => argFuture(ctx)(argRef.apply) })
       insn
@@ -230,7 +230,7 @@ object IrParser extends Parsers {
   /** CALLPTR := 'callptr' RET_TYPE insnRef '(' CALL_ARGS ')' */
   lazy val CALLPTR: Parser[Context => CallPtrInsn] = (CallPtr ~> RET_TYPE) ~ insnRef ~ (parOpen ~> CALL_ARGS) <~ parClose ^^ { case returnTy ~ funPtrFuture ~ args =>
     (ctx: Context) => {
-      val insn = ctx.emit(new CallPtrInsn(buildIrFunSignature(returnTy, args), None, args.map(_ => None), _))
+      val insn = ctx.emit(new CallPtrInsn(buildIrFunSignature(returnTy, args), None, args.map(_ => None), ctx.bb))
       funPtrFuture(ctx)(insn.funPtrRef.apply)
       args.zip(insn.argRefs).foreach({ case ((argTy, argFuture), argRef) => argFuture(ctx)(argRef.apply) })
       insn
@@ -248,7 +248,7 @@ object IrParser extends Parsers {
   /** PUTCHAR := 'putchar' insnRef */
   lazy val PUTCHAR: Parser[Context => PutCharInsn] = (PutChar ~> insnRef) ^^ { argFuture =>
     (ctx: Context) => {
-      val insn = ctx.emit(new PutCharInsn(None, _))
+      val insn = ctx.emit(new PutCharInsn(None, ctx.bb))
       argFuture(ctx)(insn.argRef.apply)
       insn
     }
@@ -257,19 +257,19 @@ object IrParser extends Parsers {
   /** PUTNUM := 'putnum' insnRef */
   lazy val PUTNUM: Parser[Context => PutNumInsn] = (PutNum ~> insnRef) ^^ { argFuture =>
     (ctx: Context) => {
-      val insn = ctx.emit(new PutNumInsn(None, _))
+      val insn = ctx.emit(new PutNumInsn(None, ctx.bb))
       argFuture(ctx)(insn.argRef.apply)
       insn
     }
   }
 
   /** GETCHAR := 'getchar' */
-  lazy val GETCHAR: Parser[Context => GetCharInsn] = GetChar ^^ { _ => _.emit(new GetCharInsn(_)) }
+  lazy val GETCHAR: Parser[Context => GetCharInsn] = GetChar ^^ { _ => (ctx: Context) => ctx.emit(new GetCharInsn(ctx.bb)) }
 
   /** PHI := 'phi' '[' insnRef ',' basicBlockRef ']' { ',' '[' insnRef ',' basicBlockRef ']' } */
   lazy val PHI: Parser[Context => PhiInsn] = (Phi ~> rep1sep((squareOpen ~> insnRef) ~ (comma ~> basicBlockRef) <~ squareClose, comma)) ^^ { case args =>
     (ctx: Context) => {
-      val insn = ctx.emit(new PhiInsn(args.map(_ => (None, None)).toIndexedSeq, _))
+      val insn = ctx.emit(new PhiInsn(args.map(_ => (None, None)).toIndexedSeq, ctx.bb))
       args.zip(insn.argRefs).foreach({ case (insnFuture ~ bbFuture, argRef) =>
         insnFuture(ctx)(argRef._1.apply)
         bbFuture(ctx)(argRef._2.apply)
@@ -281,22 +281,22 @@ object IrParser extends Parsers {
   /** RET := 'ret' insnRef */
   lazy val RET: Parser[Context => RetInsn] = (Ret ~> insnRef) ^^ { argFuture =>
     (ctx: Context) => {
-      val insn = ctx.emit(new RetInsn(None, _))
+      val insn = ctx.emit(new RetInsn(None, ctx.bb))
       argFuture(ctx)(insn.argRef.apply)
       insn
     }
   }
 
   /** RETVOID := 'retvoid' */
-  lazy val RETVOID: Parser[Context => RetVoidInsn] = RetVoid ^^ { _ => _.emit(new RetVoidInsn(_)) }
+  lazy val RETVOID: Parser[Context => RetVoidInsn] = RetVoid ^^ { _ => (ctx: Context) => ctx.emit(new RetVoidInsn(ctx.bb)) }
 
   /** HALT := 'halt' */
-  lazy val HALT: Parser[Context => HaltInsn] = Halt ^^ { _ => _.emit(new HaltInsn(_)) }
+  lazy val HALT: Parser[Context => HaltInsn] = Halt ^^ { _ => (ctx: Context) => ctx.emit(new HaltInsn(ctx.bb)) }
 
   /** BR := 'br' basicBlockRef */
   lazy val BR: Parser[Context => BrInsn] = (Br ~> basicBlockRef) ^^ { succBlockFuture =>
     (ctx: Context) => {
-      val insn = ctx.emit(new BrInsn(None, _))
+      val insn = ctx.emit(new BrInsn(None, ctx.bb))
       succBlockFuture(ctx)(insn.succBlockRef.apply)
       insn
     }
@@ -305,7 +305,7 @@ object IrParser extends Parsers {
   /** CONDBR := 'condbr' insnRef basicBlockRef basicBlockRef */
   lazy val CONDBR: Parser[Context => CondBrInsn] = (CondBr ~> insnRef) ~ (comma ~> basicBlockRef) ~ (comma ~> basicBlockRef) ^^ { case argFuture ~ trueBlockFuture ~ falseBlockFuture =>
     (ctx: Context) => {
-      val insn = ctx.emit(new CondBrInsn(None, None, None, _))
+      val insn = ctx.emit(new CondBrInsn(None, None, None, ctx.bb))
       argFuture(ctx)(insn.argRef.apply)
       trueBlockFuture(ctx)(insn.trueBlockRef.apply)
       falseBlockFuture(ctx)(insn.falseBlockRef.apply)
@@ -316,7 +316,7 @@ object IrParser extends Parsers {
   /** CAST := ( 'bitcastint64todouble' | 'sint64todouble' | 'bitcastdoubletoint64' | 'doubletosint64' ) insnRef */
   lazy val CAST: Parser[Context => CastInsn] = (BitcastInt64ToDouble | SInt64ToDouble | BitcastDoubleToInt64 | DoubleToSInt64) ~ insnRef ^^ { case op ~ argFuture =>
     (ctx: Context) => {
-      val insn = ctx.emit(new CastInsn(op, None, _))
+      val insn = ctx.emit(new CastInsn(op, None, ctx.bb))
       argFuture(ctx)(insn.argRef.apply)
       insn
     }

@@ -110,6 +110,10 @@ class AstBinaryOp(val op: Symbol, val left: AstNode, val right: AstNode, val loc
   override def children: Seq[AstNode] = Seq(left, right)
 }
 
+object AstBinaryOp {
+  def unapply(node: AstBinaryOp): Option[(Symbol, AstNode, AstNode, SourceLocation)] = Some((node.op, node.left, node.right, node.loc))
+}
+
 class AstAssignment(val lvalue: AstNode, val value: AstNode, val loc: SourceLocation) extends AstNode {
   override def children: Seq[AstNode] = Seq(lvalue, value)
 }
@@ -118,8 +122,16 @@ class AstUnaryOp(val op: Symbol, val expr: AstNode, val loc: SourceLocation) ext
   override def children: Seq[AstNode] = Seq(expr)
 }
 
+object AstUnaryOp {
+  def unapply(node: AstUnaryOp): Option[(Symbol, AstNode, SourceLocation)] = Some((node.op, node.expr, node.loc))
+}
+
 class AstUnaryPostOp(val op: Symbol, val expr: AstNode, val loc: SourceLocation) extends AstNode {
   override def children: Seq[AstNode] = Seq(expr)
+}
+
+object AstUnaryPostOp {
+  def unapply(node: AstUnaryPostOp): Option[(Symbol, AstNode, SourceLocation)] = Some((node.op, node.expr, node.loc))
 }
 
 class AstAddress(val expr: AstNode, val loc: SourceLocation) extends AstNode {

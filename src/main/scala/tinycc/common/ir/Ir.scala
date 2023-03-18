@@ -16,7 +16,7 @@ object IrObject {
   val printer: IrPrinter = new IrPrinter
 }
 
-trait Ref[T <: IrObject] extends IterableOnce[T] {
+trait Ref[T] extends IterableOnce[T] {
   def owner: IrObject
 
   def apply(): Option[T]
@@ -49,10 +49,10 @@ trait Ref[T <: IrObject] extends IterableOnce[T] {
 }
 
 object Ref {
-  def unapply[T <: IrObject](ref: Ref[T]): Option[(IrObject, Option[T])] = Some((ref.owner, ref()))
+  def unapply[T](ref: Ref[T]): Option[(IrObject, Option[T])] = Some((ref.owner, ref()))
 }
 
-trait UseTracking[R <: Ref[T], T <: IrObject] {
+trait UseTracking[R <: Ref[T], T] {
   val uses: mutable.Set[R] = mutable.Set.empty[R]
 
   def replaceUses(rep: Option[T]): Unit = uses.foreach(_.apply(rep))
@@ -112,8 +112,7 @@ class EntryBlockRef(val owner: IrFun, _target: Option[BasicBlock]) extends Basic
 abstract class IrFunRef(private var target: Option[IrFun]) extends Ref[IrFun] {
   def this(target: IrFun) = this(Some(target))
 
-  if (target.isDefined)
-    target.get.uses.add(this)
+  target.foreach(_.uses.add(this))
 
   def apply(): Option[IrFun] = target
 

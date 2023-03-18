@@ -54,8 +54,8 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         if (mainFun.argTys.nonEmpty)
           throw new TinyCCompilerException(ErrorLevel.Error, "invalid main function signature (expected main())", node.loc)
 
-        emit(new CallInsn(mainFun, IndexedSeq.empty, _))
-        emit(new HaltInsn(_))
+        emit(new CallInsn(mainFun, IndexedSeq.empty, bb))
+        emit(new HaltInsn(bb))
       })
 
       program
@@ -101,16 +101,15 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val falseBlock = new BasicBlock("ifFalse", fun)
         val contBlock = new BasicBlock("ifCont", fun)
 
-        val cond = compileExprAndCastToBool(node.guard)
-        emit(new CondBrInsn(cond, trueBlock, falseBlock, _))
+        compileBoolExpr(node.guard, trueBlock, falseBlock)
 
         appendAndEnterBlock(trueBlock)
         compileStmt(node.trueCase)
-        emit(new BrInsn(contBlock, _))
+        emit(new BrInsn(contBlock, bb))
 
         appendAndEnterBlock(falseBlock)
         node.falseCase.foreach(compileStmt)
-        emit(new BrInsn(contBlock, _))
+        emit(new BrInsn(contBlock, bb))
 
         appendAndEnterBlock(contBlock)
 
@@ -119,17 +118,16 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val bodyBlock = new BasicBlock("whileBody", fun)
         val contBlock = new BasicBlock("whileCont", fun)
 
-        emit(new BrInsn(condBlock, _))
+        emit(new BrInsn(condBlock, bb))
 
         appendAndEnterBlock(condBlock)
-        val cond = compileExprAndCastToBool(node.guard)
-        emit(new CondBrInsn(cond, bodyBlock, contBlock, _))
+        compileBoolExpr(node.guard, bodyBlock, contBlock)
 
         appendAndEnterBlock(bodyBlock)
         withBreakContTarget(contBlock, condBlock, {
           compileStmt(node.body)
         })
-        emit(new BrInsn(condBlock, _))
+        emit(new BrInsn(condBlock, bb))
 
         appendAndEnterBlock(contBlock)
 
@@ -138,17 +136,16 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val condBlock = new BasicBlock("doWhileCond", fun)
         val contBlock = new BasicBlock("doWhileCont", fun)
 
-        emit(new BrInsn(bodyBlock, _))
+        emit(new BrInsn(bodyBlock, bb))
 
         appendAndEnterBlock(bodyBlock)
         withBreakContTarget(contBlock, condBlock, {
           compileStmt(node.body)
         })
-        emit(new BrInsn(condBlock, _))
+        emit(new BrInsn(condBlock, bb))
 
         appendAndEnterBlock(condBlock)
-        val cond = compileExprAndCastToBool(node.guard)
-        emit(new CondBrInsn(cond, bodyBlock, contBlock, _))
+        compileBoolExpr(node.guard, bodyBlock, contBlock)
 
         appendAndEnterBlock(contBlock)
 
@@ -159,27 +156,25 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val contBlock = new BasicBlock("forCont", fun)
 
         node.init.foreach(compileStmt)
-        emit(new BrInsn(condBlock, _))
+        emit(new BrInsn(condBlock, bb))
 
         appendAndEnterBlock(condBlock)
         node.guard match {
-          case Some(c) =>
-            val cond = compileExprAndCastToBool(c)
-            emit(new CondBrInsn(cond, bodyBlock, contBlock, _))
+          case Some(guard) => compileBoolExpr(guard, bodyBlock, contBlock)
 
           case None =>
-            emit(new BrInsn(bodyBlock, _))
+            emit(new BrInsn(bodyBlock, bb))
         }
 
         appendAndEnterBlock(bodyBlock)
         withBreakContTarget(contBlock, incBlock, {
           compileStmt(node.body)
         })
-        emit(new BrInsn(incBlock, _))
+        emit(new BrInsn(incBlock, bb))
 
         appendAndEnterBlock(incBlock)
         node.increment.foreach(compileExpr)
-        emit(new BrInsn(condBlock, _))
+        emit(new BrInsn(condBlock, bb))
 
         appendAndEnterBlock(contBlock)
 
@@ -192,16 +187,16 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           val caseBlock = new BasicBlock(s"switchCase$value", fun)
           val caseContBlock = new BasicBlock(s"switchCase${value}Cont", fun)
 
-          val cmpEq = emit(new CmpInsn(IrOpcode.CmpIEq, cond, emitIImm(value), _))
-          emit(new CondBrInsn(cmpEq, caseBlock, caseContBlock, _))
+          val cmpEq = emit(new CmpInsn(IrOpcode.CmpIEq, cond, emitIImm(value), bb))
+          emit(new CondBrInsn(cmpEq, caseBlock, caseContBlock, bb))
           appendAndEnterBlock(caseContBlock)
           caseBlock
         }).toIndexedSeq
 
         if (node.defaultCase.isDefined)
-          emit(new BrInsn(defaultBlock, _))
+          emit(new BrInsn(defaultBlock, bb))
         else
-          emit(new BrInsn(contBlock, _))
+          emit(new BrInsn(contBlock, bb))
 
         node.cases.zipWithIndex.foreach({ case ((_, caseBody), i) =>
           val caseBlock = caseBlocks(i)
@@ -211,11 +206,11 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
             compileStmt(caseBody)
           })
           if (i < caseBlocks.size - 1)
-            emit(new BrInsn(caseBlocks(i + 1), _))
+            emit(new BrInsn(caseBlocks(i + 1), bb))
           else if (node.defaultCase.isDefined)
-            emit(new BrInsn(defaultBlock, _))
+            emit(new BrInsn(defaultBlock, bb))
           else
-            emit(new BrInsn(contBlock, _))
+            emit(new BrInsn(contBlock, bb))
         })
 
         node.defaultCase.foreach(defaultBody => {
@@ -223,14 +218,14 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           withBreakTarget(contBlock, {
             compileStmt(defaultBody)
           })
-          emit(new BrInsn(contBlock, _))
+          emit(new BrInsn(contBlock, bb))
         })
 
         appendAndEnterBlock(contBlock)
 
       case node: AstContinue => contTargetOption match {
         case Some(contTarget) =>
-          emit(new BrInsn(contTarget, _))
+          emit(new BrInsn(contTarget, bb))
           appendAndEnterBlock(new BasicBlock("unreachable", fun))
 
         case None => throw new TinyCCompilerException(Error, "Unexpected continue stmt outside of loop.", node.loc)
@@ -238,7 +233,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node: AstBreak => breakTargetOption match {
         case Some(breakTarget) =>
-          emit(new BrInsn(breakTarget, _))
+          emit(new BrInsn(breakTarget, bb))
           appendAndEnterBlock(new BasicBlock("unreachable", fun))
 
         case None => throw new TinyCCompilerException(Error, "Unexpected break stmt outside of loop.", node.loc)
@@ -246,27 +241,27 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node: AstReturn =>
         curFunTy.returnTy match {
-          case VoidTy => emit(new RetVoidInsn(_))
+          case VoidTy => emit(new RetVoidInsn(bb))
 
           case returnTy: StructTy =>
-            val retStructDest = emit(new LoadArgInsn(0, _)) // first argument contains the destination pointer
+            val retStructDest = emit(new LoadArgInsn(0, bb)) // first argument contains the destination pointer
             val retStructPtr = compileExprAndCastTo(node.expr.get, curFunTy.returnTy)
             compileStructCopy(returnTy, retStructDest, retStructPtr, node.loc)
-            emit(new RetInsn(retStructDest, _))
+            emit(new RetInsn(retStructDest, bb))
 
           case _ =>
             val retVal = compileExprAndCastTo(node.expr.get, curFunTy.returnTy)
-            emit(new RetInsn(retVal, _))
+            emit(new RetInsn(retVal, bb))
         }
         appendAndEnterBlock(new BasicBlock("unreachable", fun))
 
       case node: AstWrite =>
         val value = compileExprAndCastTo(node.expr, CharTy)
-        emit(new PutCharInsn(value, _))
+        emit(new PutCharInsn(value, bb))
 
       case node: AstWriteNum =>
         val value = compileExprAndCastTo(node.expr, IntTy)
-        emit(new PutNumInsn(value, _))
+        emit(new PutNumInsn(value, bb))
 
       case _: AstSequence | _: AstBlock | _: AstProgram =>
         node.children.foreach(compileStmt)
@@ -280,7 +275,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       allocMap(VarDecl(node)) = funOption match {
         case Some(fun) if fun != entryFun => // local variable
-          val alloc = emit(new AllocLInsn(varIrTy, _)).name("local_" + node.symbol.name)
+          val alloc = emit(new AllocLInsn(varIrTy, bb)).name("local_" + node.symbol.name)
           node.value.foreach(value => compileAssignment(varTy, alloc, value, node.loc))
           alloc
 
@@ -290,7 +285,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         case None => // global variable - append to entryFun
           withEntryFun({
             // globals can have forward declarations - keep track of variable names in globalMap
-            val alloc = globalMap.getOrElseUpdate(node.symbol, emit(new AllocGInsn(varIrTy, Seq.empty, _)).name("global_" + node.symbol.name))
+            val alloc = globalMap.getOrElseUpdate(node.symbol, emit(new AllocGInsn(varIrTy, Seq.empty, bb)).name("global_" + node.symbol.name))
             node.value.foreach(value => compileAssignment(varTy, alloc, value, node.loc))
             alloc
           })
@@ -317,15 +312,15 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val argNames = node.args.map(_._2)
         funTy.argTys.zip(argNames).zipWithIndex.foreach({ case ((argTy, argName), index) =>
           val varTy = compileVarType(argTy)
-          val alloc = emit(new AllocLInsn(varTy, _)).name(s"arg_" + argName.name)
-          val argValue = emit(new LoadArgInsn(index + loadArgOffset, _))
+          val alloc = emit(new AllocLInsn(varTy, bb)).name(s"arg_" + argName.name)
+          val argValue = emit(new LoadArgInsn(index + loadArgOffset, bb))
 
           argTy match {
             case argTy: StructTy =>
               // argValue contains pointer to the first field
               compileStructCopy(argTy, alloc, argValue, node.loc)
 
-            case _ => emit(new StoreInsn(alloc, argValue, _))
+            case _ => emit(new StoreInsn(alloc, argValue, bb))
           }
 
           allocMap(FunArgDecl(node, index)) = alloc
@@ -346,13 +341,13 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       val fieldIndex = structTy match {
         case StructTy(_, Some(fields)) => fields.indexWhere(f => f._2 == member)
       }
-      emit(new GetElementPtrInsn(structPtr, emitIImm(0), structIrTy, fieldIndex, _))
+      emit(new GetElementPtrInsn(structPtr, emitIImm(0), structIrTy, fieldIndex, bb))
     }
 
     /** Returns instruction, whose result is a pointer to the value of the expression. */
     private def compileExprPtr(node: AstNode): Insn = node match {
       case node: AstIdentifier => node.decl match {
-        case FunDecl(decl) => emit(new GetFunPtrInsn(funMap(decl.symbol), _))
+        case FunDecl(decl) => emit(new GetFunPtrInsn(funMap(decl.symbol), bb))
         case decl => allocMap(decl)
       }
 
@@ -362,7 +357,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val ptr = compileExpr(node.expr)
         val IndexableTy(baseTy) = node.expr.ty
         val index = compileExpr(node.index)
-        emit(new GetElementPtrInsn(ptr, index, compileVarType(baseTy), 0, _))
+        emit(new GetElementPtrInsn(ptr, index, compileVarType(baseTy), 0, bb))
 
       case node: AstMember => // .
         compileMemberExprPtrHelper(compileExprPtr(node.expr), node.expr.ty.asInstanceOf[StructTy], node.member)
@@ -387,7 +382,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node: AstString =>
         val varIrTy = compileVarType(node.ty)
         val initData = (node.value + 0.toChar).map(_.toLong)
-        emit(new AllocGInsn(varIrTy, initData, _))
+        emit(new AllocGInsn(varIrTy, initData, bb))
 
       case node: AstDouble => emitFImm(node.value)
 
@@ -401,7 +396,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         node.body.map(compileExpr).lastOption
           .getOrElse(throw new TinyCCompilerException(Error, "empty sequence", node.loc))
 
-      case _: AstRead => emit(new GetCharInsn(_))
+      case _: AstRead => emit(new GetCharInsn(bb))
 
       case node: AstAssignment =>
         compileAssignment(node.lvalue.ty, compileExprPtr(node.lvalue), node.value, node.loc)
@@ -414,14 +409,14 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
             id.decl match {
               case FunDecl(decl) =>
                 val funTy = decl.ty.asInstanceOf[FunTy]
-                emit(new CallInsn(funMap(decl.symbol), compileCallArgs(funTy, c.args.toIndexedSeq), _))
+                emit(new CallInsn(funMap(decl.symbol), compileCallArgs(funTy, c.args.toIndexedSeq), bb))
               case _ => throw new TinyCCompilerException(Error, "call of non-function", c.loc)
             }
 
           case fun => // indirect call
             val funTy = fun.ty.asInstanceOf[FunTy]
             val funPtr = compileExpr(fun)
-            emit(new CallPtrInsn(compileFunType(funTy), funPtr, compileCallArgs(funTy, c.args.toIndexedSeq), _))
+            emit(new CallPtrInsn(compileFunType(funTy), funPtr, compileCallArgs(funTy, c.args.toIndexedSeq), bb))
         }
 
       case node: AstCast =>
@@ -433,17 +428,17 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         // for static arrays & structs, return address of the first element/field
         case _: FunTy | _: ArrayPtrTy | _: StructTy => compileExprPtr(node)
 
-        case _ => emit(new LoadInsn(compileBasicType(node.ty), compileExprPtr(node), _))
+        case _ => emit(new LoadInsn(compileBasicType(node.ty), compileExprPtr(node), bb))
       }
 
-      case node => emit(new LoadInsn(compileBasicType(node.ty), compileExprPtr(node), _))
+      case node => emit(new LoadInsn(compileBasicType(node.ty), compileExprPtr(node), bb))
     }
 
     private def compileAssignment(destTy: Types.Ty, destPtr: Insn, srcNode: AstNode, loc: SourceLocation): Insn = {
       val value = compileExprAndCastTo(srcNode, destTy)
       destTy match {
         case ty: StructTy => compileStructCopy(ty, destPtr, value, loc)
-        case _ => emit(new StoreInsn(destPtr, value, _))
+        case _ => emit(new StoreInsn(destPtr, value, bb))
       }
       value
     }
@@ -452,21 +447,21 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       def compileSmallValueCopy(irTy: IrTy, destPtr: Insn, srcPtr: Insn): Unit = irTy match {
         case IrTy.VoidTy =>
         case IrTy.Int64Ty | IrTy.DoubleTy =>
-          emit(new StoreInsn(destPtr, emit(new LoadInsn(irTy, srcPtr, _)), _))
+          emit(new StoreInsn(destPtr, emit(new LoadInsn(irTy, srcPtr, bb)), bb))
 
         case IrTy.StructTy(fields) =>
           fields.zipWithIndex.foreach({ case (fieldTy, fieldIndex) =>
             val izero = emitIImm(0)
-            val destFieldPtr = emit(new GetElementPtrInsn(destPtr, izero, irTy, fieldIndex, _))
-            val srcFieldPtr = emit(new GetElementPtrInsn(srcPtr, izero, irTy, fieldIndex, _))
+            val destFieldPtr = emit(new GetElementPtrInsn(destPtr, izero, irTy, fieldIndex, bb))
+            val srcFieldPtr = emit(new GetElementPtrInsn(srcPtr, izero, irTy, fieldIndex, bb))
             compileSmallValueCopy(fieldTy, destFieldPtr, srcFieldPtr)
           })
 
         case IrTy.ArrayTy(baseTy, numElem) =>
           0.until(numElem).foreach(index => {
             val indexImm = emitIImm(index)
-            val destFieldPtr = emit(new GetElementPtrInsn(destPtr, indexImm, baseTy, 0, _))
-            val srcFieldPtr = emit(new GetElementPtrInsn(srcPtr, indexImm, baseTy, 0, _))
+            val destFieldPtr = emit(new GetElementPtrInsn(destPtr, indexImm, baseTy, 0, bb))
+            val srcFieldPtr = emit(new GetElementPtrInsn(srcPtr, indexImm, baseTy, 0, bb))
             compileSmallValueCopy(baseTy, destFieldPtr, srcFieldPtr)
           })
       }
@@ -478,7 +473,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val memcpyFun = program.funs.find(_.name == "memcpy").getOrElse(throw new TinyCCompilerException(Error, "an implementation of memcpy is required for large struct support", loc))
         if (memcpyFun.signature != IrFunSignature(IrTy.VoidTy, IndexedSeq(IrTy.PtrTy, IrTy.PtrTy, IrTy.Int64Ty)))
           throw new TinyCCompilerException(Error, "invalid memcpy function signature", loc)
-        emit(new CallInsn(memcpyFun, IndexedSeq(destPtr, srcPtr, emit(new SizeOfInsn(irTy, _))), _))
+        emit(new CallInsn(memcpyFun, IndexedSeq(destPtr, srcPtr, emit(new SizeOfInsn(irTy, bb))), bb))
       }
     }
 
@@ -490,14 +485,14 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case (Types.IntTy, Types.CharTy) =>
         val imm = emitIImm(64 - 8)
-        val tmp = emit(new BinaryArithInsn(IrOpcode.IShl, value, imm, _))
-        emit(new BinaryArithInsn(IrOpcode.IShr, tmp, imm, _))
+        val tmp = emit(new BinaryArithInsn(IrOpcode.IShl, value, imm, bb))
+        emit(new BinaryArithInsn(IrOpcode.IShr, tmp, imm, bb))
 
       case (_: Types.IntegerTy, Types.DoubleTy) =>
-        emit(new CastInsn(IrOpcode.SInt64ToDouble, value, _))
+        emit(new CastInsn(IrOpcode.SInt64ToDouble, value, bb))
 
       case (Types.DoubleTy, _: Types.IntegerTy) =>
-        val valueInt = emit(new CastInsn(IrOpcode.DoubleToSInt64, value, _))
+        val valueInt = emit(new CastInsn(IrOpcode.DoubleToSInt64, value, bb))
         compileCastFromTo(valueInt, Types.IntTy, toTy, loc)
 
       // Types of pointers were already checked by TypeAnalysis.
@@ -541,7 +536,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       ty.returnTy match {
         case _: StructTy =>
           // allocate space for returned struct and pass it as first argument
-          val alloc = emit(new AllocLInsn(compileVarType(ty.returnTy), _)).name(s"struct_ret")
+          val alloc = emit(new AllocLInsn(compileVarType(ty.returnTy), bb)).name(s"struct_ret")
           alloc +: compileOrigArgs()
 
         case _ => compileOrigArgs()
@@ -550,24 +545,24 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
     private def compileIncDec(op: Symbol, expr: AstNode, isPostfix: Boolean): Insn = {
       val exprPtr = compileExprPtr(expr)
-      val oldValue = emit(new LoadInsn(compileBasicType(expr.ty), exprPtr, _))
+      val oldValue = emit(new LoadInsn(compileBasicType(expr.ty), exprPtr, bb))
       val delta = if (op == Symbols.inc) 1 else -1
 
       val newValue = expr.ty match {
         case _: IntegerTy =>
           val deltaImm = emitIImm(delta)
-          emit(new BinaryArithInsn(IrOpcode.IAdd, oldValue, deltaImm, _))
+          emit(new BinaryArithInsn(IrOpcode.IAdd, oldValue, deltaImm, bb))
 
         case DoubleTy =>
           val deltaImm = emitFImm(delta)
-          emit(new BinaryArithInsn(IrOpcode.FAdd, oldValue, deltaImm, _))
+          emit(new BinaryArithInsn(IrOpcode.FAdd, oldValue, deltaImm, bb))
 
         case PtrTy(baseTy) =>
           val deltaImm = emitIImm(delta)
-          emit(new GetElementPtrInsn(oldValue, deltaImm, compileVarType(baseTy), 0, _))
+          emit(new GetElementPtrInsn(oldValue, deltaImm, compileVarType(baseTy), 0, bb))
       }
 
-      emit(new StoreInsn(exprPtr, newValue, _))
+      emit(new StoreInsn(exprPtr, newValue, bb))
       if (isPostfix) oldValue else newValue
     }
 
@@ -577,24 +572,24 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case (Symbols.sub, _: Types.IntegerTy) =>
         val expr = compileExpr(node.expr)
-        val res = emit(new BinaryArithInsn(IrOpcode.ISub, emitIImm(0), expr, _))
+        val res = emit(new BinaryArithInsn(IrOpcode.ISub, emitIImm(0), expr, bb))
         compileCastFromTo(res, Types.IntTy, node.ty, node.loc)
 
       case (Symbols.sub, Types.DoubleTy) =>
         val expr = compileExpr(node.expr)
-        emit(new BinaryArithInsn(IrOpcode.FSub, emitFImm(0), expr, _))
+        emit(new BinaryArithInsn(IrOpcode.FSub, emitFImm(0), expr, bb))
 
       case (Symbols.neg, exprTy: Types.IntegerTy) =>
         val expr = compileExpr(node.expr)
-        emit(new BinaryArithInsn(IrOpcode.IXor, expr, emitIImm(exprTy.longBitmask), _))
+        emit(new BinaryArithInsn(IrOpcode.IXor, expr, emitIImm(exprTy.longBitmask), bb))
 
       case (Symbols.not, _: Types.IntegerTy | _: Types.PtrTy) =>
         val expr = compileExpr(node.expr)
-        emit(new CmpInsn(IrOpcode.CmpIEq, expr, emitIImm(0), _))
+        emit(new CmpInsn(IrOpcode.CmpIEq, expr, emitIImm(0), bb))
 
       case (Symbols.not, Types.DoubleTy) =>
         val expr = compileExpr(node.expr)
-        emit(new CmpInsn(IrOpcode.CmpFEq, expr, emitFImm(0), _))
+        emit(new CmpInsn(IrOpcode.CmpFEq, expr, emitFImm(0), bb))
 
       case (Symbols.inc | Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = false)
 
@@ -645,7 +640,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           case Symbols.add => rightInt
           case Symbols.sub => emitBinaryArith(ISub, emitIImm(0), rightInt)
         }
-        emit(new GetElementPtrInsn(left, index, compileVarType(baseTy), 0, _))
+        emit(new GetElementPtrInsn(left, index, compileVarType(baseTy), 0, bb))
     }
 
     private def compileCmpArithmeticHelper(op: Symbol, argTy: Types.Ty, leftPromoted: Insn, rightPromoted: Insn): Insn = (op, argTy) match {
@@ -683,50 +678,51 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         compileCmpArithmeticHelper(op, IntTy, left, right)
     }
 
-    private def compileBinaryOp(node: AstBinaryOp): Insn = (node.op, node.left.ty, node.right.ty) match {
-      case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor, _, _) =>
+    private def compileBinaryOp(node: AstBinaryOp): Insn = node.op match {
+      case Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor =>
         compileBinaryArith(node)
 
-      case (Symbols.eq | Symbols.ne | Symbols.lt | Symbols.le | Symbols.gt | Symbols.ge, _, _) =>
+      case Symbols.eq | Symbols.ne | Symbols.lt | Symbols.le | Symbols.gt | Symbols.ge =>
         compileCmp(node)
 
-      case (Symbols.and, _, _) =>
+      case Symbols.and | Symbols.or =>
+        val trueBlock = new BasicBlock("true", fun)
+        val falseBlock = new BasicBlock("false", fun)
+        val contBlock = new BasicBlock("cont", fun)
+
+        compileBoolExpr(node, trueBlock, falseBlock)
+        appendAndEnterBlock(trueBlock)
+        val ione = emitIImm(1)
+        emit(new BrInsn(contBlock, bb))
+        appendAndEnterBlock(falseBlock)
+        val izero = emitIImm(0)
+        emit(new BrInsn(contBlock, bb))
+        appendAndEnterBlock(contBlock)
+        emit(PhiInsn(IndexedSeq((ione, trueBlock), (izero, falseBlock)), bb))
+
+      case op => throw new UnsupportedOperationException(s"invalid binary operator $op")
+    }
+
+    private def compileBoolExpr(node: AstNode, trueBlock: BasicBlock, falseBlock: BasicBlock): Unit = node match {
+      case AstBinaryOp(Symbols.and, left, right, _) =>
         val leftTrueBlock = new BasicBlock("leftTrue", fun)
-        val contBlock = new BasicBlock("cont", fun)
 
-        val resultPtr = emit(new AllocLInsn(IrTy.Int64Ty, _))
-        emit(new StoreInsn(resultPtr, emitIImm(0), _))
-
-        val leftInt = compileExprAndCastTo(node.left, IntTy)
-        emit(new CondBrInsn(leftInt, leftTrueBlock, contBlock, _))
-
+        compileBoolExpr(left, leftTrueBlock, falseBlock)
         appendAndEnterBlock(leftTrueBlock)
-        val rightInt = compileExprAndCastTo(node.right, IntTy)
-        val tmpResult = emitCmp(CmpINe, rightInt, emitIImm(0))
-        emit(new StoreInsn(resultPtr, tmpResult, _))
-        emit(new BrInsn(contBlock, _))
+        compileBoolExpr(right, trueBlock, falseBlock)
 
-        appendAndEnterBlock(contBlock)
-        emit(new LoadInsn(IrTy.Int64Ty, resultPtr, _))
-
-      case (Symbols.or, _, _) =>
+      case AstBinaryOp(Symbols.or, left, right, _) =>
         val leftFalseBlock = new BasicBlock("leftFalse", fun)
-        val contBlock = new BasicBlock("cont", fun)
 
-        val resultPtr = emit(new AllocLInsn(IrTy.Int64Ty, _))
-        emit(new StoreInsn(resultPtr, emitIImm(1), _))
-
-        val leftInt = compileExprAndCastTo(node.left, IntTy)
-        emit(new CondBrInsn(leftInt, contBlock, leftFalseBlock, _))
-
+        compileBoolExpr(left, trueBlock, leftFalseBlock)
         appendAndEnterBlock(leftFalseBlock)
-        val rightInt = compileExprAndCastTo(node.right, IntTy)
-        val tmpResult = emitCmp(CmpINe, rightInt, emitIImm(0))
-        emit(new StoreInsn(resultPtr, tmpResult, _))
-        emit(new BrInsn(contBlock, _))
+        compileBoolExpr(right, trueBlock, falseBlock)
 
-        appendAndEnterBlock(contBlock)
-        emit(new LoadInsn(IrTy.Int64Ty, resultPtr, _))
+      case AstUnaryOp(Symbols.not, expr, _) =>
+        compileBoolExpr(expr, falseBlock, trueBlock)
+
+      case _ =>
+        emit(new CondBrInsn(compileExprAndCastToBool(node), trueBlock, falseBlock, bb))
     }
   }
 }

@@ -346,6 +346,10 @@ class PhiInsn(_args: IndexedSeq[(Option[Insn], Option[BasicBlock])], basicBlock:
   override def copy(newBlock: BasicBlock): Insn = new PhiInsn(argRefs.map({ case (insnRef, bbRef) => (insnRef(), bbRef()) }), newBlock)
 }
 
+object PhiInsn {
+  def apply(_args: IndexedSeq[(Insn, BasicBlock)], basicBlock: BasicBlock) = new PhiInsn(_args.map({ case (insn, bb) => (Some(insn), Some(bb)) }), basicBlock)
+}
+
 class CastInsn(op: IrOpcode.CastOp, _arg: Option[Insn], basicBlock: BasicBlock) extends Insn(op, basicBlock) {
   def this(op: IrOpcode.CastOp, _arg: Insn, basicBlock: BasicBlock) = this(op, Some(_arg), basicBlock)
 

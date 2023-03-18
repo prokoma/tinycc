@@ -5,8 +5,6 @@ trait BasicBlockBuilder {
 
   def emit[T <: Insn](insn: T): T = bb.append(insn)
 
-  def emit[T <: Insn](insn: BasicBlock => T): T = emit(insn(bb))
-
   def emitIImm(value: Long): IImmInsn = {
     val insn = emit(new IImmInsn(value, bb))
 
@@ -93,8 +91,6 @@ trait IrProgramBuilder extends IrFunBuilder {
     enterFun(newFun)
     newFun
   }
-
-  def appendAndEnterFun(newFun: IrProgram => IrFun): IrFun = appendAndEnterFun(newFun(program))
 
   def withFun[T](newFun: IrFun, thunk: => T): T = {
     val oldFunOption = funOption
