@@ -101,7 +101,7 @@ class GraphColoringRegisterAllocator extends T86RegisterAllocator {
 trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegisterAllocator[T] with Logging {
 
   // backwards must dataflow analysis
-  class LivenessAnalysis(cfg: T86BasicBlockCfg)
+  class LivenessAnalysis(cfg: Cfg[T86BasicBlock])
     extends DataflowAnalysis.Builder[T86BasicBlock](cfg, forward = false)
       with FixpointComputation.Naive {
 
@@ -152,10 +152,10 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
   }
 
   object InterferenceGraph {
-    def apply(cfg: T86BasicBlockCfg, blocksInLoop: Set[T86BasicBlock]): InterferenceGraph =
+    def apply(cfg: Cfg[T86BasicBlock], blocksInLoop: Set[T86BasicBlock]): InterferenceGraph =
       apply(cfg, new LivenessAnalysis(cfg).result(), blocksInLoop)
 
-    def apply(cfg: T86BasicBlockCfg, livenessResult: LivenessAnalysis.Result, blocksInLoop: Set[T86BasicBlock]): InterferenceGraph = {
+    def apply(cfg: Cfg[T86BasicBlock], livenessResult: LivenessAnalysis.Result, blocksInLoop: Set[T86BasicBlock]): InterferenceGraph = {
       val _regRegMoveList = mutable.Map.empty[T, Set[T86InsnRef]].withDefaultValue(Set.empty)
       var _regRegMoveInsns = Set.empty[T86InsnRef]
       val _adjList = mutable.Map.empty[T, Set[T]].withDefaultValue(Set.empty)
@@ -583,7 +583,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
     })
   }
 
-  def removeRedundantMoves(cfg: T86BasicBlockCfg): Unit = {
+  def removeRedundantMoves(cfg: Cfg[T86BasicBlock]): Unit = {
     val livenessResult = new LivenessAnalysis(cfg).result()
 
     cfg.nodes.foreach(bb => {
