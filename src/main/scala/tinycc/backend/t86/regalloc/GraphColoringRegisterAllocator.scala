@@ -304,7 +304,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 //      }
 //    }
 
-    def apply(interf: InterferenceGraph): InterferenceGraphColoring = {
+    def apply(interf: InterferenceGraph, getSpillCost: T => Double): InterferenceGraphColoring = {
       val K = machineRegs.size
 
       // mutually exclusive sets of nodes
@@ -332,12 +332,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
       /** Adjacency list containing edges that are or sometime have been in the graph. */
       val _adjList2 = mutable.Map.from(interf.adjList)
 
-      val _spillCosts = mutable.Map.empty[T, Double].withDefault(node => {
-        if(machineRegs.contains(node))
-          Double.PositiveInfinity
-        else
-          (interf.getDefUseCountInLoop(node) * 10 + interf.getDefUseCountOutsideLoop(node)).toDouble / _adjList2(node).size
-      })
+      val _spillCosts = mutable.Map.empty[T, Double].withDefault(getSpillCost)
 
       def isMoveRelated(node: T): Boolean = _regRegMoveList(node).nonEmpty
 
@@ -626,24 +621,32 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
     val cfg = T86BasicBlockCfg(fun)
     val blocksInLoop = new LoopAnalysis(cfg).result()
 
-    var hasSpilledNodes = false
+    var noSpillNodes = Set.empty[T]
+
+    var didSpill = false
     do {
+      didSpill = false
+
       val interferenceGraph = InterferenceGraph(cfg, blocksInLoop)
       log("interfering nodes: \n" + interferenceGraph.adjList.map({ case (u, set) => s"$u -> $set" }).mkString("\n"))
 
-      val coloring = InterferenceGraphColoring(interferenceGraph)
+      val coloring = InterferenceGraphColoring(interferenceGraph, node => {
+        if (machineRegs.contains(node) || noSpillNodes.contains(node))
+          Double.PositiveInfinity
+        else
+          (interferenceGraph.getDefUseCountInLoop(node) * 10 + interferenceGraph.getDefUseCountOutsideLoop(node)).toDouble / interferenceGraph.adjList(node).size
+      })
       log("registers to spill: " + coloring.spilledNodes)
 
       if (coloring.spilledNodes.nonEmpty) {
-        hasSpilledNodes = true
-        rewriteFunWithSpilledNodes(fun, coloring.spilledNodes)
-      } else {
-        hasSpilledNodes = false
+        didSpill = true
+        // don't spill already spilled registers in the next iteration
+        noSpillNodes ++= rewriteFunWithSpilledNodes(fun, coloring.spilledNodes) ++ coloring.spilledNodes
+      } else
         remapRegistersInFun(fun, coloring.colorMap.withDefault(reg => reg))
-      }
 
 //      log(new T86AsmPrinter().printToString(fun.flatten))
-    } while (hasSpilledNodes)
+    } while (didSpill)
 
     removeRedundantMoves(cfg)
   }
