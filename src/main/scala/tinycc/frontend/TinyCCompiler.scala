@@ -3,7 +3,7 @@ package tinycc.frontend
 import tinycc.ProgramException
 import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
-import tinycc.frontend.Types._
+import tinycc.frontend.Types.{StructTy, _}
 import tinycc.frontend.analysis.IdentifierDecl.{FunArgDecl, FunDecl, VarDecl}
 import tinycc.frontend.analysis.{IdentifierDecl, SemanticAnalysis, TypeAnalysis}
 import tinycc.frontend.ast._
@@ -275,13 +275,13 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       val varIrTy = compileVarType(varTy)
 
       allocMap(VarDecl(node)) = funOption match {
-        case Some(fun) if fun != entryFun => // local variable
+        case Some(fun) if fun == entryFun =>
+          throw new UnsupportedOperationException(s"Cannot declare variable inside entry function.")
+
+        case Some(_) => // local variable
           val alloc = emit(new AllocLInsn(varIrTy, bb)).name("local_" + node.symbol.name)
           node.value.foreach(value => compileAssignment(varTy, alloc, value, node.loc))
           alloc
-
-        case Some(fun) if fun == entryFun =>
-          throw new UnsupportedOperationException(s"Cannot declare variable inside entry function.")
 
         case None => // global variable - append to entryFun
           withEntryFun({
@@ -339,9 +339,8 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
     private def compileMemberExprPtrHelper(structPtr: Insn, structTy: StructTy, member: Symbol): Insn = {
       val structIrTy = compileVarType(structTy)
-      val fieldIndex = structTy match {
-        case StructTy(_, Some(fields)) => fields.indexWhere(f => f._2 == member)
-      }
+      val StructTy(_, Some(fields)) = structTy
+      val fieldIndex = fields.indexWhere(f => f._2 == member)
       emit(new GetElementPtrInsn(structPtr, emitIImm(0), structIrTy, fieldIndex, bb))
     }
 
@@ -365,12 +364,10 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node: AstMemberPtr => // ->
         val structPtr = compileExpr(node.expr)
-        val structTy = node.expr.ty match {
-          case IndexableTy(structTy: StructTy) => structTy
-        }
+        val IndexableTy(structTy: StructTy) = node.expr.ty
         compileMemberExprPtrHelper(structPtr, structTy, node.member)
 
-      case node => throw new TinyCCompilerException(Error, s"Expression '$node' is not a l-value.", node.loc)
+      case node => throw new TinyCCompilerException(Error, s"expression '$node' is not a l-value", node.loc)
     }
 
     /** Compiles the AstExpression and returns the IR instruction, which holds the result.
@@ -381,6 +378,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node: AstChar => emitIImm(node.value.toLong)
 
       case node: AstString =>
+        // allocate global variable for the string (deduplicated using [[stringMap]])
         stringMap.getOrElseUpdate(node.value, {
           val allocName = "str_" + node.value.replaceAll("[^a-zA-Z0-9_]", "").take(8)
           val initData = (node.value + 0.toChar).map(_.toLong)
@@ -475,7 +473,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       else {
         val memcpyFun = program.funs.find(_.name == "memcpy").getOrElse(throw new TinyCCompilerException(Error, "an implementation of memcpy is required for large struct support", loc))
         if (memcpyFun.signature != IrFunSignature(IrTy.VoidTy, IndexedSeq(IrTy.PtrTy, IrTy.PtrTy, IrTy.Int64Ty)))
-          throw new TinyCCompilerException(Error, "invalid memcpy function signature", loc)
+          throw new TinyCCompilerException(Error, "invalid memcpy function signature (expected 'void memcpy(void* dest, void* src, int n)' )", loc)
         emit(new CallInsn(memcpyFun, IndexedSeq(destPtr, srcPtr, emit(new SizeOfInsn(irTy, bb))), bb))
       }
     }
@@ -563,6 +561,8 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         case PtrTy(baseTy) =>
           val deltaImm = emitIImm(delta)
           emit(new GetElementPtrInsn(oldValue, deltaImm, compileVarType(baseTy), 0, bb))
+
+        case exprTy => throw new TinyCCompilerException(Error, s"cannot compile unary $op with $exprTy", expr.loc)
       }
 
       emit(new StoreInsn(exprPtr, newValue, bb))
@@ -596,13 +596,13 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case (Symbols.inc | Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = false)
 
-      case (op, argTy) => throw new NotImplementedError(s"UnaryOp '${op.name}' with '$argTy'.")
+      case (op, argTy) => throw new TinyCCompilerException(Error, s"cannot compile unary op $op with $argTy", node.loc)
     }
 
     private def compileUnaryPostOp(node: AstUnaryPostOp): Insn = (node.op, node.expr.ty) match {
       case (Symbols.inc | Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = true)
 
-      case (op, argTy) => throw new NotImplementedError(s"UnaryPostOp '${op.name}' with '$argTy'.")
+      case (op, argTy) => throw new TinyCCompilerException(Error, s"cannot compile unary post op $op with $argTy", node.loc)
     }
 
     private def compileBinaryArith(node: AstBinaryOp): Insn = (node.op, node.ty) match {
@@ -644,6 +644,8 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           case Symbols.sub => emitBinaryArith(ISub, emitIImm(0), rightInt)
         }
         emit(new GetElementPtrInsn(left, index, compileVarType(baseTy), 0, bb))
+
+      case (op, resultTy) => throw new TinyCCompilerException(Error, s"cannot compile binary op $op as $resultTy", node.loc)
     }
 
     private def compileCmpArithmeticHelper(op: Symbol, argTy: Types.Ty, leftPromoted: Insn, rightPromoted: Insn): Insn = (op, argTy) match {
@@ -661,7 +663,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case (Symbols.gt, DoubleTy) => emitCmp(CmpFGt, leftPromoted, rightPromoted)
       case (Symbols.ge, DoubleTy) => emitCmp(CmpFGe, leftPromoted, rightPromoted)
 
-      case _ => throw new NotImplementedError(s"compileCmpArithmeticHelper($op, $argTy)")
+      case _ => throw new UnsupportedOperationException(s"cannot compile arithmetic cmp $op with $argTy")
     }
 
     private def compileCmp(node: AstBinaryOp): Insn = (node.op, node.left.ty, node.right.ty) match {
@@ -679,6 +681,8 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val left = compileExpr(node.left)
         val right = compileExpr(node.right)
         compileCmpArithmeticHelper(op, IntTy, left, right)
+
+      case (op, leftTy, rightTy) => throw new TinyCCompilerException(Error, s"cannot compile cmp $op with $leftTy and $rightTy", node.loc)
     }
 
     private def compileBinaryOp(node: AstBinaryOp): Insn = node.op match {
@@ -703,7 +707,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         appendAndEnterBlock(contBlock)
         emit(PhiInsn(IndexedSeq((ione, trueBlock), (izero, falseBlock)), bb))
 
-      case op => throw new UnsupportedOperationException(s"invalid binary operator $op")
+      case op => throw new TinyCCompilerException(Error, s"invalid binary operator $op", node.loc)
     }
 
     private def compileBoolExpr(node: AstNode, trueBlock: BasicBlock, falseBlock: BasicBlock): Unit = node match {

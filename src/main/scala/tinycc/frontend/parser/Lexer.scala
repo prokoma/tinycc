@@ -131,7 +131,7 @@ object Lexer extends Lexical with Scanners {
   // IntLiteral or DoubleLiteral
 
   lazy val NUMERIC_LITERAL: Parser[Token] =
-    rep1(digit) ~ opt('.' ~ rep(digit) ^^ { case dot ~ digits => dot + digits.mkString }) ^^ {
+    rep1(digit) ~ opt('.' ~ rep(digit) ^^ { case dot ~ digits => s"$dot${digits.mkString}" }) ^^ {
       case intPart ~ None => IntLiteral(intPart.mkString.toLong)
       case intPart ~ Some(fracPart) => DoubleLiteral((intPart.mkString + fracPart).toDouble)
     } described "numeric literal"

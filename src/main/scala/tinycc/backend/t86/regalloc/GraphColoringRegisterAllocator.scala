@@ -387,7 +387,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
         val u = _aliases.find(node)
         _regRegMoveList(node).foreach(insn => {
           val v = {
-            val BinaryT86Insn(_, dest: T, src: T) = insn()
+            val BinaryT86Insn(_, dest: T @unchecked, src: T @unchecked) = insn()
             val rDest = _aliases.find(dest)
             if (rDest == u)
               _aliases.find(src)

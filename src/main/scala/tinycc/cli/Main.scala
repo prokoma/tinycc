@@ -2,7 +2,7 @@ package tinycc.cli
 
 object Main extends App {
   try {
-    val action = CliParser.parseArgs(args)
+    val action = CliParser.parseArgs(args.toSeq)
 
     action.execute()
   } catch {

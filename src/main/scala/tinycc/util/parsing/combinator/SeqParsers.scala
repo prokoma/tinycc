@@ -2,6 +2,8 @@ package tinycc.util.parsing.combinator
 
 import tinycc.util.parsing.SourceLocation
 
+import scala.language.implicitConversions
+
 case class SeqReader[T](seq: Seq[T], offset: Int = 0) extends Reader[T] {
   override def headOption: Option[T] = seq.headOption
 

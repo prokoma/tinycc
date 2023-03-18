@@ -17,11 +17,6 @@ object Types {
     override def isComplete: Boolean = true
   }
 
-  /** This type should be returned if type analysis fails for the node. */
-  case object ErrorTy extends Ty {
-    override def isComplete: Boolean = false
-  }
-
   sealed trait ScalarTy extends Ty {
     override def isComplete: Boolean = true
   }

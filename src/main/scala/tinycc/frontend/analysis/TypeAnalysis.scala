@@ -120,7 +120,7 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
             case Some((ty, _)) => ty
             case None =>
               errors += new Message(Error, s"undeclared named type '${name.name}'", node.loc)
-              ErrorTy
+              VoidTy
           }
       }
 
@@ -311,7 +311,7 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
 
       def errorInvalidOperands: Ty = {
         errors += new Message(Error, s"invalid operands to binary ${node.op.name} (got $leftTy and $rightTy)", node.loc)
-        ErrorTy
+        VoidTy
       }
 
       node.op match {

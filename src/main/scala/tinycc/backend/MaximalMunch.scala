@@ -64,7 +64,7 @@ trait MaximalMunch extends TilingInstructionSelection with Logging {
           log(s"freezing $insn, because it was already covered by an inner node")
           frozenInsns += insn
           didFreeze = true
-          break
+          break() // works like continue in other languages, because breakable is inside the while body
         }
 
         val matchedTile = selectTile(filteredRules, insn)
