@@ -35,6 +35,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     val allocMap: mutable.Map[IdentifierDecl, AllocInsn] = mutable.Map.empty
     val globalMap: mutable.Map[Symbol, AllocGInsn] = mutable.Map.empty
     val funMap: mutable.Map[Symbol, IrFun] = mutable.Map.empty
+    val stringMap: mutable.Map[String, AllocGInsn] = mutable.Map.empty
     var curFunTyOption: Option[FunTy] = None
 
     def curFunTy: FunTy = curFunTyOption.get
@@ -380,9 +381,11 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node: AstChar => emitIImm(node.value.toLong)
 
       case node: AstString =>
-        val varIrTy = compileVarType(node.ty)
-        val initData = (node.value + 0.toChar).map(_.toLong)
-        emit(new AllocGInsn(varIrTy, initData, bb))
+        stringMap.getOrElseUpdate(node.value, {
+          val allocName = "str_" + node.value.replaceAll("[^a-zA-Z0-9_]", "").take(8)
+          val initData = (node.value + 0.toChar).map(_.toLong)
+          emit(new AllocGInsn(compileVarType(node.ty), initData, bb)).name(allocName)
+        })
 
       case node: AstDouble => emitFImm(node.value)
 
