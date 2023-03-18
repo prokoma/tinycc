@@ -1,5 +1,6 @@
 package tinycc.backend.t86.regalloc
 
+import tinycc.backend.t86.Operand.VirtFReg
 import tinycc.backend.t86.T86Opcode._
 import tinycc.backend.t86._
 import tinycc.common.ProgramTransform
@@ -12,7 +13,7 @@ trait T86GenericRegisterAllocator[T <: Operand] {
   case class DefUse(defines: Set[T], uses: Set[T]) {
     def regs: Set[T] = defines ++ uses
 
-    def withoutIgnoredRegs: DefUse = DefUse(defines.diff(ignoredRegs), uses.diff(ignoredRegs))
+    def onlyRelevantRegs: DefUse = DefUse(defines.filter(isRelevantReg), uses.filter(isRelevantReg))
 
     def ++(that: DefUse): DefUse = DefUse(defines.union(that.defines), uses.union(that.uses))
   }
@@ -23,9 +24,6 @@ trait T86GenericRegisterAllocator[T <: Operand] {
 
   /** General purpose registers available for allocation. */
   def machineRegs: Set[T]
-
-  /** Special registers, which should be ignored by the register allocator. */
-  def ignoredRegs: Set[T]
 
   /** Registers which are defined by a call instruction. A subset of [[machineRegs]]. */
   def returnValueRegs: Set[T]
@@ -42,7 +40,13 @@ trait T86GenericRegisterAllocator[T <: Operand] {
   /** Returns what the operand defines and uses when it is used as read target. Defines and uses are subset of [[machineRegs]]. */
   def getOperandReadDefUse(op: Operand): DefUse
 
-  /** Returns true for MOV Rx, Ry where Rx and Ry are members of [[machineRegs]]. */
+  /** Returns true if the register is a virtual temporary that should be remapped to a machine register by the allocator. */
+  def isVirtualReg(reg: T): Boolean
+
+  /** Returns true for [[machineRegs]] and virtual registers. */
+  def isRelevantReg(reg: T): Boolean = machineRegs.contains(reg) || isVirtualReg(reg)
+
+  /** Returns true for MOV Rx, Ry where Rx and Ry are relevant. */
   def isRegRegMove(insn: T86Insn): Boolean
 
   /** Size of register (used for spilling) */
@@ -90,18 +94,21 @@ trait T86GenericRegisterAllocator[T <: Operand] {
 }
 
 trait T86RegRegisterAllocator extends T86GenericRegisterAllocator[Operand.Reg] {
+  /** Machine registers are in the range (0, machineRegCount)- */
+  def machineRegCount: Int
+
   /** General purpose registers available for allocation. */
-  override def machineRegs: Set[Operand.Reg] = T86Utils.machineRegs
+  override val machineRegs: Set[Operand.Reg] = 0.until(machineRegCount).map(Operand.MachineReg(_)).toSet
 
-  override def ignoredRegs: Set[Operand.Reg] = T86Utils.specialRegs
-
-  override def returnValueRegs: Set[Operand.Reg] = Set(T86Utils.returnValueReg)
+  override val returnValueRegs: Set[Operand.Reg] = Set(T86Utils.returnValueReg)
 
   /** Registers which should be live during any function call. A subset of [[machineRegs]]. */
-  override def callerSaveRegs: Set[Operand.Reg] = Set.empty
+  override val callerSaveRegs: Set[Operand.Reg] = Set.empty
 
   /** Registers which should be live inside whole function body. A subset of [[machineRegs]]. */
-  override def calleeSaveRegs: Set[Operand.Reg] = T86Utils.calleeSaveRegs
+  override val calleeSaveRegs: Set[Operand.Reg] = machineRegs -- returnValueRegs
+
+  override def isVirtualReg(reg: Operand.Reg): Boolean = reg.isInstanceOf[Operand.VirtReg]
 
   /** Returns what the operand defines and uses when it is used as write target (no read). Defines and uses are subset of [[machineRegs]]. */
   override def getOperandWriteDefUse(op: Operand): DefUse = (op match {
@@ -119,7 +126,7 @@ trait T86RegRegisterAllocator extends T86GenericRegisterAllocator[Operand.Reg] {
     case freg: Operand.FReg => DefUse.empty
 
     case op => throw new IllegalArgumentException(s"Operand $op cannot be used as a destination.")
-  }).withoutIgnoredRegs
+  }).onlyRelevantRegs
 
   /** Returns what the operand defines and uses when it is used as read target. Defines and uses are subset of [[machineRegs]]. */
   override def getOperandReadDefUse(op: Operand): DefUse = (op match {
@@ -142,11 +149,11 @@ trait T86RegRegisterAllocator extends T86GenericRegisterAllocator[Operand.Reg] {
     case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse(Set.empty, Set(addrReg, addrScaledReg))
 
     case freg: Operand.FReg => DefUse.empty
-  }).withoutIgnoredRegs
+  }).onlyRelevantRegs
 
-  /** Returns true for MOV Rx, Ry where Rx and Ry are members of [[machineRegs]]. */
+  /** Returns true for MOV Rx, Ry where Rx and Ry are relevant. */
   override def isRegRegMove(insn: T86Insn): Boolean = insn match {
-    case BinaryT86Insn(MOV, r1: Operand.Reg, r2: Operand.Reg) if !ignoredRegs.contains(r1) && !ignoredRegs.contains(r2) => true
+    case BinaryT86Insn(MOV, r1: Operand.Reg, r2: Operand.Reg) if isRelevantReg(r1) && isRelevantReg(r2) => true
     case _ => false
   }
 
@@ -176,18 +183,21 @@ trait T86RegRegisterAllocator extends T86GenericRegisterAllocator[Operand.Reg] {
 }
 
 trait T86FRegRegisterAllocator extends T86GenericRegisterAllocator[Operand.FReg] {
+  /** Machine registers are in the range (0, machineRegCount)- */
+  def machineRegCount: Int
+
   /** General purpose registers available for allocation. */
-  override def machineRegs: Set[Operand.FReg] = T86Utils.machineFRegs
+  override val machineRegs: Set[Operand.FReg] = 0.until(machineRegCount).map(Operand.MachineFReg(_)).toSet
 
-  override def ignoredRegs: Set[Operand.FReg] = Set.empty
-
-  override def returnValueRegs: Set[Operand.FReg] = Set.empty
+  override val returnValueRegs: Set[Operand.FReg] = Set.empty
 
   /** Registers which should be live during any function call. A subset of [[machineRegs]]. */
-  override def callerSaveRegs: Set[Operand.FReg] = T86Utils.callerSaveFRegs
+  override val callerSaveRegs: Set[Operand.FReg] = machineRegs
 
   /** Registers which should be live inside whole function body. A subset of [[machineRegs]]. */
-  override def calleeSaveRegs: Set[Operand.FReg] = Set.empty
+  override val calleeSaveRegs: Set[Operand.FReg] = Set.empty
+
+  override def isVirtualReg(reg: Operand.FReg): Boolean = reg.isInstanceOf[VirtFReg]
 
   /** Returns what the operand defines and uses when it is used as write target (no read). Defines and uses are subset of [[machineRegs]]. */
   override def getOperandWriteDefUse(op: Operand): DefUse = (op match {
@@ -205,7 +215,7 @@ trait T86FRegRegisterAllocator extends T86GenericRegisterAllocator[Operand.FReg]
     case freg: Operand.FReg => DefUse(Set(freg), Set.empty)
 
     case op => throw new IllegalArgumentException(s"Operand $op cannot be used as a destination.")
-  }).withoutIgnoredRegs
+  }).onlyRelevantRegs
 
   /** Returns what the operand defines and uses when it is used as read target. Defines and uses are subset of [[machineRegs]]. */
   override def getOperandReadDefUse(op: Operand): DefUse = (op match {
@@ -228,11 +238,11 @@ trait T86FRegRegisterAllocator extends T86GenericRegisterAllocator[Operand.FReg]
     case Operand.MemRegRegScaled(addrReg, addrScaledReg, addrScale) => DefUse.empty
 
     case freg: Operand.FReg => DefUse(Set.empty, Set(freg))
-  }).withoutIgnoredRegs
+  }).onlyRelevantRegs
 
   /** Returns true for MOV Rx, Ry where Rx and Ry are members of [[machineRegs]]. */
   override def isRegRegMove(insn: T86Insn): Boolean = insn match {
-    case BinaryT86Insn(MOV, r1: Operand.FReg, r2: Operand.FReg) if !ignoredRegs.contains(r1) && !ignoredRegs.contains(r2) => true
+    case BinaryT86Insn(MOV, r1: Operand.FReg, r2: Operand.FReg) if isRelevantReg(r1) && isRelevantReg(r2) => true
     case _ => false
   }
 
@@ -253,5 +263,5 @@ abstract class T86RegisterAllocator extends ProgramTransform[T86Program] {
 }
 
 object T86RegisterAllocator {
-  def apply(): T86RegisterAllocator = new GraphColoringRegisterAllocator()
+  def apply(machineRegCount: Int, machineFRegCount: Int): T86RegisterAllocator = new GraphColoringRegisterAllocator(machineRegCount, machineFRegCount)
 }

@@ -55,18 +55,22 @@ object CliParser extends CliParsers {
     val optVerbose = verbose ^^ (_ => (a: Codegen) => a.copy(verbose = true))
     val optProfile = profile ^^ (_ => (a: Codegen) => a.copy(profile = true))
     val optOptimize = optimize ^^ (_ => (a: Codegen) => a.copy(optimize = true))
+    val optRegisterCnt = registerCnt ^^ { registerCnt => (a: Codegen) => a.copy(registerCnt = registerCnt) }
+    val optFloatRegisterCnt = floatRegisterCnt ^^ { floatRegisterCnt => (a: Codegen) => a.copy(floatRegisterCnt = floatRegisterCnt) }
     val optOutFile = output ^^ { outFile => (a: Codegen) => a.copy(outFile = Some(outFile)) }
 
-    "codegen" ~> commit(rep(optVerbose | optProfile | optOptimize | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(Codegen(inFile), opts) } described "codegen"
+    "codegen" ~> commit(rep(optVerbose | optProfile | optOptimize | optRegisterCnt | optFloatRegisterCnt | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(Codegen(inFile), opts) } described "codegen"
   }
 
   lazy val COMPILE: Parser[Compile] = {
     val optVerbose = verbose ^^ (_ => (a: Compile) => a.copy(verbose = true))
     val optProfile = profile ^^ (_ => (a: Compile) => a.copy(profile = true))
     val optOptimize = optimize ^^ (_ => (a: Compile) => a.copy(optimize = true))
+    val optRegisterCnt = registerCnt ^^ { registerCnt => (a: Compile) => a.copy(registerCnt = registerCnt) }
+    val optFloatRegisterCnt = floatRegisterCnt ^^ { floatRegisterCnt => (a: Compile) => a.copy(floatRegisterCnt = floatRegisterCnt) }
     val optOutFile = output ^^ { outFile => (a: Compile) => a.copy(outFile = Some(outFile)) }
 
-    "compile" ~> commit(rep(optVerbose | optProfile | optOptimize | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(Compile(inFile), opts) } described "compile"
+    "compile" ~> commit(rep(optVerbose | optProfile | optOptimize | optRegisterCnt | optFloatRegisterCnt | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(Compile(inFile), opts) } described "compile"
   }
 
   lazy val HELP: Parser[Action] = {

@@ -19,20 +19,29 @@ object Operand {
     def mem: MemReg = MemReg(this)
   }
 
-  case class BasicReg(index: Long) extends Reg {
+  /** A physical general-purpose integer register */
+  case class MachineReg(index: Long) extends Reg {
     override def toString: String = s"R$index"
   }
 
+  /** Base pointer register */
   case object BP extends Reg {
     override def toString: String = "BP"
   }
 
+  /** Stack pointer register */
   case object SP extends Reg {
     override def toString: String = "SP"
   }
 
+  /** Instruction pointer register */
   case object IP extends Reg {
     override def toString: String = "IP"
+  }
+
+  /** A virtual register (temporary) */
+  case class VirtReg(index: Long) extends Reg {
+    override def toString: String = s"VR$index"
   }
 
   case class RegImm(reg: Reg, offset: Long) extends Operand {
@@ -109,8 +118,14 @@ object Operand {
 
   sealed trait FReg extends Operand
 
-  case class BasicFReg(index: Long) extends FReg {
+  /** A physical general-purpose floating-point register */
+  case class MachineFReg(index: Long) extends FReg {
     override def toString: String = s"FR$index"
+  }
+
+  /** A virtual register (temporary) */
+  case class VirtFReg(index: Long) extends FReg {
+    override def toString: String = s"VFR$index"
   }
 }
 
@@ -152,7 +167,7 @@ sealed trait T86Insn extends T86ListingElement {
   def operands: Seq[Operand] = Seq.empty
 
   override def toString: String =
-    op.toString + (if(operands.nonEmpty) " " + operands.mkString(", ") else "")
+    op.toString + (if (operands.nonEmpty) " " + operands.mkString(", ") else "")
 }
 
 object T86Insn {
@@ -177,9 +192,14 @@ case class BinaryT86Insn(op: T86Opcode.BinaryOp, operand0: Operand, operand1: Op
 
 case class T86DataWord(value: Long, rep: Long = 1) extends T86ListingElement
 
-class T86Program(var funs: IndexedSeq[T86Fun], var data: IndexedSeq[T86ListingElement], val irProgram: Option[IrProgram] = None) {
+class T86Program(val irProgram: Option[IrProgram] = None) {
+  var funs: IndexedSeq[T86Fun] = IndexedSeq.empty
+  var data: IndexedSeq[T86ListingElement] = IndexedSeq.empty
+
+  def dataSize: Long = data.collect({ case T86DataWord(_, rep) => rep }).sum
+
   def flatten: T86Listing = {
-    val dataSection = if(data.nonEmpty)
+    val dataSection = if (data.nonEmpty)
       T86SectionLabel("data") +: data
     else
       Seq.empty
@@ -188,25 +208,30 @@ class T86Program(var funs: IndexedSeq[T86Fun], var data: IndexedSeq[T86ListingEl
   }
 }
 
-class T86Fun(var basicBlocks: IndexedSeq[T86BasicBlock], var localsSize: Long = 0, var nextReg: Long = 0, var nextFreg: Long = 0, val irFun: Option[IrFun] = None) {
+class T86Fun(val irFun: Option[IrFun] = None) {
+  var basicBlocks: IndexedSeq[T86BasicBlock] = IndexedSeq.empty
+  var localsSize: Long = 0
+  var nextReg: Long = 0
+  var nextFreg: Long = 0
+
   def name: String = irFun.map(_.name).getOrElse("<anon>")
 
   def insns: Seq[T86Insn] = basicBlocks.flatMap(_.insns)
 
   def flatten: T86Listing = (
     Seq(T86Comment(""), T86Comment(s"======= FUNCTION $name START =======", false)) ++
-    basicBlocks.flatMap(_.flatten) ++
-    Seq(T86Comment(s"======= FUNCTION $name END =======", false), T86Comment(""))
-  )
+      basicBlocks.flatMap(_.flatten) ++
+      Seq(T86Comment(s"======= FUNCTION $name END =======", false), T86Comment(""))
+    )
 
   def freshReg(): Operand.Reg = {
     nextReg += 1
-    Operand.BasicReg(nextReg - 1)
+    Operand.VirtReg(nextReg - 1)
   }
 
   def freshFReg(): Operand.FReg = {
     nextFreg += 1
-    Operand.BasicFReg(nextFreg - 1)
+    Operand.VirtFReg(nextFreg - 1)
   }
 
   def freshLocal(size: Long): Operand.MemRegImm = {
@@ -215,7 +240,7 @@ class T86Fun(var basicBlocks: IndexedSeq[T86BasicBlock], var localsSize: Long = 
   }
 }
 
-class T86BasicBlock(var body: IndexedSeq[T86ListingElement], val irBasicBlock: Option[BasicBlock] = None) {
+class T86BasicBlock(var body: IndexedSeq[T86ListingElement] = IndexedSeq.empty, val irBasicBlock: Option[BasicBlock] = None) {
   def this(body: IndexedSeq[T86ListingElement], irBasicBlock: BasicBlock) = this(body, Some(irBasicBlock))
 
   def name: String = irBasicBlock.map(_.uniqueName).getOrElse("<anon>")

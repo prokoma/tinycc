@@ -42,10 +42,17 @@ trait GenericNaiveRegisterAllocator[T <: Operand] extends T86GenericRegisterAllo
   }
 }
 
-class NaiveRegisterAllocator extends T86RegisterAllocator {
+class NaiveRegisterAllocator(_machineRegCount: Int, _machineFRegCount: Int) extends T86RegisterAllocator {
 
-  val regRegisterAllocator = new GenericNaiveRegisterAllocator[Operand.Reg] with T86RegRegisterAllocator
-  val fregRegisterAllocator = new GenericNaiveRegisterAllocator[Operand.FReg] with T86FRegRegisterAllocator
+  val regRegisterAllocator = new GenericNaiveRegisterAllocator[Operand.Reg] with T86RegRegisterAllocator {
+    /** Machine registers are in the range (0, machineRegCount)- */
+    override def machineRegCount: Int = _machineRegCount
+  }
+
+  val fregRegisterAllocator = new GenericNaiveRegisterAllocator[Operand.FReg] with T86FRegRegisterAllocator {
+    /** Machine registers are in the range (0, machineRegCount)- */
+    override def machineRegCount: Int = _machineFRegCount
+  }
 
   override def transformProgram(program: T86Program): Unit = {
     program.funs.foreach(transformFun)

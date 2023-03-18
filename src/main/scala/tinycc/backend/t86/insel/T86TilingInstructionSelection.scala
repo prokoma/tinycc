@@ -84,7 +84,7 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
     val tileMap = getTileMapForFun(fun)
 
     val argsMap = buildArgsMap(fun.argTys, 2)
-    val funBuilder = new T86FunBuilder(fun)
+    val funBuilder = T86FunBuilder(fun)
 
     /** Holds the results (value of T86Var - usually register number) for each root instruction. */
     val tileResults = mutable.Map.empty[Insn, Any]
@@ -220,7 +220,7 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
   }
 
   override def result(): T86Program = {
-    val programBuilder = new T86ProgramBuilder(program)
+    val programBuilder = T86ProgramBuilder(program)
 
     log(s"using ${rules.size} rules")
 

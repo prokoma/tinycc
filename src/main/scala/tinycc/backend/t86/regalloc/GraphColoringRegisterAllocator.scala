@@ -8,9 +8,11 @@ import tinycc.util.{DSU, Logging}
 
 import scala.collection.mutable
 
-class GraphColoringRegisterAllocator extends T86RegisterAllocator {
+class GraphColoringRegisterAllocator(_machineRegCount: Int, _machineFRegCount: Int) extends T86RegisterAllocator {
 
   private val regRegisterAllocator = new GenericGraphColoringRegisterAllocator[Operand.Reg] with T86RegRegisterAllocator {
+    override def machineRegCount: Int = _machineRegCount
+
     override def rewriteFunWithSpilledNodes(fun: T86Fun, spilledNodes: Set[Operand.Reg]): Set[Operand.Reg] = {
       val allocMap = spilledNodes.map(node => (node -> fun.freshLocal(regSize))).toMap // maps spilled temporaries to memory locations
       var newRegs = Set.empty[Operand.Reg]
@@ -47,6 +49,8 @@ class GraphColoringRegisterAllocator extends T86RegisterAllocator {
   }
 
   private val fregRegisterAllocator = new GenericGraphColoringRegisterAllocator[Operand.FReg] with T86FRegRegisterAllocator {
+    override def machineRegCount: Int = _machineFRegCount
+
     override def rewriteFunWithSpilledNodes(fun: T86Fun, spilledNodes: Set[Operand.FReg]): Set[Operand.FReg] = {
       val allocMap = spilledNodes.map(node => (node -> fun.freshLocal(regSize))).toMap // maps spilled temporaries to memory locations
       var newRegs = Set.empty[Operand.FReg]

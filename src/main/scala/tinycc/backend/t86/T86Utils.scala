@@ -12,20 +12,9 @@ object T86Utils {
     })
   }
 
-  val machineRegCount: Int = 4
+  val defaultMachineRegCount: Int = 4
 
-  val machineFRegCount: Int = 5
+  val defaultMachineFRegCount: Int = 5
 
-  val machineRegs: Set[Operand.Reg] = 0.until(machineRegCount).map(Operand.BasicReg(_)).toSet
-
-  val machineFRegs: Set[Operand.FReg] = 0.until(machineFRegCount).map(Operand.BasicFReg(_)).toSet
-
-  /** Special registers ignored by register allocation. */
-  val specialRegs: Set[Operand.Reg] = Set(Operand.BP, Operand.SP, Operand.IP)
-
-  val returnValueReg: Operand.BasicReg = Operand.BasicReg(0)
-
-  val calleeSaveRegs: Set[Operand.Reg] = machineRegs - returnValueReg
-
-  val callerSaveFRegs: Set[Operand.FReg] = machineFRegs
+  val returnValueReg: Operand.MachineReg = Operand.MachineReg(0)
 }

@@ -6,6 +6,11 @@ import scala.util.Try
 trait CliParsers extends SeqParsers[String] {
   override def elemToString(e: String): String = s"'$e'"
 
+  override def remainderToString(in: SeqReader[String]): String = super.remainderToString(in) match {
+    case "" => "empty argument"
+    case rem => rem
+  }
+
   private def unwrapOption[T](p: Parser[Option[T]]): Parser[T] = p.filter(_.isDefined).map(_.get)
 
   def shortOpt(name: String): Parser[String] = elem(s"-$name")
@@ -14,7 +19,7 @@ trait CliParsers extends SeqParsers[String] {
 
   def longOptWithValue(name: String): Parser[String] = in => in.headOption match {
     case Some(tok) if tok == s"--$name" => Accept(tok, in.tail)
-    case Some(tok) if tok.startsWith(s"--$name=") => Accept(s"--$name=", SeqReader(tok.substring(s"--$name=".length) +: in.seq.tail))
+    case Some(tok) if tok.startsWith(s"--$name=") => Accept(s"--$name=", SeqReader(tok.substring(s"--$name=".length) +: in.seq.tail, in.offset))
     case _ => Reject(List(ExpTree(s"'--$name'"), ExpTree(s"'--$name=VALUE'")), in)
   }
 

@@ -4,59 +4,66 @@ import tinycc.common.ir.{AllocGInsn, AllocLInsn, IrFun, IrProgram}
 
 import scala.collection.mutable
 
-class T86ProgramBuilder(irProgram: Option[IrProgram] = None) {
-  def this(irProgram: IrProgram) = this(Some(irProgram))
+trait T86ProgramBuilder {
+  def program: T86Program
 
-  protected var _data: mutable.Builder[T86ListingElement, IndexedSeq[T86ListingElement]] = IndexedSeq.newBuilder[T86ListingElement]
-  protected var _globalsSize: Long = 0
-  protected val _globalsMap = mutable.Map.empty[AllocGInsn, Operand.MemImm]
-  protected val _funs: mutable.Builder[T86Fun, IndexedSeq[T86Fun]] = IndexedSeq.newBuilder[T86Fun]
+  protected val globalsMap = mutable.Map.empty[AllocGInsn, Operand.MemImm]
+  protected val funs: mutable.Builder[T86Fun, IndexedSeq[T86Fun]] = IndexedSeq.newBuilder[T86Fun]
+  protected var data: mutable.Builder[T86ListingElement, IndexedSeq[T86ListingElement]] = IndexedSeq.newBuilder[T86ListingElement]
+  protected var dataSize: Long = program.dataSize
+
+  funs ++= program.funs
+  data ++= program.data
 
   def freshGlobal(size: Long, initData: Seq[Long] = Seq.empty): Operand.MemImm = {
     require(initData.size <= size)
-    _data ++= initData.map(T86DataWord(_))
+    data ++= initData.map(T86DataWord(_))
     if (initData.size < size)
-      _data += T86DataWord(0, size - initData.size)
-    _globalsSize += size
-    Operand.MemImm(_globalsSize - size)
+      data += T86DataWord(0, size - initData.size)
+    dataSize += size
+    Operand.MemImm(dataSize - size)
   }
 
   def resolveAllocG(insn: AllocGInsn): Operand.MemImm =
-    _globalsMap.getOrElseUpdate(insn, {
+    globalsMap.getOrElseUpdate(insn, {
       val res = freshGlobal(insn.varTy.sizeWords, insn.initData)
-      _data += T86Comment(s"$res -> ${insn.name}")
+      data += T86Comment(s"$res -> ${insn.name}")
       res
     })
 
   def appendFun(fun: T86Fun): Unit =
-    _funs += fun
+    funs += fun
 
-  def result(): T86Program = new T86Program(_funs.result(), _data.result(), irProgram)
+  def result(): T86Program = {
+    program.funs = funs.result()
+    program.data = data.result()
+    program
+  }
 }
 
-class T86FunBuilder(irFun: Option[IrFun] = None) {
-  def this(irFun: IrFun) = this(Some(irFun))
+object T86ProgramBuilder {
+  def apply(_irProgram: IrProgram): T86ProgramBuilder = apply(Some(_irProgram))
 
-  protected var localsSize: Long = 0
+  def apply(_irProgram: Option[IrProgram] = None): T86ProgramBuilder = apply(new T86Program(_irProgram))
+
+  def apply(_program: T86Program): T86ProgramBuilder = new T86ProgramBuilder {
+    override def program: T86Program = _program
+  }
+}
+
+trait T86FunBuilder {
+  def fun: T86Fun
+
   protected val localsMap = mutable.Map.empty[AllocLInsn, Operand.MemRegImm]
-  protected var nextReg: Long = T86Utils.machineRegCount
-  protected var nextFreg: Long = T86Utils.machineFRegCount
   protected val basicBlocks: mutable.Builder[T86BasicBlock, IndexedSeq[T86BasicBlock]] = IndexedSeq.newBuilder[T86BasicBlock]
 
-  def freshReg(): Operand.Reg = {
-    nextReg += 1
-    Operand.BasicReg(nextReg - 1)
-  }
+  basicBlocks ++= fun.basicBlocks
 
-  def freshFReg(): Operand.FReg = {
-    nextFreg += 1
-    Operand.BasicFReg(nextFreg - 1)
-  }
+  def freshReg(): Operand.Reg = fun.freshReg()
 
-  def freshLocal(size: Long): Operand.MemRegImm = {
-    localsSize += size
-    Operand.MemRegImm(Operand.BP, -localsSize)
-  }
+  def freshFReg(): Operand.FReg = fun.freshFReg()
+
+  def freshLocal(size: Long): Operand.MemRegImm = fun.freshLocal(size)
 
   def resolveAllocL(insn: AllocLInsn): Operand.MemRegImm =
     localsMap.getOrElseUpdate(insn, freshLocal(insn.varTy.sizeWords))
@@ -64,5 +71,18 @@ class T86FunBuilder(irFun: Option[IrFun] = None) {
   def appendBlock(bb: T86BasicBlock): Unit =
     basicBlocks += bb
 
-  def result(): T86Fun = new T86Fun(basicBlocks.result(), localsSize, nextReg, nextFreg, irFun)
+  def result(): T86Fun = {
+    fun.basicBlocks = basicBlocks.result()
+    fun
+  }
+}
+
+object T86FunBuilder {
+  def apply(_irFun: IrFun): T86FunBuilder = apply(Some(_irFun))
+
+  def apply(_irFun: Option[IrFun] = None): T86FunBuilder = apply(new T86Fun(_irFun))
+
+  def apply(_fun: T86Fun): T86FunBuilder = new T86FunBuilder {
+    override def fun: T86Fun = _fun
+  }
 }
