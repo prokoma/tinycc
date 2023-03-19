@@ -103,38 +103,48 @@ int scan_int() {
     return sgn * res;
 }
 
+// ----------------------------
+
+// https://onlinejudge.org/external/2/264.pdf
+
+// < 1
+// < 3
+// < 14
+// < 7
+
+// > TERM 1 IS 1/1
+// > TERM 3 IS 2/1
+// > TERM 14 IS 2/4
+// > TERM 7 IS 1/4
+
+// <! p264.in
+// >! p264.ref
+
 int main() {
-    print_fixed(-10.5, 5);
-    print('\n');
-// > -10.5
+    while(peekc() != -1) {
+        int s = scan_int()-1;
+        int n = (sqrt(1+8*s)-1)/2;
+        int a = s - n*(n+1)/2;
 
-    print_fixed(-10.534, 2);
-    print('\n');
-// > -10.53
+//        printnum(n);
+//        printnum(a);
 
-    print_int(msb(1));
-    print('\n');
-// > 0
+        print_str("TERM ");
+        print_int(s+1);
+        print_str(" IS ");
+        if(n % 2 == 0) {
+            print_int(n+1 - a);
+            print('/');
+            print_int(a+1);
+        } else {
+            print_int(a+1);
+            print('/');
+            print_int(n+1 - a);
+        }
+        print('\n');
 
-    print_int(msb(2));
-    print('\n');
-// > 1
-
-    print_int(msb(3));
-    print('\n');
-// > 1
-
-    print_int(msb(4));
-    print('\n');
-// > 2
-
-    print_fixed(sqrt(2), 5);
-    print('\n');
-// > 1.41421
-
-    print_fixed(sqrt(10), 5);
-    print('\n');
-// > 3.16227
+        skipws();
+    }
 
     return 0;
 }
