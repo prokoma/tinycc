@@ -18,6 +18,7 @@ object SemanticAnalysisException {
   }
 }
 
+/** Lexical stack keeps track of declarations in lexical scopes. */
 final class LexicalStack {
   private var frames: List[mutable.Map[Symbol, IdentifierDecl]] = Nil
 
@@ -43,14 +44,15 @@ final class LexicalStack {
 
 /** Semantic analysis maps variable and function identifiers to theirs respective declarations. Because global variables
  * and functions can have multiple declarations (and one definition), previous declarations can be accessed through
- * prevDecl (linked list). */
+ * prevDecl (linked list).
+ */
 final class SemanticAnalysis(program: AstProgram) {
 
   import ErrorLevel._
   import IdentifierDecl._
   import SemanticAnalysisException.Message
 
-  implicit private val declarations: mutable.Map[AstIdentifierOrDecl, IdentifierDecl] = mutable.Map.empty
+  private val declarations: mutable.Map[AstIdentifierOrDecl, IdentifierDecl] = mutable.Map.empty
 
   private val lexicalStack: LexicalStack = new LexicalStack
 
@@ -60,7 +62,7 @@ final class SemanticAnalysis(program: AstProgram) {
     visit(program) // First frame is created by visitBlock.
     if (errors.nonEmpty)
       throw new SemanticAnalysisException(errors.toSeq)
-    declarations
+    declarations.toMap
   }
 
   private def visit(node: AstNode): Unit = node match {
@@ -85,9 +87,10 @@ final class SemanticAnalysis(program: AstProgram) {
     case node: AstVarDecl =>
       node.value.foreach(visit)
 
+      // Check for conflicts only in the current frame to allow shadowing of identifiers.
       lexicalStack.lookupDeclInCurrentFrame(node.symbol) match {
         case Some(prevDecl: VarDecl) if lexicalStack.isGlobalFrame =>
-          // Ok, forward declarations of variables are allowed.
+          // Ok, forward declarations of global variables are allowed.
           declarations(node) = prevDecl
           lexicalStack.putDecl(node.symbol, VarDecl(node))
 
@@ -98,11 +101,13 @@ final class SemanticAnalysis(program: AstProgram) {
         case Some(prevDecl) =>
           errors += new Message(Error, s"'${node.symbol.name}' redeclared as different kind of symbol", node.loc)
           errors += new Message(Note, s"previous declaration of '${node.symbol.name}' here", prevDecl.loc)
+
         case None =>
           lexicalStack.putDecl(node.symbol, VarDecl(node))
       }
 
     case node: AstFunDecl =>
+      // Check for conflicts only in the current frame to allow shadowing of identifiers.
       lexicalStack.lookupDeclInCurrentFrame(node.symbol) match {
         case Some(prevDecl: FunDecl) =>
           // Ok, forward declarations of functions are allowed.
@@ -112,6 +117,7 @@ final class SemanticAnalysis(program: AstProgram) {
         case Some(prevDecl) =>
           errors += new Message(Error, s"'${node.symbol.name}' redeclared as different kind of symbol", node.loc)
           errors += new Message(Note, s"previous declaration of '${node.symbol.name}' here", prevDecl.loc)
+
         case None =>
           lexicalStack.putDecl(node.symbol, FunDecl(node))
       }
@@ -128,6 +134,17 @@ final class SemanticAnalysis(program: AstProgram) {
         })
         node.body.foreach(visit)
       })
+
+    case node: AstStructDecl =>
+      // check for duplicate field names in structure definition
+      node.fields.foreach(fields => {
+        fields.foldLeft(Set.empty[Symbol])({ case (visited, (_, fieldName)) =>
+          if(visited.contains(fieldName))
+            errors += new Message(Error, s"duplicate field ${fieldName.name} in struct definition", node.loc)
+          visited + fieldName
+        })
+      })
+      node.children.foreach(visit)
 
     case node: AstSwitch =>
       val caseValues = mutable.Set.empty[Long]
@@ -149,7 +166,7 @@ final class SemanticAnalysis(program: AstProgram) {
     case node: AstAssignment =>
       visit(node.lvalue)
       node.lvalue match {
-        case id: AstIdentifier => id.declOption match {
+        case id: AstIdentifier => declarations.get(id) match {
           case Some(_: FunDecl) =>
             errors += new Message(Error, s"assignment to function '${id.symbol.name}'", node.loc)
 

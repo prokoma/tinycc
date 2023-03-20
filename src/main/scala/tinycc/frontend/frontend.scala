@@ -6,8 +6,8 @@ import tinycc.frontend.analysis.IdentifierDecl.{FunDecl, VarDecl}
 import tinycc.frontend.ast._
 
 package object frontend {
-  type TypeMap = collection.Map[AstNode, Ty]
-  type Declarations = collection.Map[AstIdentifierOrDecl, IdentifierDecl]
+  type TypeMap = Map[AstNode, Ty]
+  type Declarations = Map[AstIdentifierOrDecl, IdentifierDecl]
 
   implicit class AstTypeAccess(that: AstNode) {
     def ty(implicit typeMap: TypeMap): Ty = typeMap(that)

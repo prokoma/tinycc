@@ -72,14 +72,14 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case Types.DoubleTy => IrTy.DoubleTy
       case _: Types.PtrTy => IrTy.PtrTy
 
-      case _: Types.ArrayPtrTy | _: Types.StructTy => IrTy.PtrTy
+      case _: Types.ArrayTy | _: Types.StructTy => IrTy.PtrTy
 
       case _: Types.FunTy => throw new UnsupportedOperationException(s"Cannot compile FunTy to IR type.")
     }
 
     /** Compile type for use in Alloc or GetElementPtr. Compiles arrays and structs as the full types. */
     private def compileVarType(ty: Types.Ty): IrTy = ty match {
-      case Types.ArrayPtrTy(elemTy, numElem) =>
+      case Types.ArrayTy(elemTy, numElem) =>
         IrTy.ArrayTy(compileVarType(elemTy), numElem)
 
       case Types.StructTy(_, fieldsOption) =>
@@ -355,7 +355,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node: AstIndex =>
         val ptr = compileExpr(node.expr)
-        val IndexableTy(baseTy) = node.expr.ty
+        val PtrTyBase(baseTy) = node.expr.ty
         val index = compileExpr(node.index)
         emit(new GetElementPtrInsn(ptr, index, compileVarType(baseTy), 0, bb))
 
@@ -364,7 +364,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node: AstMemberPtr => // ->
         val structPtr = compileExpr(node.expr)
-        val IndexableTy(structTy: StructTy) = node.expr.ty
+        val PtrTyBase(structTy: StructTy) = node.expr.ty
         compileMemberExprPtrHelper(structPtr, structTy, node.member)
 
       case node => throw new TinyCCompilerException(Error, s"expression '$node' is not a l-value", node.loc)
@@ -427,7 +427,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case _: AstIdentifier | _: AstMember | _: AstMemberPtr => node.ty match {
         // for functions, return theirs address
         // for static arrays & structs, return address of the first element/field
-        case _: FunTy | _: ArrayPtrTy | _: StructTy => compileExprPtr(node)
+        case _: FunTy | _: ArrayTy | _: StructTy => compileExprPtr(node)
 
         case _ => emit(new LoadInsn(compileBasicType(node.ty), compileExprPtr(node), bb))
       }
@@ -497,10 +497,10 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         compileCastFromTo(valueInt, Types.IntTy, toTy, loc)
 
       // Types of pointers were already checked by TypeAnalysis.
-      case (Types.CharTy | Types.IntTy | _: Types.PtrTy | _: Types.ArrayPtrTy, _: Types.PtrTy) =>
+      case (Types.CharTy | Types.IntTy | _: Types.PtrTy | _: Types.ArrayTy, _: Types.PtrTy) =>
         value
 
-      case (_: Types.PtrTy | _: Types.ArrayPtrTy, _: Types.IntegerTy) =>
+      case (_: Types.PtrTy | _: Types.ArrayTy, _: Types.IntegerTy) =>
         compileCastFromTo(value, Types.IntTy, toTy, loc)
 
       case (fromTy, toTy) => throw new TinyCCompilerException(Error, s"cannot cast '$fromTy' to '$toTy'", loc)
@@ -679,7 +679,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val rightPromoted = compileExprAndCastTo(node.right, leftTy)
         compileCmpArithmeticHelper(op, leftTy, left, rightPromoted)
 
-      case (op, _: PtrTy | _: ArrayPtrTy, _: PtrTy | _: ArrayPtrTy) =>
+      case (op, _: PtrTy | _: ArrayTy, _: PtrTy | _: ArrayTy) =>
         val left = compileExpr(node.left)
         val right = compileExpr(node.right)
         compileCmpArithmeticHelper(op, IntTy, left, right)
@@ -737,8 +737,8 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 }
 
 object TinyCCompiler {
-  class TinyCCompilerException(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException(message) {
-    override def format(reporter: Reporter): String = reporter.formatError(level, message, loc)
+  class TinyCCompilerException(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException("compiler: " + message) {
+    override def format(reporter: Reporter): String = reporter.formatError(level, getMessage, loc)
   }
 
   trait TinyCIrProgramBuilder extends IrProgramBuilder {

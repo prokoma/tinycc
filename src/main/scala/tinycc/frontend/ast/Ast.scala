@@ -58,6 +58,8 @@ sealed trait AstDecl extends AstNode with AstIdentifierOrDecl {
 
 class AstVarDecl(val symbol: Symbol, val varTy: AstType, val value: Option[AstNode], val loc: SourceLocation) extends AstDecl {
   override def children: Seq[AstNode] = Seq(varTy) ++ value
+
+  def hasValue: Boolean = value.isDefined
 }
 
 class AstFunDecl(val symbol: Symbol, val returnTy: AstType, val args: Seq[(AstType, Symbol)], val body: Option[AstNode], val loc: SourceLocation) extends AstDecl {
