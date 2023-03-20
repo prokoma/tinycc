@@ -17,11 +17,12 @@ class Profiler {
 
   def profile[T](name: String, thunk: => T): T = {
     val oldCurTask = curTask
-    curTask = startTask(name)
+    val task = startTask(name)
+    curTask = task
     try
       thunk
     finally {
-      curTask.end()
+      task.end()
       curTask = oldCurTask
     }
   }
@@ -44,20 +45,21 @@ object Profiler {
   def profile[T](name: String, thunk: => T): T = instance.profile(name, thunk)
 
   class Task(val name: String, var children: Seq[Task] = Seq.empty) {
-    var startTime: Long = 0
-    var endTime: Long = 0
+    var startTime: Long = -1
+    var endTime: Long = -1
 
     def time: Long = endTime - startTime
 
     def selfTime: Long = time - children.map(_.time).sum
 
     def start(): Unit = {
-      assert(startTime == 0)
+      assert(startTime == -1, "task has already started")
       startTime = System.currentTimeMillis()
     }
 
     def end(): Unit = {
-      assert(startTime != 0 && endTime == 0)
+      assert(startTime != -1, "task hasn't started")
+      assert(endTime == -1, "task has already ended")
       endTime = System.currentTimeMillis()
     }
 

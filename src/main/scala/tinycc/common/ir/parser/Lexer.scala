@@ -98,9 +98,9 @@ object Lexer extends Lexical with Scanners {
   lazy val exponentPart: Parser[String] = (elem('e') | 'E') ~> commit(opt(elem('-') | '+') ~ rep1(digit)) ^^ { case sign ~ digits => s"e${sign.getOrElse("")}${digits.mkString}" }
 
   lazy val NUMERIC_LITERAL: Parser[Token] =
-    intPart ~ opt(fracPart) ~ opt(exponentPart) ^^ {
-      case intPart ~ None ~ None => IntLiteral(intPart.toLong)
-      case intPart ~ fracPart ~ exponentPart => DoubleLiteral((intPart + fracPart.getOrElse("") + exponentPart.getOrElse("")).toDouble)
+    opt('-') ~ intPart ~ opt(fracPart) ~ opt(exponentPart) ^^ {
+      case sign ~ intPart ~ None ~ None => IntLiteral((sign.getOrElse("") + intPart).toLong)
+      case sign ~ intPart ~ fracPart ~ exponentPart => DoubleLiteral((sign.getOrElse("") + intPart + fracPart.getOrElse("") + exponentPart.getOrElse("")).toDouble)
     } described "numeric literal"
 
   // Register

@@ -84,6 +84,11 @@ class IrPrinter extends IndentPrinter[IrObject] {
           insn.initData.foreachSep(l => out.write(l.toString), out.write(" "))
         }
 
+      // %0 = sizeof i64
+      case insn: SizeOfInsn =>
+        out.write(" ")
+        printType(insn.varTy, out)
+
       // %0 = getfunptr foo
       case insn: GetFunPtrInsn =>
         out.write(" ")

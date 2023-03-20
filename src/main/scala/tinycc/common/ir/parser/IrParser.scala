@@ -46,6 +46,7 @@ object IrParser extends Parsers {
 
     /** Scan the whole program and resolve registered references. */
     def patchProgram(program: IrProgram): Unit = {
+      val globals = program.globals
       program.funs.foreach(fun => {
         _funRefs.remove(Symbol(fun.name)).foreach(list =>
           list.foreach(resolve => resolve(Some(fun))))
@@ -58,6 +59,12 @@ object IrParser extends Parsers {
             _insnRefs.remove((fun, Symbol(insn.name))).foreach(list =>
               list.foreach(resolve => resolve(Some(insn))))
           })
+        })
+
+        // link refs to globals from this function
+        globals.foreach(insn => {
+          _insnRefs.remove((fun, Symbol(insn.name))).foreach(list =>
+            list.foreach(resolve => resolve(Some(insn))))
         })
       })
 
@@ -170,7 +177,7 @@ object IrParser extends Parsers {
     (ctx: Context) => ctx.emit(new AllocGInsn(varTy, initData.getOrElse(Seq.empty), ctx.bb))
   }
 
-  /** STORE := 'store' SCALAR_TYPE insnRef  */
+  /** STORE := 'store' SCALAR_TYPE insnRef */
   lazy val LOAD: Parser[Context => LoadInsn] = (Load ~> SCALAR_TYPE) ~ insnRef ^^ { case valueTy ~ ptrFuture =>
     (ctx: Context) => {
       val insn = ctx.emit(new LoadInsn(valueTy, None, ctx.bb))
@@ -179,10 +186,10 @@ object IrParser extends Parsers {
     }
   }
 
-  /** STORE := 'loadarg' integer  */
+  /** STORE := 'loadarg' integer */
   lazy val LOADARG: Parser[Context => LoadArgInsn] = LoadArg ~> integer ^^ { index => (ctx: Context) => ctx.emit(new LoadArgInsn(index.toInt, ctx.bb)) }
 
-  /** STORE := 'store' insnRef ',' insnRef  */
+  /** STORE := 'store' insnRef ',' insnRef */
   lazy val STORE: Parser[Context => StoreInsn] = (Store ~> insnRef) ~ (comma ~> insnRef) ^^ { case ptrFuture ~ valueFuture =>
     (ctx: Context) => {
       val insn = ctx.emit(new StoreInsn(None, None, ctx.bb))
