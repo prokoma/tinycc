@@ -3,7 +3,7 @@ package tinycc.frontend
 import tinycc.ProgramException
 import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
-import tinycc.frontend.Types.{StructTy, _}
+import tinycc.frontend.Types._
 import tinycc.frontend.analysis.IdentifierDecl.{FunArgDecl, FunDecl, VarDecl}
 import tinycc.frontend.analysis.{IdentifierDecl, SemanticAnalysis, TypeAnalysis}
 import tinycc.frontend.ast._
@@ -14,7 +14,6 @@ import tinycc.util.{ErrorLevel, Reporter}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
-import scala.math.Ordered.orderingToOrdered
 
 final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typeMap: TypeMap) {
 
@@ -669,15 +668,11 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileCmp(node: AstBinaryOp): Insn = (node.op, node.left.ty, node.right.ty) match {
-      case (op, leftTy: ArithmeticTy, rightTy: ArithmeticTy) if leftTy <= rightTy =>
-        val leftPromoted = compileExprAndCastTo(node.left, rightTy)
-        val right = compileExpr(node.right)
-        compileCmpArithmeticHelper(op, rightTy, leftPromoted, right)
-
-      case (op, leftTy: ArithmeticTy, rightTy: ArithmeticTy) if leftTy > rightTy =>
-        val left = compileExpr(node.left)
-        val rightPromoted = compileExprAndCastTo(node.right, leftTy)
-        compileCmpArithmeticHelper(op, leftTy, left, rightPromoted)
+      case (op, leftTy: ArithmeticTy, rightTy: ArithmeticTy) =>
+        val resultTy = ArithmeticTy.getResultTy(leftTy, rightTy)
+        val left = compileExprAndCastTo(node.left, resultTy)
+        val right = compileExprAndCastTo(node.right, resultTy)
+        compileCmpArithmeticHelper(op, resultTy, left, right)
 
       case (op, _: PtrTy | _: ArrayTy, _: PtrTy | _: ArrayTy) =>
         val left = compileExpr(node.left)

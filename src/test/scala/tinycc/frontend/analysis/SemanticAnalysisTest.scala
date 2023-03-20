@@ -58,4 +58,47 @@ class SemanticAnalysisTest extends AnyFunSuite {
     assert(fooDecl.isDefined)
     assert(fooDecl.get.isInstanceOf[VarDecl])
   }
+
+  test("forward variable decl") {
+    val ast = TinyCParser.parseProgram(
+      """
+        |int a;
+        |int a = 1;
+        |int a;
+        |""".stripMargin)
+
+    new SemanticAnalysis(ast).result()
+  }
+
+  test("incompatible forward variable decl") {
+    val ast = TinyCParser.parseProgram(
+      """
+        |int a;
+        |int a = 1;
+        |void a();
+        |""".stripMargin)
+
+    assertThrows[SemanticAnalysisException](new SemanticAnalysis(ast).result())
+  }
+
+  test("forward fun decl") {
+    val ast = TinyCParser.parseProgram(
+      """
+        |void a();
+        |void a() {}
+        |""".stripMargin)
+
+    new SemanticAnalysis(ast).result()
+  }
+
+  test("incompatible forward fun decl") {
+    val ast = TinyCParser.parseProgram(
+      """
+        |void a();
+        |void a() {}
+        |int a;
+        |""".stripMargin)
+
+    assertThrows[SemanticAnalysisException](new SemanticAnalysis(ast).result())
+  }
 }

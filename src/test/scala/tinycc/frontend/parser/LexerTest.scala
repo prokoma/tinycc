@@ -34,18 +34,24 @@ class LexerTest extends AnyFunSuite {
     assert(tokens == Seq(DoubleLiteral(1.012), DoubleLiteral(32.12)))
   }
 
+  test("double literal with e") {
+    val tokens = tokenize(" 1.012e+1 32.12e-20 1e-5 1e06")
+    assert(tokens.size == 4)
+  }
+
   test("string literals") {
     val singleQuote = '\''
     val doubleQuote = '\"'
 
     val tokens = tokenize(
-      """'a' '\rbc' '\'"\\' // comment
+      """'a' '\rbc' '\n\t' '\'"\\' // comment
         |"fdafda\"rest'd"
         |""".stripMargin)
 
     assert(tokens == Seq(
       StringLiteral("a", singleQuote),
       StringLiteral("\rbc", singleQuote),
+      StringLiteral("\n\t", singleQuote),
       StringLiteral("'\"\\", singleQuote),
       StringLiteral("fdafda\"rest'd", doubleQuote)
     ))
