@@ -685,7 +685,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val right = compileExprAndCastTo(node.right, resultTy)
         compileCmpArithmeticHelper(op, resultTy, left, right)
 
-      case (op, _: PtrTy | _: ArrayTy, _: PtrTy | _: ArrayTy) =>
+      case (op, _: PtrTyBase, _: PtrTyBase) => // compare addresses
         val left = compileExpr(node.left)
         val right = compileExpr(node.right)
         compileCmpArithmeticHelper(op, IntTy, left, right)

@@ -15,6 +15,10 @@ class AstPrinterC extends AstPrinter {
     def semicolon: Unit = if (isStmt) out.write(";")
 
     node match {
+      case node: AstInteger =>
+        out.write(s"${node.value}ll")
+        semicolon
+
       case node: AstFunDecl if node.symbol.name == "main" =>
         super.printType(node.returnTy, out) // preserve int return type of main
         out.write(s" ${node.symbol.name}(")

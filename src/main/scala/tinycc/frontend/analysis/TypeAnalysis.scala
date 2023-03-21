@@ -267,8 +267,15 @@ final class TypeAnalysis(program: AstProgram, _declarations: Declarations) {
         }
 
         // we don't support floating point modulo (just like in C99)
-        case Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.`bitXor` | Symbols.shiftLeft | Symbols.shiftRight => (leftTy, rightTy) match {
+        case Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor => (leftTy, rightTy) match {
           case (leftTy: IntegerTy, rightTy: IntegerTy) => ArithmeticTy.getResultTy(leftTy, rightTy)
+
+          case _ => errorInvalidOperands
+        }
+
+        // bitwise shift has type of the left operand (does not promote like arithmetic operators)
+        case Symbols.shiftLeft | Symbols.shiftRight => (leftTy, rightTy) match {
+          case (leftTy: IntegerTy, rightTy: IntegerTy) => leftTy
 
           case _ => errorInvalidOperands
         }
