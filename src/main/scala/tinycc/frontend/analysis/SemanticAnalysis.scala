@@ -1,10 +1,10 @@
 package tinycc.frontend.analysis
 
+import tinycc.ProgramException
 import tinycc.frontend.Declarations
 import tinycc.frontend.ast._
-import tinycc.util.{ErrorLevel, Reporter}
 import tinycc.util.parsing.SourceLocation
-import tinycc.ProgramException
+import tinycc.util.{ErrorLevel, Reporter}
 
 import scala.collection.mutable
 
@@ -138,8 +138,10 @@ final class SemanticAnalysis(program: AstProgram) {
     case node: AstStructDecl =>
       // check for duplicate field names in structure definition
       node.fields.foreach(fields => {
+        if (fields.isEmpty)
+          errors += new Message(Error, s"empty struct definition", node.loc)
         fields.foldLeft(Set.empty[Symbol])({ case (visited, (_, fieldName)) =>
-          if(visited.contains(fieldName))
+          if (visited.contains(fieldName))
             errors += new Message(Error, s"duplicate field ${fieldName.name} in struct definition", node.loc)
           visited + fieldName
         })

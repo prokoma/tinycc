@@ -26,6 +26,9 @@ object IrTy {
   def PtrTy: IrTy = Int64Ty
 
   case class StructTy(fields: IndexedSeq[IrTy]) extends IrTy {
+    require(fields.nonEmpty)
+    require(!fields.contains(VoidTy))
+
     override def toString: String = s"struct {${fields.map(f => s" $f").mkString(",")} }"
 
     override def sizeWords: Int = fields.map(_.sizeWords).sum
@@ -37,6 +40,9 @@ object IrTy {
   }
 
   case class ArrayTy(baseTy: IrTy, numElem: Int) extends IrTy {
+    require(numElem > 0)
+    require(baseTy != VoidTy)
+
     override def toString: String = s"$baseTy[$numElem]"
 
     override def sizeWords: Int = baseTy.sizeWords * numElem

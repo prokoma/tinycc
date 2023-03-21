@@ -40,7 +40,7 @@ object IrManipulation {
   def insertInsnAfter[T <: Insn](insn: T, insertAfter: Insn): T = insertInsnHelper(insn, insertAfter, 1)
 
   def insertInsnBeforeTerminator[T <: Insn](insn: T, newBlock: BasicBlock): T =
-    newBlock.terminator match {
+    newBlock.terminatorOption match {
       case Some(terminator) => insertInsnBefore(insn, terminator)
       case None => appendInsnTo(insn, newBlock)
     }

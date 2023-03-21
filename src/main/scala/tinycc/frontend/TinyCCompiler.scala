@@ -43,7 +43,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
     def compileProgram(node: AstProgram): IrProgram = {
       withEntryFun({
-        appendAndEnterBlock("entry")
+        appendAndEnterBlock(new BasicBlock("entry", fun).loc(node.loc))
       })
 
       compileStmt(node)
@@ -97,9 +97,9 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case _: AstStructDecl | _: AstFunPtrDecl => // Ignore, handled by TypeAnalysis
 
       case node: AstIf =>
-        val trueBlock = new BasicBlock("ifTrue", fun)
-        val falseBlock = new BasicBlock("ifFalse", fun)
-        val contBlock = new BasicBlock("ifCont", fun)
+        val trueBlock = new BasicBlock("ifTrue", fun).loc(node.trueCase.loc)
+        val falseBlock = new BasicBlock("ifFalse", fun).loc(node.loc)
+        val contBlock = new BasicBlock("ifCont", fun).loc(node.loc)
 
         compileBoolExpr(node.guard, trueBlock, falseBlock)
 
@@ -114,9 +114,9 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         appendAndEnterBlock(contBlock)
 
       case node: AstWhile =>
-        val condBlock = new BasicBlock("whileCond", fun)
-        val bodyBlock = new BasicBlock("whileBody", fun)
-        val contBlock = new BasicBlock("whileCont", fun)
+        val condBlock = new BasicBlock("whileCond", fun).loc(node.guard.loc)
+        val bodyBlock = new BasicBlock("whileBody", fun).loc(node.body.loc)
+        val contBlock = new BasicBlock("whileCont", fun).loc(node.loc)
 
         emit(new BrInsn(condBlock, bb))
 
@@ -132,9 +132,9 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         appendAndEnterBlock(contBlock)
 
       case node: AstDoWhile =>
-        val bodyBlock = new BasicBlock("doWhileBody", fun)
-        val condBlock = new BasicBlock("doWhileCond", fun)
-        val contBlock = new BasicBlock("doWhileCont", fun)
+        val bodyBlock = new BasicBlock("doWhileBody", fun).loc(node.body.loc)
+        val condBlock = new BasicBlock("doWhileCond", fun).loc(node.guard.loc)
+        val contBlock = new BasicBlock("doWhileCont", fun).loc(node.loc)
 
         emit(new BrInsn(bodyBlock, bb))
 
@@ -150,10 +150,10 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         appendAndEnterBlock(contBlock)
 
       case node: AstFor =>
-        val condBlock = new BasicBlock("forCond", fun)
-        val bodyBlock = new BasicBlock("forBody", fun)
-        val incBlock = new BasicBlock("forInc", fun)
-        val contBlock = new BasicBlock("forCont", fun)
+        val condBlock = new BasicBlock("forCond", fun).loc(node.loc)
+        val bodyBlock = new BasicBlock("forBody", fun).loc(node.loc)
+        val incBlock = new BasicBlock("forInc", fun).loc(node.loc)
+        val contBlock = new BasicBlock("forCont", fun).loc(node.loc)
 
         node.init.foreach(compileStmt)
         emit(new BrInsn(condBlock, bb))
@@ -179,13 +179,13 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         appendAndEnterBlock(contBlock)
 
       case node: AstSwitch =>
-        val contBlock = new BasicBlock("switchCont", fun)
-        val defaultBlock = new BasicBlock("switchDefault", fun)
+        val contBlock = new BasicBlock("switchCont", fun).loc(node.loc)
+        val defaultBlock = new BasicBlock("switchDefault", fun).loc(node.loc)
 
         val cond = compileExprAndCastTo(node.guard, IntTy)
-        val caseBlocks = node.cases.map({ case (value, _) =>
-          val caseBlock = new BasicBlock(s"switchCase$value", fun)
-          val caseContBlock = new BasicBlock(s"switchCase${value}Cont", fun)
+        val caseBlocks = node.cases.map({ case (value, body) =>
+          val caseBlock = new BasicBlock(s"switchCase$value", fun).loc(body.loc)
+          val caseContBlock = new BasicBlock(s"switchCase${value}Cont", fun).loc(node.loc)
 
           val cmpEq = emit(new CmpInsn(IrOpcode.CmpIEq, cond, emitIImm(value), bb))
           emit(new CondBrInsn(cmpEq, caseBlock, caseContBlock, bb))
@@ -226,7 +226,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node: AstContinue => contTargetOption match {
         case Some(contTarget) =>
           emit(new BrInsn(contTarget, bb))
-          appendAndEnterBlock(new BasicBlock("unreachable", fun))
+          appendAndEnterBlock(new BasicBlock("unreachable", fun)).loc(node.loc)
 
         case None => throw new TinyCCompilerException(Error, "Unexpected continue stmt outside of loop.", node.loc)
       }
@@ -234,7 +234,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node: AstBreak => breakTargetOption match {
         case Some(breakTarget) =>
           emit(new BrInsn(breakTarget, bb))
-          appendAndEnterBlock(new BasicBlock("unreachable", fun))
+          appendAndEnterBlock(new BasicBlock("unreachable", fun)).loc(node.loc)
 
         case None => throw new TinyCCompilerException(Error, "Unexpected break stmt outside of loop.", node.loc)
       }
@@ -253,7 +253,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
             val retVal = compileExprAndCastTo(node.expr.get, curFunTy.returnTy)
             emit(new RetInsn(retVal, bb))
         }
-        appendAndEnterBlock(new BasicBlock("unreachable", fun))
+        appendAndEnterBlock(new BasicBlock("unreachable", fun)).loc(node.loc)
 
       case node: AstWrite =>
         val value = compileExprAndCastTo(node.expr, CharTy)
@@ -300,11 +300,12 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       appendAndEnterFun(irFun)
       curFunTyOption = Some(funTy)
-      if (node.body.isDefined) {
-        appendAndEnterBlock(new BasicBlock("entry", fun))
+
+      node.body.foreach(body => {
+        appendAndEnterBlock(new BasicBlock("entry", fun).loc(body.loc))
 
         val loadArgOffset = funTy.returnTy match {
-          case _: StructTy => 1
+          case _: StructTy => 1 // first argument is pointer to the returned struct
           case _ => 0
         }
 
@@ -326,14 +327,27 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           allocMap(FunArgDecl(node, index)) = alloc
         })
 
-        node.body.foreach(compileStmt)
+        compileStmt(body)
 
-        // TODO: run dfs on the function body and check returns
         if (funTy.returnTy == VoidTy)
           emit(new RetVoidInsn(bb)) // implicit return
-      }
+
+        checkMissingReturns(irFun)
+      })
       curFunTyOption = None
       exitFun()
+    }
+
+    private def checkMissingReturns(fun: IrFun): Unit = {
+      val visited = mutable.Set.empty[BasicBlock]
+      def dfs(bb: BasicBlock): Unit = {
+        if(visited.contains(bb))
+          return
+        visited += bb
+        val terminator = bb.terminatorOption.getOrElse(throw new TinyCCompilerException(Error, "missing return statement in reachable block", bb.loc))
+        terminator.succBlocks.foreach(dfs)
+      }
+      dfs(fun.entryBlock)
     }
 
     private def compileMemberExprPtrHelper(structPtr: Insn, structTy: StructTy, member: Symbol): Insn = {
@@ -710,9 +724,9 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         compileCmp(node)
 
       case Symbols.and | Symbols.or =>
-        val trueBlock = new BasicBlock("true", fun)
-        val falseBlock = new BasicBlock("false", fun)
-        val contBlock = new BasicBlock("cont", fun)
+        val trueBlock = new BasicBlock("true", fun).loc(node.loc)
+        val falseBlock = new BasicBlock("false", fun).loc(node.loc)
+        val contBlock = new BasicBlock("cont", fun).loc(node.loc)
 
         compileBoolExpr(node, trueBlock, falseBlock)
         appendAndEnterBlock(trueBlock)
@@ -729,14 +743,14 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
     private def compileBoolExpr(node: AstNode, trueBlock: BasicBlock, falseBlock: BasicBlock): Unit = node match {
       case AstBinaryOp(Symbols.and, left, right, _) =>
-        val leftTrueBlock = new BasicBlock("leftTrue", fun)
+        val leftTrueBlock = new BasicBlock("leftTrue", fun).loc(node.loc)
 
         compileBoolExpr(left, leftTrueBlock, falseBlock)
         appendAndEnterBlock(leftTrueBlock)
         compileBoolExpr(right, trueBlock, falseBlock)
 
       case AstBinaryOp(Symbols.or, left, right, _) =>
-        val leftFalseBlock = new BasicBlock("leftFalse", fun)
+        val leftFalseBlock = new BasicBlock("leftFalse", fun).loc(node.loc)
 
         compileBoolExpr(left, trueBlock, leftFalseBlock)
         appendAndEnterBlock(leftFalseBlock)
@@ -762,6 +776,17 @@ object TinyCCompiler {
 
     var breakTargetOption: Option[BasicBlock] = None
     var contTargetOption: Option[BasicBlock] = None
+
+    val blockLocations: mutable.Map[BasicBlock, SourceLocation] = mutable.Map.empty
+
+    implicit class BasicBlockLoc(that: BasicBlock) {
+      def loc(loc: SourceLocation): BasicBlock = {
+        blockLocations(that) = loc
+        that
+      }
+
+      def loc: SourceLocation = blockLocations.getOrElse(that, SourceLocation(1, 1, 0))
+    }
 
     def withEntryFun[T](thunk: => T): T = withFun(entryFun, thunk)
 

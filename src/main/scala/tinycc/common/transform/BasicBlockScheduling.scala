@@ -24,7 +24,7 @@ class BasicBlockScheduling extends ProgramTransform[IrProgram] {
         return
       visitedBlocks += bb
       sortedBasicBlocks += bb
-      val terminator = bb.terminator.getOrElse(throw new IrException(s"unterminated, but reachable basic block ${bb.uniqueName}"))
+      val terminator = bb.terminatorOption.getOrElse(throw new IrException(s"unterminated, but reachable basic block ${bb.uniqueName}"))
       terminator.succBlocks.foreach(dfs)
     }
 

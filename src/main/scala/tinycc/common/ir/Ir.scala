@@ -186,15 +186,15 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
 
   def uniqueName: String = fun.name + "$" + name
 
-  def terminator: Option[TerminatorInsn] = body.collectFirst({ case t: TerminatorInsn => t })
+  def terminatorOption: Option[TerminatorInsn] = body.collectFirst({ case t: TerminatorInsn => t })
+
+  def terminator: TerminatorInsn = terminatorOption.get
 
   def isFunEntryBlock: Boolean = fun.entryBlockRef.contains(this)
 
   def pred: Seq[BasicBlock] = fun.getBlockPred(this)
 
-  def succRefs: Seq[BasicBlockRef] = terminator.map(_.succBlockRefs).getOrElse(Seq.empty)
-
-  def succ: Seq[BasicBlock] = succRefs.flatMap(_())
+  def succ: Seq[BasicBlock] = terminator.succBlocks
 
   def linPred: Option[BasicBlock] = fun.getBlockLinPred(this)
 
@@ -203,7 +203,7 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
   def append[T <: Insn](insn: T): T = {
     if (insn.basicBlock != this)
       throw new IrException(s"Cannot append '$insn' owned by '${insn.basicBlock.name}.'")
-    if (terminator.isDefined)
+    if (terminatorOption.isDefined)
       throw new IrException(s"Cannot append '$insn' to terminated block '$name' in '${fun.name}'.")
     body = body :+ insn
     insn
@@ -214,8 +214,8 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
       assert(insn.basicBlock == this, s"$insn is owned by ${insn.basicBlock}")
       insn.validate()
     })
-    assert(terminator.isDefined, "unterminated basic block")
-    assert(terminator.get == body.last, "terminator is not the last instruction in basic block")
+    assert(terminatorOption.isDefined, "unterminated basic block")
+    assert(terminatorOption.get == body.last, "terminator is not the last instruction in basic block")
     assert(body.count(_.isInstanceOf[TerminatorInsn]) == 1, "multiple terminator instructions in a basic block")
   }
 
@@ -280,7 +280,7 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
 
   def entryBlock: BasicBlock = entryBlockRef.get
 
-  def exitPoints: Seq[IrFunExitPoint] = basicBlocks.flatMap(_.terminator).collect({ case ep: IrFunExitPoint => ep }).toSeq
+  def exitPoints: Seq[IrFunExitPoint] = basicBlocks.flatMap(_.terminatorOption).collect({ case ep: IrFunExitPoint => ep }).toSeq
 
   def locals: Seq[AllocLInsn] = insns.collect({ case al: AllocLInsn => al })
 

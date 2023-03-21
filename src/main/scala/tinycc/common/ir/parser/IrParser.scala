@@ -126,7 +126,7 @@ object IrParser extends Parsers {
   /** BASIC_BLOCK := identifier ':' { INSN } */
   lazy val BASIC_BLOCK: Parser[Context => Any] = identifier ~ (colon ~> rep(INSN)) ^^ { case name ~ bodyGens =>
     (ctx: Context) => {
-      ctx.appendAndEnterBlock(name.name)
+      ctx.appendAndEnterBlock(new BasicBlock(name.name, ctx.fun))
       bodyGens.foreach(_(ctx))
     }
   } described "basic block"

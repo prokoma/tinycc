@@ -101,4 +101,24 @@ class SemanticAnalysisTest extends AnyFunSuite {
 
     assertThrows[SemanticAnalysisException](new SemanticAnalysis(ast).result())
   }
+
+  test("empty struct") {
+    val ast = TinyCParser.parseProgram(
+      """
+        |struct test {};
+        |""".stripMargin)
+
+    assertThrows[SemanticAnalysisException](new SemanticAnalysis(ast).result())
+  }
+
+  test("non-empty struct") {
+    val ast = TinyCParser.parseProgram(
+      """
+        |struct test {
+        | int i;
+        |};
+        |""".stripMargin)
+
+    new SemanticAnalysis(ast).result()
+  }
 }

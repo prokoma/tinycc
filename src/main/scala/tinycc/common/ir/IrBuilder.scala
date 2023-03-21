@@ -49,11 +49,6 @@ trait IrFunBuilder extends BasicBlockBuilder {
     newBlock
   }
 
-  def appendAndEnterBlock(newBlock: IrFun => BasicBlock): BasicBlock = appendAndEnterBlock(newBlock(fun))
-
-  def appendAndEnterBlock(name: String): BasicBlock =
-    appendAndEnterBlock(new BasicBlock(name, fun))
-
   def withBlock[T](newBlock: BasicBlock, thunk: => T): T = {
     val oldBbOption = bbOption
     enterBlock(newBlock)

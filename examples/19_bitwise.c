@@ -29,11 +29,18 @@ void test3() {
     printnum(x | 1024);
 // > 1088
 
-    printnum(x << 1);
-// > 128
+// this is undefined behaviour in C99
+//    printnum(0 | (x << 1));
+//// > -128
+//
+//    printnum(0 | (x << 2));
+//// > 0
 
-    printnum(x << 2);
-// > 256
+    printnum(cast<char>(x << 1));
+// > -128
+
+    printnum(cast<char>(x << 2));
+// > 0
 
     printnum(cast<char>(x << cast<char>(2)));
 // > 0
