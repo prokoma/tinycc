@@ -84,7 +84,7 @@ class AstIf(val guard: AstNode, val trueCase: AstNode, val falseCase: Option[Ast
   override def children: Seq[AstNode] = Seq(guard, trueCase) ++ falseCase
 }
 
-class AstSwitch(val guard: AstNode, val cases: Seq[(Long, AstNode)], val defaultCase: Option[AstNode], val loc: SourceLocation) extends AstNode {
+class AstSwitch(val guard: AstNode, val cases: Seq[(Long, AstBlock)], val defaultCase: Option[AstBlock], val loc: SourceLocation) extends AstNode {
   override def children: Seq[AstNode] = Seq(guard) ++ cases.map(_._2) ++ defaultCase
 }
 

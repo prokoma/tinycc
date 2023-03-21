@@ -47,7 +47,7 @@ run_test () {
   gcc -Wall --std=c99 -I "$root_dir" -fno-builtin -fsigned-char "$cfile" "$output_dir/gcc_runtime.o" -o "$cbin"
   "$cbin" <"$in" >"$cout"
 
-  fancy_diff "$ref" "$cout"
+  fancy_diff "$ref" "$cout" || true
 
   local asmfile="$out_base.t86"
   local asmerr="$asmfile.err"

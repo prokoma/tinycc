@@ -147,13 +147,13 @@ final class SemanticAnalysis(program: AstProgram) {
       node.children.foreach(visit)
 
     case node: AstSwitch =>
-      val caseValues = mutable.Set.empty[Long]
-      node.cases.foreach({ case (value, body) =>
-        if (!caseValues.add(value))
-          errors += new Message(Error, s"duplicate case value '$value'", body.loc)
-        visit(body)
+      node.cases.foldLeft(Set.empty[Long])({
+        case (visited, (value, body)) =>
+          if (visited.contains(value))
+            errors += new Message(Error, s"duplicate case value '$value'", body.loc)
+          visited + value
       })
-      node.defaultCase.foreach(visit)
+      node.children.foreach(visit)
 
     case node: AstFor =>
       lexicalStack.withFrame({

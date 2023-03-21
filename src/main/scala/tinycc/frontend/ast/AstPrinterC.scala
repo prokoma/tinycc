@@ -4,6 +4,13 @@ import tinycc.frontend.parser.Symbols
 import tinycc.util.{IndentWriter, IterableForeachSep}
 
 class AstPrinterC extends AstPrinter {
+  private var structTypes: Set[Symbol] = Set.empty
+
+  override def print(node: AstNode, out: IndentWriter): Unit = {
+    structTypes = Set.empty
+    super.print(node, out)
+  }
+
   override def printNode(node: AstNode, isStmt: Boolean, out: IndentWriter): Unit = {
     def semicolon: Unit = if (isStmt) out.write(";")
 
@@ -30,18 +37,9 @@ class AstPrinterC extends AstPrinter {
         else
           super.printNode(node, isStmt, out)
 
-//      case node: AstStructDecl =>
-//        out.write(s"typedef struct ")
-//        node.fields.foreach(fields => {
-//          out.write("{")
-//          out.withIndent(fields.foreach({ case (ty, symbol) =>
-//            printFieldOrVarDecl(ty, symbol, out)
-//            out.write(";")
-//          }), out.nl())
-//          out.write("}")
-//        })
-//        out.write(node.symbol.name)
-//        semicolon
+      case node: AstStructDecl =>
+        structTypes += node.symbol
+        super.printNode(node, isStmt, out)
 
       case node: AstCast =>
         out.write("((")
@@ -55,14 +53,11 @@ class AstPrinterC extends AstPrinter {
     }
   }
 
-  // TODO: this will require semantic analysis
-  private val builtinTypes: Set[Symbol] = Set(Symbols.kwChar, Symbols.kwInt, Symbols.kwDouble, Symbols.kwVoid)
-
   override protected def printType(node: AstType, out: IndentWriter): Unit = node match {
     case node: AstNamedType if node.symbol == Symbols.kwInt =>
       out.write("int64_t")
 
-    case node: AstNamedType if !builtinTypes.contains(node.symbol) =>
+    case node: AstNamedType if structTypes.contains(node.symbol) =>
       out.write(s"struct ${node.symbol.name}")
 
     case node => super.printType(node, out)

@@ -64,7 +64,7 @@ object TinyCParser extends Parsers {
   } described "switch statement"
 
   /** CASE_STMT := case integer_literal ':' CASE_BODY */
-  lazy val CASE_STMT: Parser[(Long, AstNode)] = (kwCase ~> integer) ~ (colon ~> CASE_BODY) ^^ {
+  lazy val CASE_STMT: Parser[(Long, AstBlock)] = (kwCase ~> integer) ~ (colon ~> CASE_BODY) ^^ {
     case value ~ body => (value, body)
   }
 

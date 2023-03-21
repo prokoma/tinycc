@@ -52,8 +52,10 @@ class AstPrinter extends IndentPrinter[AstNode] {
         semicolon
 
       case node: AstDeref =>
+        out.write("(")
         out.write("*")
         printAsExpr(node.expr, out)
+        out.write(")")
         semicolon
 
       case node: AstIndex =>
@@ -127,11 +129,15 @@ class AstPrinter extends IndentPrinter[AstNode] {
         out.withIndent({
           node.cases.foreach({ case (value, body) =>
             out.write(s"case ${value}:")
-            printAsStmt(body, out)
+            out.withIndent({
+              body.body.foreachSep(printAsStmt(_, out), out.nl())
+            })
           })
           node.defaultCase.foreach(body => {
             out.write(s"default:")
-            printAsStmt(body, out)
+            out.withIndent({
+              body.body.foreachSep(printAsStmt(_, out), out.nl())
+            })
           })
         })
         out.write("}")
@@ -234,7 +240,7 @@ class AstPrinter extends IndentPrinter[AstNode] {
       case node: AstFunPtrDecl =>
         out.write(s"typedef ")
         printAsExpr(node.returnTy, out)
-        out.write(s"(*${node.symbol.name})")
+        out.write(s"(*${node.symbol.name})(")
         node.argTys.foreachSep(printAsExpr(_, out), out.write(", "))
         out.write(")")
         semicolon

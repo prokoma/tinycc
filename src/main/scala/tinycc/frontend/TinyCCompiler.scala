@@ -413,9 +413,10 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
               case _ => throw new TinyCCompilerException(Error, "call of non-function", c.loc)
             }
 
-          case fun => // indirect call
-            val funTy = fun.ty.asInstanceOf[FunTy]
-            val funPtr = compileExpr(fun)
+          case expr => // indirect call
+            // the value of expr is address of the function
+            val PtrTy(funTy: FunTy) = expr.ty
+            val funPtr = compileExpr(expr)
             emit(new CallPtrInsn(compileFunType(funTy), funPtr, compileCallArgs(funTy, c.args.toIndexedSeq), bb))
         }
 
@@ -425,8 +426,18 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case _: AstIdentifier | _: AstMember | _: AstMemberPtr => node.ty match {
         // for functions, return theirs address
+        // the type of function identifier is pointer to a function
         // for static arrays & structs, return address of the first element/field
         case _: FunTy | _: ArrayTy | _: StructTy => compileExprPtr(node)
+
+        case _ => emit(new LoadInsn(compileBasicType(node.ty), compileExprPtr(node), bb))
+      }
+
+      case node: AstDeref => node.expr.ty match {
+        // dereferencing (*) function pointer is noop
+        // int foo();
+        // *foo == foo == &foo == *(&foo) etc.
+        case PtrTy(_: FunTy) => compileExpr(node.expr)
 
         case _ => emit(new LoadInsn(compileBasicType(node.ty), compileExprPtr(node), bb))
       }

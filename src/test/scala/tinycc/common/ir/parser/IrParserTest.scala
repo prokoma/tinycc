@@ -30,6 +30,9 @@ class IrParserTest extends AnyFunSuite {
       }
 
       irProgram2.validate()
+
+      val irSource2 = new IrPrinter().printToString(irProgram2)
+      assert(irSource == irSource2)
     }
   })
 
