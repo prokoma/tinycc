@@ -85,13 +85,4 @@ class FrontendTest extends AnyFunSuite {
         |}
         |""".stripMargin)
   }
-
-//  test("empty struct") {
-//   assertThrows[TypeAnalysisException](compile(
-//      """
-//        |struct s {};
-//        |
-//        |int main() { return 0; }
-//        |""".stripMargin))
-//  }
 }
