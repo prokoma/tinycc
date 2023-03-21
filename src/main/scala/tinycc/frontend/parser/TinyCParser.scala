@@ -90,7 +90,7 @@ object TinyCParser extends Parsers {
   lazy val BREAK_STMT: Parser[AstBreak] = loc <~ (kwBreak ~ semicolon) ^^ { loc => new AstBreak(loc) }
 
   /** CONTINUE_STMT := continue ';' */
-  lazy val CONTINUE_STMT: Parser[AstBreak] = loc <~ (kwContinue ~ semicolon) ^^ { loc => new AstBreak(loc) }
+  lazy val CONTINUE_STMT: Parser[AstContinue] = loc <~ (kwContinue ~ semicolon) ^^ { loc => new AstContinue(loc) }
 
   /** RETURN_STMT := return [ EXPR ] ';' */
   lazy val RETURN_STMT: Parser[AstReturn] = loc ~ (kwReturn ~> opt(EXPR)) <~ semicolon ^^ { case loc ~ expr => new AstReturn(expr, loc) }

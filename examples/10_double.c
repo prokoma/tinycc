@@ -16,6 +16,11 @@ void test3() {
     int y = x;
     printnum(y);
 // > 3
+    printnum((++x) * 100);
+// > 414
+    x--, x--;
+    printnum(x * 100);
+// > 214
 }
 
 int main() {

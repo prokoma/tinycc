@@ -75,6 +75,21 @@ void test6() {
 // > 10
 }
 
+void test7() {
+    for(int i = 0; ; i++) {
+        if(i % 2 == 0)
+            continue;
+        if(i >= 10)
+            break;
+        printnum(i);
+    }
+// > 1
+// > 3
+// > 5
+// > 7
+// > 9
+}
+
 int main() {
     test1();
     test2();
@@ -82,6 +97,7 @@ int main() {
     test4();
     test5();
     test6();
+    test7();
 
     return 0;
 }
