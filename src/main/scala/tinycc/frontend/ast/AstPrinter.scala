@@ -173,7 +173,7 @@ class AstPrinter extends IndentPrinter[AstNode] {
         printAsStmt(node.body, out)
 
       case _: AstBreak => out.write("break"); semicolon
-      case _: AstContinue => out.write("continue;"); semicolon
+      case _: AstContinue => out.write("continue"); semicolon
 
       case node: AstReturn =>
         out.write("return")

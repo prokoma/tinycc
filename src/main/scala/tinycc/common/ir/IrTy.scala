@@ -4,8 +4,6 @@ sealed trait IrTy extends Product with Serializable {
   def sizeWords: Int
 }
 
-sealed trait ScalarTy
-
 object IrTy {
   case object VoidTy extends IrTy {
     override def toString: String = "void"

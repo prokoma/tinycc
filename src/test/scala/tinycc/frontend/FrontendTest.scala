@@ -4,6 +4,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import tinycc.common.ir.IrProgram
 import tinycc.common.transform.BasicBlockScheduling
 import tinycc.frontend.TinyCCompiler.TinyCCompilerException
+import tinycc.frontend.analysis.TypeAnalysis.TypeAnalysisException
 import tinycc.frontend.ast.AstPrinter
 import tinycc.frontend.parser.TinyCParser
 import tinycc.util.Testing.exampleSources
@@ -84,4 +85,13 @@ class FrontendTest extends AnyFunSuite {
         |}
         |""".stripMargin)
   }
+
+//  test("empty struct") {
+//   assertThrows[TypeAnalysisException](compile(
+//      """
+//        |struct s {};
+//        |
+//        |int main() { return 0; }
+//        |""".stripMargin))
+//  }
 }

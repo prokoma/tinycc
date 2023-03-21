@@ -65,23 +65,23 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
     /** Compile type for use in normal situations (arguments, load, store). Compiles arrays and structs as pointers. */
     private def compileBasicType(ty: Types.Ty): IrTy = ty match {
-      case Types.VoidTy => IrTy.VoidTy
-      case Types.CharTy => IrTy.Int64Ty
-      case Types.IntTy => IrTy.Int64Ty
-      case Types.DoubleTy => IrTy.DoubleTy
-      case _: Types.PtrTy => IrTy.PtrTy
+      case VoidTy => IrTy.VoidTy
+      case CharTy => IrTy.Int64Ty
+      case IntTy => IrTy.Int64Ty
+      case DoubleTy => IrTy.DoubleTy
+      case _: PtrTy => IrTy.PtrTy
 
-      case _: Types.ArrayTy | _: Types.StructTy => IrTy.PtrTy
+      case _: ArrayTy | _: StructTy => IrTy.PtrTy
 
-      case _: Types.FunTy => throw new UnsupportedOperationException(s"Cannot compile FunTy to IR type.")
+      case _: FunTy => throw new UnsupportedOperationException(s"Cannot compile FunTy to IR type.")
     }
 
     /** Compile type for use in Alloc or GetElementPtr. Compiles arrays and structs as the full types. */
-    private def compileVarType(ty: Types.Ty): IrTy = ty match {
-      case Types.ArrayTy(elemTy, numElem) =>
+    private def compileVarType(ty: Ty): IrTy = ty match {
+      case ArrayTy(elemTy, numElem) =>
         IrTy.ArrayTy(compileVarType(elemTy), numElem)
 
-      case Types.StructTy(_, fieldsOption) =>
+      case StructTy(_, fieldsOption) =>
         val fieldIrTys = fieldsOption match {
           case Some(fields) => fields.map({ case (fieldTy, _) => compileVarType(fieldTy) })
           case None => throw new UnsupportedOperationException(s"Cannot compile incomplete struct type.")
@@ -329,7 +329,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         node.body.foreach(compileStmt)
 
         // TODO: run dfs on the function body and check returns
-        if (funTy.returnTy == Types.VoidTy)
+        if (funTy.returnTy == VoidTy)
           emit(new RetVoidInsn(bb)) // implicit return
       }
       curFunTyOption = None
@@ -445,7 +445,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case node => emit(new LoadInsn(compileBasicType(node.ty), compileExprPtr(node), bb))
     }
 
-    private def compileAssignment(destTy: Types.Ty, destPtr: Insn, srcNode: AstNode, loc: SourceLocation): Insn = {
+    private def compileAssignment(destTy: Ty, destPtr: Insn, srcNode: AstNode, loc: SourceLocation): Insn = {
       val value = compileExprAndCastTo(srcNode, destTy)
       destTy match {
         case ty: StructTy => compileStructCopy(ty, destPtr, value, loc)
@@ -454,7 +454,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       value
     }
 
-    private def compileStructCopy(ty: Types.StructTy, destPtr: Insn, srcPtr: Insn, loc: SourceLocation): Unit = {
+    private def compileStructCopy(ty: StructTy, destPtr: Insn, srcPtr: Insn, loc: SourceLocation): Unit = {
       def compileSmallValueCopy(irTy: IrTy, destPtr: Insn, srcPtr: Insn): Unit = irTy match {
         case IrTy.VoidTy =>
         case IrTy.Int64Ty | IrTy.DoubleTy =>
@@ -489,34 +489,34 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     @tailrec
-    private def compileCastFromTo(value: Insn, fromTy: Types.Ty, toTy: Types.Ty, loc: SourceLocation): Insn = (fromTy, toTy) match {
+    private def compileCastFromTo(value: Insn, fromTy: Ty, toTy: Ty, loc: SourceLocation): Insn = (fromTy, toTy) match {
       case (fromTy, toTy) if fromTy == toTy => value
 
-      case (Types.CharTy, Types.IntTy) => value
+      case (CharTy, IntTy) => value
 
-      case (Types.IntTy, Types.CharTy) =>
+      case (IntTy, CharTy) =>
         val imm = emitIImm(64 - 8)
         val tmp = emit(new BinaryArithInsn(IrOpcode.IShl, value, imm, bb))
         emit(new BinaryArithInsn(IrOpcode.IShr, tmp, imm, bb))
 
-      case (_: Types.IntegerTy, Types.DoubleTy) =>
+      case (_: IntegerTy, DoubleTy) =>
         emit(new CastInsn(IrOpcode.SInt64ToDouble, value, bb))
 
-      case (Types.DoubleTy, _: Types.IntegerTy) =>
+      case (DoubleTy, _: IntegerTy) =>
         val valueInt = emit(new CastInsn(IrOpcode.DoubleToSInt64, value, bb))
-        compileCastFromTo(valueInt, Types.IntTy, toTy, loc)
+        compileCastFromTo(valueInt, IntTy, toTy, loc)
 
       // Types of pointers were already checked by TypeAnalysis.
-      case (Types.CharTy | Types.IntTy | _: Types.PtrTy | _: Types.ArrayTy, _: Types.PtrTy) =>
+      case (CharTy | IntTy | _: PtrTy | _: ArrayTy, _: PtrTyBase) =>
         value
 
-      case (_: Types.PtrTy | _: Types.ArrayTy, _: Types.IntegerTy) =>
-        compileCastFromTo(value, Types.IntTy, toTy, loc)
+      case (_: PtrTyBase, _: IntegerTy) =>
+        compileCastFromTo(value, IntTy, toTy, loc)
 
       case (fromTy, toTy) => throw new TinyCCompilerException(Error, s"cannot cast '$fromTy' to '$toTy'", loc)
     }
 
-    private def compileExprAndCastTo(expr: AstNode, toTy: Types.Ty): Insn =
+    private def compileExprAndCastTo(expr: AstNode, toTy: Ty): Insn =
       compileCastFromTo(compileExpr(expr), expr.ty, toTy, expr.loc)
 
     private def compileExprAndCastToBool(expr: AstNode): Insn = expr.ty match {
@@ -568,7 +568,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           val deltaImm = emitFImm(delta)
           emit(new BinaryArithInsn(IrOpcode.FAdd, oldValue, deltaImm, bb))
 
-        case PtrTy(baseTy) =>
+        case PtrTyBase(baseTy) =>
           val deltaImm = emitIImm(delta)
           emit(new GetElementPtrInsn(oldValue, deltaImm, compileVarType(baseTy), 0, bb))
 
@@ -583,26 +583,26 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case (Symbols.add, _) =>
         compileExpr(node.expr)
 
-      case (Symbols.sub, _: Types.IntegerTy) =>
+      case (Symbols.sub, _: IntegerTy) =>
         val expr = compileExpr(node.expr)
         val res = emit(new BinaryArithInsn(IrOpcode.ISub, emitIImm(0), expr, bb))
-        compileCastFromTo(res, Types.IntTy, node.ty, node.loc)
+        compileCastFromTo(res, IntTy, node.ty, node.loc)
 
-      case (Symbols.sub, Types.DoubleTy) =>
+      case (Symbols.sub, DoubleTy) =>
         val expr = compileExpr(node.expr)
         emit(new BinaryArithInsn(IrOpcode.FSub, emitFImm(0), expr, bb))
 
-      case (Symbols.neg, exprTy: Types.IntegerTy) =>
+      case (Symbols.neg, exprTy: IntegerTy) =>
         val expr = compileExpr(node.expr)
         emit(new BinaryArithInsn(IrOpcode.IXor, expr, emitIImm(exprTy.longBitmask), bb))
 
-      case (Symbols.not, _: Types.IntegerTy | _: Types.PtrTy) =>
-        val expr = compileExpr(node.expr)
-        emit(new CmpInsn(IrOpcode.CmpIEq, expr, emitIImm(0), bb))
-
-      case (Symbols.not, Types.DoubleTy) =>
+      case (Symbols.not, DoubleTy) =>
         val expr = compileExpr(node.expr)
         emit(new CmpInsn(IrOpcode.CmpFEq, expr, emitFImm(0), bb))
+
+      case (Symbols.not, _: ScalarTy) => // int, char, pointer
+        val expr = compileExpr(node.expr)
+        emit(new CmpInsn(IrOpcode.CmpIEq, expr, emitIImm(0), bb))
 
       case (Symbols.inc | Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = false)
 
@@ -616,6 +616,15 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
     }
 
     private def compileBinaryArith(node: AstBinaryOp): Insn = (node.op, node.ty) match {
+      // subtracting two pointers from each other
+      case (Symbols.sub, IntTy) if node.left.ty.isInstanceOf[PtrTyBase] && node.right.ty.isInstanceOf[PtrTyBase] =>
+        val left = compileExpr(node.left)
+        val right = compileExpr(node.right)
+        val deltaWords = emitBinaryArith(ISub, left, right)
+        val PtrTyBase(baseTy) = node.left.ty
+        val baseSize = emit(new SizeOfInsn(compileVarType(baseTy), bb))
+        emitBinaryArith(UDiv, deltaWords, baseSize)
+
       case (Symbols.add | Symbols.sub | Symbols.mul | Symbols.div | Symbols.mod | Symbols.bitAnd | Symbols.bitOr | Symbols.bitXor | Symbols.shiftLeft | Symbols.shiftRight, resultTy: IntegerTy) =>
         val leftInt = compileExprAndCastTo(node.left, IntTy)
         val rightInt = compileExprAndCastTo(node.right, IntTy)
@@ -648,7 +657,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           case Symbols.div => emitBinaryArith(FDiv, leftDouble, rightDouble)
         }
 
-      case (Symbols.add | Symbols.sub, PtrTy(baseTy)) =>
+      case (Symbols.add | Symbols.sub, PtrTyBase(baseTy)) => // add/sub offset from pointer
         val left = compileExpr(node.left)
         val rightInt = compileExprAndCastTo(node.right, IntTy)
         val index = node.op match {
@@ -657,10 +666,10 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         }
         emit(new GetElementPtrInsn(left, index, compileVarType(baseTy), 0, bb))
 
-      case (op, resultTy) => throw new TinyCCompilerException(Error, s"cannot compile binary op $op as $resultTy", node.loc)
+      case (op, resultTy) => throw new TinyCCompilerException(Error, s"cannot compile binary op ${op.name} as $resultTy", node.loc)
     }
 
-    private def compileCmpArithmeticHelper(op: Symbol, argTy: Types.Ty, leftPromoted: Insn, rightPromoted: Insn): Insn = (op, argTy) match {
+    private def compileCmpArithmeticHelper(op: Symbol, argTy: Ty, leftPromoted: Insn, rightPromoted: Insn): Insn = (op, argTy) match {
       case (Symbols.eq, _: IntegerTy) => emitCmp(CmpIEq, leftPromoted, rightPromoted)
       case (Symbols.ne, _: IntegerTy) => emitCmp(CmpINe, leftPromoted, rightPromoted)
       case (Symbols.lt, _: IntegerTy) => emitCmp(CmpSLt, leftPromoted, rightPromoted)
@@ -675,7 +684,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case (Symbols.gt, DoubleTy) => emitCmp(CmpFGt, leftPromoted, rightPromoted)
       case (Symbols.ge, DoubleTy) => emitCmp(CmpFGe, leftPromoted, rightPromoted)
 
-      case _ => throw new UnsupportedOperationException(s"cannot compile arithmetic cmp $op with $argTy")
+      case _ => throw new UnsupportedOperationException(s"cannot compile arithmetic cmp ${op.name} with $argTy")
     }
 
     private def compileCmp(node: AstBinaryOp): Insn = (node.op, node.left.ty, node.right.ty) match {
@@ -690,7 +699,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val right = compileExpr(node.right)
         compileCmpArithmeticHelper(op, IntTy, left, right)
 
-      case (op, leftTy, rightTy) => throw new TinyCCompilerException(Error, s"cannot compile cmp $op with $leftTy and $rightTy", node.loc)
+      case (op, leftTy, rightTy) => throw new TinyCCompilerException(Error, s"cannot compile cmp ${op.name} with $leftTy and $rightTy", node.loc)
     }
 
     private def compileBinaryOp(node: AstBinaryOp): Insn = node.op match {
@@ -715,7 +724,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         appendAndEnterBlock(contBlock)
         emit(PhiInsn(IndexedSeq((ione, trueBlock), (izero, falseBlock)), bb))
 
-      case op => throw new TinyCCompilerException(Error, s"invalid binary operator $op", node.loc)
+      case op => throw new TinyCCompilerException(Error, s"invalid binary operator ${op.name}", node.loc)
     }
 
     private def compileBoolExpr(node: AstNode, trueBlock: BasicBlock, falseBlock: BasicBlock): Unit = node match {

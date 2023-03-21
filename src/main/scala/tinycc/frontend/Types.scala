@@ -121,7 +121,7 @@ object Types {
 
   case class StructTy(symbol: Option[Symbol] = None, var fields: Option[IndexedSeq[(Ty, Symbol)]] = None) extends Ty {
     override def toString: String = {
-      val s = symbol.map(" " + _).getOrElse("")
+      val s = symbol.map(" " + _.name).getOrElse("")
 //      val f = fields.map(" {" + _.map({ case (ty, name) =>
 //        s" $ty $name;"
 //      }).mkString + " }").getOrElse("")

@@ -34,6 +34,12 @@ void test3() {
         printnum(0);
     }
 // > 0
+
+    printnum(!0.5);
+// > 0
+
+    printnum(!0.0);
+// > 1
 }
 
 int main() {
