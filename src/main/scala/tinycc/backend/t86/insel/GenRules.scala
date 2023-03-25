@@ -325,17 +325,17 @@ trait GenRules extends T86TilingInstructionSelection {
     def regToFreg(reg: AsmPat[Operand.Reg]): AsmPat[Operand.FReg] =
       reg ^^ { reg => (ctx: Context) => ctx.copyToFreshFReg(reg(ctx)) } cost 1
 
-    val expanded: Iterable[GenRule[_]] = rule match {
+    val expandedRule: Iterable[GenRule[_]] = rule match {
       case GenRule(FRegVar, rhs: AsmPat[Operand.FReg]@unchecked) =>
         Iterable(rule, GenRule(RegVar, fregToReg(rhs)))
 
       case GenRule(RegVar, rhs: AsmPat[Operand.Reg]@unchecked) =>
         Iterable(rule, GenRule(FRegVar, regToFreg(rhs)))
 
-      case rule => Iterable(rule)
+      case rule => Iterable.single(rule)
     }
 
-    expanded.flatMap(_.flatten) // flatten all alternatives into a single list of rules (beware of exponential blowup)
+    expandedRule.flatMap(_.flatten)
   }
 
   /** Copies destination operand into fresh register and emits BinaryOp instruction. */
