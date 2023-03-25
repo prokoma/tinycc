@@ -11,4 +11,22 @@ object Testing {
     if (Files.isDirectory(file)) listFilesRecursive(file) else Stream.of(file))
 
   lazy val exampleSources: Seq[Path] = listFilesRecursive(examplesDir).filter(_.getFileName.toString.endsWith(".c")).iterator().asScala.toSeq
+
+  private def extractData(source: String, basePath: Path, char: Char): String = {
+    val sb = new StringBuilder
+    source.linesIterator.foreach(line => {
+      val includePrefix = s"// $char! "
+      val literalPrefix = s"// $char "
+      if (line.startsWith(includePrefix)) {
+        sb ++= Files.readString(basePath.resolve(line.drop(includePrefix.length)))
+      } else if (line.startsWith(literalPrefix)) {
+        sb ++= line.drop(literalPrefix.length) + "\n"
+      }
+    })
+    sb.result()
+  }
+
+  def extractInData(source: String, basePath: Path): String = extractData(source, basePath, '<')
+
+  def extractOutData(source: String, basePath: Path): String = extractData(source, basePath, '>')
 }
