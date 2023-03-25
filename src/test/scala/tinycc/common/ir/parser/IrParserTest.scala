@@ -16,7 +16,7 @@ class IrParserTest extends AnyFunSuite {
     val name = file.getFileName.toString
     val source = Files.readString(file)
 
-    test(s"print and parse $name") {
+    test(s"compile, print and parse $name") {
       val ast = TinyCParser.parseProgram(source)
       val irProgram = TinyCCompiler(ast).result()
 

@@ -16,15 +16,6 @@ class FrontendTest extends AnyFunSuite {
     val name = file.getFileName.toString
     val source = Files.readString(file)
 
-    test(s"parse, print and parse again $name") {
-      val ast = TinyCParser.parseProgram(source)
-      val source2 = new AstPrinter().printToString(ast)
-      val ast2 = TinyCParser.parseProgram(source2)
-      val source3 = new AstPrinter().printToString(ast2)
-
-      assert(source2 == source3)
-    }
-
     test(s"compile $name") {
       val ast = TinyCParser.parseProgram(source)
       TinyCCompiler(ast).result()

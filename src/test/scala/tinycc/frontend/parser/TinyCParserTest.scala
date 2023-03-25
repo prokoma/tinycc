@@ -1,6 +1,10 @@
 package tinycc.frontend.parser
 
 import org.scalatest.funsuite.AnyFunSuite
+import tinycc.frontend.ast.AstPrinter
+import tinycc.util.Testing.exampleSources
+
+import java.nio.file.Files
 
 class TinyCParserTest extends AnyFunSuite {
 
@@ -38,5 +42,23 @@ class TinyCParserTest extends AnyFunSuite {
         |}
         |""".stripMargin)
   }
+
+  exampleSources.foreach(file => {
+    val name = file.getFileName.toString
+    val source = Files.readString(file)
+
+    test(s"parse $name") {
+      TinyCParser.parseProgram(source)
+    }
+
+    test(s"parse, print and parse again $name") {
+      val ast = TinyCParser.parseProgram(source)
+      val source2 = new AstPrinter().printToString(ast)
+      val ast2 = TinyCParser.parseProgram(source2)
+      val source3 = new AstPrinter().printToString(ast2)
+
+      assert(source2 == source3)
+    }
+  })
 }
 
