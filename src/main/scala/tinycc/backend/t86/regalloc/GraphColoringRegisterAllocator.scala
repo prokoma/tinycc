@@ -648,10 +648,10 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
         noSpillNodes ++= rewriteFunWithSpilledNodes(fun, coloring.spilledNodes) ++ coloring.spilledNodes
       } else
         remapRegistersInFun(fun, coloring.colorMap.withDefault(reg => reg))
-
-//      log(new T86AsmPrinter().printToString(fun.flatten))
     } while (didSpill)
 
     removeRedundantMoves(cfg)
+
+    log(new T86AsmPrinter().printToString(fun.flatten))
   }
 }
