@@ -170,8 +170,7 @@ trait GenRules extends T86TilingInstructionSelection {
     GenRule(RegVar, cmpInsn ^^ { cmpInsn =>
       (ctx: Context) => {
         val lab = ctx.freshLabel()
-        val res = ctx.freshReg()
-        ctx.emit(XOR, res, res)
+        val res = ctx.copyToFreshReg(Operand.Imm(0))
         val jmpOp = cmpInsn(ctx)
         ctx.emit(jmpOp.neg, lab.toOperand)
         ctx.emit(MOV, res, Operand.Imm(1))
