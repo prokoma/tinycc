@@ -173,7 +173,9 @@ trait GenRules extends T86TilingInstructionSelection {
         val res = ctx.copyToFreshReg(Operand.Imm(0))
         val jmpOp = cmpInsn(ctx)
         ctx.emit(jmpOp.neg, lab.toOperand)
-        ctx.emit(MOV, res, Operand.Imm(1))
+        // we can't use MOV here, because for simplicity this is in a single basic block and we need res to be live for the entire duration
+        // if we used MOV, res would be dead after setting it to 0
+        ctx.emit(ADD, res, Operand.Imm(1))
         ctx.emit(lab)
         res
       }
