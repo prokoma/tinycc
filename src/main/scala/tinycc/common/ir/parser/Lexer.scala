@@ -36,7 +36,7 @@ object Lexer extends Lexical with Scanners {
   override lazy val WHITESPACE: Parser[Any] = rep[Any](
     whitespace
       | ("//" ~ rep(not(NL) ~> elem("", { case c => c })))
-      | ("/*" ~ commit(blockCommentEnd.described("block comment end ('*/')")))
+      | ("/*" ~ commit(blockCommentEnd described "block comment end ('*/')"))
   )
 
   def blockCommentEnd: Parser[Any] =

@@ -37,7 +37,7 @@ object Lexer extends Lexical with Scanners {
   override lazy val WHITESPACE: Parser[Any] = rep[Any](
     whitespace
       | ("//" ~ rep(not(NL) ~> elem("", { case c => c })))
-      | ("/*" ~ commit(blockCommentEnd.described("block comment end ('*/')")))
+      | ("/*" ~ commit(blockCommentEnd described "block comment end ('*/')"))
   )
 
   def blockCommentEnd: Parser[Any] =
@@ -145,12 +145,13 @@ object Lexer extends Lexical with Scanners {
   // StringLiteral
 
   private def charInString(quote: Char): Parser[Char] =
-    ('\\' ~> (
+    (('\\' ~> commit(
       oneOfChar("", Seq('\'', '\"', '\\'))
         | ('r' ^^ { _ => '\r' })
         | ('n' ^^ { _ => '\n' })
         | ('t' ^^ { _ => '\t' })
-      )).described("escape sequence") | elem("", { case c if c != quote => c })
+        | ('0' ^^ { _ => 0.toChar })
+      )) described "escape sequence") | elem("", { case c if c != quote => c })
 
   private def stringQuotedHelper(quote: Char): Parser[StringLiteral] =
     (quote ~> rep(charInString(quote)) <~ quote) ^^ { c => StringLiteral(c.mkString, quote) }
