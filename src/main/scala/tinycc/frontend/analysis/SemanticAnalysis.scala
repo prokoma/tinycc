@@ -85,6 +85,7 @@ final class SemanticAnalysis(program: AstProgram) {
       })
 
     case node: AstVarDecl =>
+      visit(node.varTy)
       node.value.foreach(visit)
 
       // Check for conflicts only in the current frame to allow shadowing of identifiers.
@@ -122,6 +123,7 @@ final class SemanticAnalysis(program: AstProgram) {
           lexicalStack.putDecl(node.symbol, FunDecl(node))
       }
 
+      visit(node.returnTy)
       lexicalStack.withFrame({
         node.args.zipWithIndex.foreach({ case ((_, argName), idx) =>
           lexicalStack.lookupDeclInCurrentFrame(argName) match {

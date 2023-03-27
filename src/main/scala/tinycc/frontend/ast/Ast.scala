@@ -21,7 +21,7 @@ class AstPointerType(val base: AstType, val loc: SourceLocation) extends AstType
 }
 
 class AstArrayType(val base: AstType, val size: AstNode, val loc: SourceLocation) extends AstType {
-  override def children: Seq[AstNode] = Seq(base)
+  override def children: Seq[AstNode] = Seq(base, size)
 }
 
 class AstNamedType(val symbol: Symbol, val loc: SourceLocation) extends AstType
