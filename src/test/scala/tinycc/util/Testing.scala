@@ -7,6 +7,12 @@ import scala.jdk.CollectionConverters.IteratorHasAsScala
 object Testing {
   val examplesDir: Path = Path.of("examples")
 
+  lazy val t86CliBinary: Path = {
+    val t86Dir = Path.of("t86/build/t86-cli")
+    Seq(t86Dir.resolve("t86-cli"), t86Dir.resolve("t86-cli.exe")).find(Files.exists(_)).getOrElse(
+      throw new RuntimeException(s"Failed to locate t86-cli binary in ${t86Dir.toAbsolutePath.toString}"))
+  }
+
   private def listFilesRecursive(dir: Path): Stream[Path] = Files.list(dir).flatMap(file =>
     if (Files.isDirectory(file)) listFilesRecursive(file) else Stream.of(file))
 

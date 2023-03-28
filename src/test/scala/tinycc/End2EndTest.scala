@@ -8,7 +8,7 @@ import tinycc.backend.t86.{T86Backend, T86Utils}
 import tinycc.common.Optimizer
 import tinycc.frontend.TinyCCompiler
 import tinycc.frontend.parser.TinyCParser
-import tinycc.util.Testing.{exampleSources, extractInData, extractOutData}
+import tinycc.util.Testing.{exampleSources, extractInData, extractOutData, t86CliBinary}
 
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
@@ -34,7 +34,7 @@ class End2EndTest extends AnyFunSuite with TimeLimits with ParallelTestExecution
         val devNull = ProcessLogger(_ => ())
         // Yeah, i know, i know, wtf is #< and !!. I tried to find something better, but couldn't.
         // #< set stdin of the process, !! executes the process, waits for completion (throws on non-zero exit code) and returns stdout as string.
-        (Process("t86/build/t86-cli/t86-cli", Seq("run", tmpFile.toString)) #< inStream !! devNull)
+        (Process(t86CliBinary.toString, Seq("run", tmpFile.toString)) #< inStream !! devNull)
       }
     } finally {
       Files.deleteIfExists(tmpFile)

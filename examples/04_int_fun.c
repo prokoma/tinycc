@@ -45,10 +45,16 @@ void test3() {
 // > -1981286620
 }
 
+void test4() {
+    printnum(negate(5));
+// > -5
+}
+
 int main() {
     test1();
     test2();
     test3();
+    test4();
 
     return 0;
 }
