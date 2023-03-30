@@ -51,6 +51,14 @@ object CliParser extends CliParsers {
     "compile-to-ir" ~> commit(rep(optVerbose | optProfile | optOptimize | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(CompileToIr(inFile), opts) } described "compile-to-ir"
   }
 
+  lazy val OPTIMIZE: Parser[Optimize] = {
+    val optVerbose = verbose ^^ (_ => (a: Optimize) => a.copy(verbose = true))
+    val optProfile = profile ^^ (_ => (a: Optimize) => a.copy(profile = true))
+    val optOutFile = output ^^ { outFile => (a: Optimize) => a.copy(outFile = Some(outFile)) }
+
+    "codegen" ~> commit(rep(optVerbose | optProfile | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(Optimize(inFile), opts) } described "optimize"
+  }
+
   lazy val CODEGEN: Parser[Codegen] = {
     val optVerbose = verbose ^^ (_ => (a: Codegen) => a.copy(verbose = true))
     val optProfile = profile ^^ (_ => (a: Codegen) => a.copy(profile = true))
@@ -77,7 +85,7 @@ object CliParser extends CliParsers {
     "help" ^^ (_ => Help) described "help"
   }
 
-  lazy val ACTION: Parser[Action] = (FORMAT | TRANSPILE_TO_C | COMPILE_TO_IR | CODEGEN | COMPILE | HELP)
+  lazy val ACTION: Parser[Action] = (FORMAT | TRANSPILE_TO_C | COMPILE_TO_IR | OPTIMIZE | CODEGEN | COMPILE | HELP)
 
   def parseArgs(args: Seq[String]): Action = parse(ACTION <~ EOI, SeqReader(args)) match {
     case Accept(action, _, _) => action
