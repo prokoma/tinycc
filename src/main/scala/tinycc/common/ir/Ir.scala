@@ -132,6 +132,8 @@ class EntryFunRef(val owner: IrProgram, _target: Option[IrFun]) extends IrFunRef
   override def toString: String = s"EntryFunRef(owner=$owner, target=${apply().getOrElse("<null>")})"
 }
 
+/* === Insn === */
+
 abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObject with User[InsnRef, Insn] {
   def pred: Option[Insn] = basicBlock.getInsnPred(this)
 
@@ -395,7 +397,7 @@ class IrProgram extends IrObject {
 
   override def validate(): Unit = {
     funs.foreach(_.validate())
-    assert(entryFunRef.isDefined, "entryFun is not defined")
+    assert(entryFunRef.isDefined, s"entryFun of $this is not defined")
   }
 }
 

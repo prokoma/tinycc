@@ -244,7 +244,7 @@ object IrParser extends Parsers {
     }
   }
 
-  def buildIrFunSignature(returnTy: IrTy, args: IndexedSeq[(IrTy, _)]): IrFunSignature =
+  private def buildIrFunSignature(returnTy: IrTy, args: IndexedSeq[(IrTy, _)]): IrFunSignature =
     IrFunSignature(returnTy, args.map(_._1))
 
   /** CALL_ARGS := [ ARG_TYPE insnRef { ',' ARG_TYPE insnRef } ] */
@@ -331,20 +331,27 @@ object IrParser extends Parsers {
 
   // Types
 
+  /** ARG_TYPE := SCALAR_TYPE */
   lazy val ARG_TYPE: Parser[IrTy] = SCALAR_TYPE
 
+  /** RET_TYPE := SCALAR_TYPE | 'void' */
   lazy val RET_TYPE: Parser[IrTy] = SCALAR_TYPE | (kwVoid ^^ { _ => VoidTy }) described "return type"
 
-
+  /** VAR_TYPE := ( SCALAR_TYPE | STRUCT_TYPE ) { '[' integer ']' } */
   lazy val VAR_TYPE: Parser[IrTy] = (SCALAR_TYPE | STRUCT_TYPE) ~ rep((squareOpen ~> integer) <~ squareClose ^^ { case numElem =>
     (baseTy: IrTy) => ArrayTy(baseTy, numElem.toInt)
   }) ^^ { case baseTy ~ postfix => postfix.foldLeft(baseTy)((baseTy, f) => f(baseTy)) }
 
-  /** Pointer is a scalar type in IR (alias to Int64). */
+  /**
+   * SCALAR_TYPE := 'i64' | 'double' | 'ptr'
+   *
+   * Pointer is a scalar type in IR (alias to Int64).
+   */
   lazy val SCALAR_TYPE: Parser[IrTy] = (
     (kwI64 ^^ { _ => Int64Ty }) | (kwDouble ^^ { _ => DoubleTy }) | (kwPtr ^^ { _ => PtrTy })
     ) described "scalar type"
 
+  /** STRUCT_TYPE := 'struct' '{' VAR_TYPE { ',' VAR_TYPE } '}' */
   lazy val STRUCT_TYPE: Parser[IrTy] = (kwStruct ~> curlyOpen ~> rep1sep(VAR_TYPE, comma)) <~ curlyClose ^^ (fieldTys => StructTy(fieldTys.toIndexedSeq)) described "struct"
 
   override def remainderToString(in: Input): String = in.headOption.map({
