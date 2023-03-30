@@ -27,8 +27,6 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
   final private class _Impl extends TinyCIrProgramBuilder {
 
-    import ErrorLevel._
-
     /* Compiler State */
 
     val allocMap: mutable.Map[IdentifierDecl, AllocInsn] = mutable.Map.empty
@@ -50,9 +48,9 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       withEntryFun({
         val mainFun = program.funs.find(_.name == "main")
-          .getOrElse(throw new TinyCCompilerException(ErrorLevel.Error, "missing main function declaration", node.loc))
+          .getOrElse(throw new TinyCCompilerException("missing main function declaration", node.loc))
         if (mainFun.argTys.nonEmpty)
-          throw new TinyCCompilerException(ErrorLevel.Error, "invalid main function signature (expected main())", node.loc)
+          throw new TinyCCompilerException("invalid main function signature (expected main())", node.loc)
 
         emit(new CallInsn(mainFun, IndexedSeq.empty, bb))
         emit(new HaltInsn(bb))
@@ -228,7 +226,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           emit(new BrInsn(contTarget, bb))
           appendAndEnterBlock(new BasicBlock("unreachable", fun)).loc(node.loc)
 
-        case None => throw new TinyCCompilerException(Error, "Unexpected continue stmt outside of loop.", node.loc)
+        case None => throw new TinyCCompilerException("Unexpected continue stmt outside of loop.", node.loc)
       }
 
       case node: AstBreak => breakTargetOption match {
@@ -236,7 +234,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           emit(new BrInsn(breakTarget, bb))
           appendAndEnterBlock(new BasicBlock("unreachable", fun)).loc(node.loc)
 
-        case None => throw new TinyCCompilerException(Error, "Unexpected break stmt outside of loop.", node.loc)
+        case None => throw new TinyCCompilerException("Unexpected break stmt outside of loop.", node.loc)
       }
 
       case node: AstReturn =>
@@ -298,6 +296,9 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         new IrFun(node.symbol.name, compileFunType(funTy), program)
       })
 
+      if(node.symbol.name == entryFun.name)
+        throw new TinyCCompilerException(s"identifier ${node.symbol.name} is reserved and cannot be used", node.loc)
+
       appendAndEnterFun(irFun)
       curFunTyOption = Some(funTy)
 
@@ -332,22 +333,26 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         if (funTy.returnTy == VoidTy)
           emit(new RetVoidInsn(bb)) // implicit return
 
-        checkMissingReturns(irFun)
+        checkUnterminatedBlocks(irFun)
       })
       curFunTyOption = None
       exitFun()
     }
 
-    private def checkMissingReturns(fun: IrFun): Unit = {
+    private def checkUnterminatedBlocks(fun: IrFun): Unit = {
       val visited = mutable.Set.empty[BasicBlock]
       def dfs(bb: BasicBlock): Unit = {
         if(visited.contains(bb))
           return
         visited += bb
-        val terminator = bb.terminatorOption.getOrElse(throw new TinyCCompilerException(Error, "missing return statement in reachable block", bb.loc))
+        val terminator = bb.terminatorOption.getOrElse(throw new TinyCCompilerException("missing return statement in reachable block", bb.loc))
         terminator.succBlocks.foreach(dfs)
       }
       dfs(fun.entryBlock)
+      fun.basicBlocks.foreach(bb => {
+        if(!visited.contains(bb) && bb.terminatorOption.isEmpty) // unterminated unreachable block
+          bb.append(new HaltInsn(bb)) // append halt, so the IrProgram is valid
+      })
     }
 
     private def compileMemberExprPtrHelper(structPtr: Insn, structTy: StructTy, member: Symbol): Insn = {
@@ -380,7 +385,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val PtrTyBase(structTy: StructTy) = node.expr.ty
         compileMemberExprPtrHelper(structPtr, structTy, node.member)
 
-      case node => throw new TinyCCompilerException(Error, s"expression '$node' is not a l-value", node.loc)
+      case node => throw new TinyCCompilerException(s"expression '$node' is not a l-value", node.loc)
     }
 
     /** Compiles the AstExpression and returns the IR instruction, which holds the result.
@@ -408,7 +413,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case node: AstSequence =>
         node.body.map(compileExpr).lastOption
-          .getOrElse(throw new TinyCCompilerException(Error, "empty sequence", node.loc))
+          .getOrElse(throw new TinyCCompilerException("empty sequence", node.loc))
 
       case _: AstRead => emit(new GetCharInsn(bb))
 
@@ -424,7 +429,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
               case FunDecl(decl) =>
                 val funTy = decl.ty.asInstanceOf[FunTy]
                 emit(new CallInsn(funMap(decl.symbol), compileCallArgs(funTy, c.args.toIndexedSeq), bb))
-              case _ => throw new TinyCCompilerException(Error, "call of non-function", c.loc)
+              case _ => throw new TinyCCompilerException("call of non-function", c.loc)
             }
 
           case expr => // indirect call
@@ -495,9 +500,9 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       if (irTy.sizeWords <= 3)
         compileSmallValueCopy(irTy, destPtr, srcPtr)
       else {
-        val memcpyFun = program.funs.find(_.name == "memcpy").getOrElse(throw new TinyCCompilerException(Error, "an implementation of memcpy is required for large struct support", loc))
+        val memcpyFun = program.funs.find(_.name == "memcpy").getOrElse(throw new TinyCCompilerException("an implementation of memcpy is required for large struct support", loc))
         if (memcpyFun.signature != IrFunSignature(IrTy.VoidTy, IndexedSeq(IrTy.PtrTy, IrTy.PtrTy, IrTy.Int64Ty)))
-          throw new TinyCCompilerException(Error, "invalid memcpy function signature (expected 'void memcpy(void* dest, void* src, int n)' )", loc)
+          throw new TinyCCompilerException("invalid memcpy function signature (expected 'void memcpy(void* dest, void* src, int n)' )", loc)
         emit(new CallInsn(memcpyFun, IndexedSeq(destPtr, srcPtr, emit(new SizeOfInsn(irTy, bb))), bb))
       }
     }
@@ -527,7 +532,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
       case (_: PtrTyBase, _: IntegerTy) =>
         compileCastFromTo(value, IntTy, toTy, loc)
 
-      case (fromTy, toTy) => throw new TinyCCompilerException(Error, s"cannot cast '$fromTy' to '$toTy'", loc)
+      case (fromTy, toTy) => throw new TinyCCompilerException(s"cannot cast '$fromTy' to '$toTy'", loc)
     }
 
     private def compileExprAndCastTo(expr: AstNode, toTy: Ty): Insn =
@@ -586,7 +591,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
           val deltaImm = emitIImm(delta)
           emit(new GetElementPtrInsn(oldValue, deltaImm, compileVarType(baseTy), 0, bb))
 
-        case exprTy => throw new TinyCCompilerException(Error, s"cannot compile unary $op with $exprTy", expr.loc)
+        case exprTy => throw new TinyCCompilerException(s"cannot compile unary $op with $exprTy", expr.loc)
       }
 
       emit(new StoreInsn(exprPtr, newValue, bb))
@@ -620,13 +625,13 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 
       case (Symbols.inc | Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = false)
 
-      case (op, argTy) => throw new TinyCCompilerException(Error, s"cannot compile unary op $op with $argTy", node.loc)
+      case (op, argTy) => throw new TinyCCompilerException(s"cannot compile unary op $op with $argTy", node.loc)
     }
 
     private def compileUnaryPostOp(node: AstUnaryPostOp): Insn = (node.op, node.expr.ty) match {
       case (Symbols.inc | Symbols.dec, _) => compileIncDec(node.op, node.expr, isPostfix = true)
 
-      case (op, argTy) => throw new TinyCCompilerException(Error, s"cannot compile unary post op $op with $argTy", node.loc)
+      case (op, argTy) => throw new TinyCCompilerException(s"cannot compile unary post op $op with $argTy", node.loc)
     }
 
     private def compileBinaryArith(node: AstBinaryOp): Insn = (node.op, node.ty) match {
@@ -680,7 +685,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         }
         emit(new GetElementPtrInsn(left, index, compileVarType(baseTy), 0, bb))
 
-      case (op, resultTy) => throw new TinyCCompilerException(Error, s"cannot compile binary op ${op.name} as $resultTy", node.loc)
+      case (op, resultTy) => throw new TinyCCompilerException(s"cannot compile binary op ${op.name} as $resultTy", node.loc)
     }
 
     private def compileCmpArithmeticHelper(op: Symbol, argTy: Ty, leftPromoted: Insn, rightPromoted: Insn): Insn = (op, argTy) match {
@@ -713,7 +718,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         val right = compileExpr(node.right)
         compileCmpArithmeticHelper(op, IntTy, left, right)
 
-      case (op, leftTy, rightTy) => throw new TinyCCompilerException(Error, s"cannot compile cmp ${op.name} with $leftTy and $rightTy", node.loc)
+      case (op, leftTy, rightTy) => throw new TinyCCompilerException(s"cannot compile cmp ${op.name} with $leftTy and $rightTy", node.loc)
     }
 
     private def compileBinaryOp(node: AstBinaryOp): Insn = node.op match {
@@ -738,7 +743,7 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
         appendAndEnterBlock(contBlock)
         emit(PhiInsn(IndexedSeq((ione, trueBlock), (izero, falseBlock)), bb))
 
-      case op => throw new TinyCCompilerException(Error, s"invalid binary operator ${op.name}", node.loc)
+      case op => throw new TinyCCompilerException(s"invalid binary operator ${op.name}", node.loc)
     }
 
     private def compileBoolExpr(node: AstNode, trueBlock: BasicBlock, falseBlock: BasicBlock): Unit = node match {
@@ -766,8 +771,8 @@ final class TinyCCompiler(program: AstProgram, _declarations: Declarations, _typ
 }
 
 object TinyCCompiler {
-  class TinyCCompilerException(val level: ErrorLevel, message: String, val loc: SourceLocation) extends ProgramException("compiler: " + message) {
-    override def format(reporter: Reporter): String = reporter.formatError(level, getMessage, loc)
+  class TinyCCompilerException(message: String, val loc: SourceLocation) extends ProgramException("compiler: " + message) {
+    override def format(reporter: Reporter): String = reporter.formatError(ErrorLevel.Error, getMessage, loc)
   }
 
   trait TinyCIrProgramBuilder extends IrProgramBuilder {
