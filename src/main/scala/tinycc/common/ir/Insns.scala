@@ -12,8 +12,6 @@ sealed abstract class TerminatorInsn(override val op: IrTerminatorOp, basicBlock
 
   override def resultTy: IrTy = VoidTy
 
-  override def hasSideEffects: Boolean = true
-
   def copy(newBlock: BasicBlock): TerminatorInsn
 
   override def releaseRefs(): Unit = {
@@ -150,8 +148,6 @@ class StoreInsn(_ptr: Option[Insn], _value: Option[Insn], basicBlock: BasicBlock
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(ptrRef, valueRef)
 
-  override def hasSideEffects: Boolean = true
-
   override def copy(newBlock: BasicBlock): StoreInsn = new StoreInsn(ptrRef(), valueRef(), newBlock)
 }
 
@@ -215,8 +211,6 @@ sealed trait CallInsnBase extends Insn {
   def args: IndexedSeq[Insn] = argRefs.map(_.get)
 
   def funSig: IrFunSignature
-
-  override def hasSideEffects: Boolean = true
 
   override def validate(): Unit = {
     super.validate()
@@ -287,8 +281,6 @@ class PutCharInsn(_arg: Option[Insn], basicBlock: BasicBlock) extends Insn(PutCh
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
 
-  override def hasSideEffects: Boolean = true
-
   override def validate(): Unit = {
     super.validate()
     assert(arg.resultTy == Int64Ty)
@@ -308,8 +300,6 @@ class PutNumInsn(_arg: Option[Insn], basicBlock: BasicBlock) extends Insn(PutNum
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(argRef)
 
-  override def hasSideEffects: Boolean = true
-
   override def validate(): Unit = {
     super.validate()
     assert(arg.resultTy == Int64Ty)
@@ -320,8 +310,6 @@ class PutNumInsn(_arg: Option[Insn], basicBlock: BasicBlock) extends Insn(PutNum
 
 class GetCharInsn(basicBlock: BasicBlock) extends Insn(GetChar, basicBlock) {
   override def resultTy: IrTy = Int64Ty
-
-  override def hasSideEffects: Boolean = true
 
   override def copy(newBlock: BasicBlock): GetCharInsn = new GetCharInsn(newBlock)
 }

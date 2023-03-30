@@ -52,7 +52,7 @@ object Ref {
   def unapply[T](ref: Ref[T]): Option[(IrObject, Option[T])] = Some((ref.owner, ref()))
 }
 
-trait UseTracking[R <: Ref[T], T] {
+trait User[R <: Ref[T], T] {
   val uses: mutable.Set[R] = mutable.Set.empty[R]
 
   def replaceUses(rep: Option[T]): Unit = uses.foreach(_.apply(rep))
@@ -109,6 +109,7 @@ class EntryBlockRef(val owner: IrFun, _target: Option[BasicBlock]) extends Basic
   override def toString: String = s"EntryBlockRef(owner=$owner, target=${apply().getOrElse("<null>")})"
 }
 
+/** A smart reference to IrFun. */
 abstract class IrFunRef(private var target: Option[IrFun]) extends Ref[IrFun] {
   def this(target: IrFun) = this(Some(target))
 
@@ -131,7 +132,7 @@ class EntryFunRef(val owner: IrProgram, _target: Option[IrFun]) extends IrFunRef
   override def toString: String = s"EntryFunRef(owner=$owner, target=${apply().getOrElse("<null>")})"
 }
 
-abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObject with UseTracking[InsnRef, Insn] {
+abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObject with User[InsnRef, Insn] {
   def pred: Option[Insn] = basicBlock.getInsnPred(this)
 
   def succ: Option[Insn] = basicBlock.getInsnSucc(this)
@@ -142,10 +143,9 @@ abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObje
 
   def operands: IndexedSeq[Insn] = operandRefs.flatMap(_())
 
-  def hasSideEffects: Boolean = false
-
   def resultTy: IrTy
 
+  /** [[NameGen]] instance used to generate name of this instruction */
   def parentNameGen: NameGen = fun.nameGen
 
   // Name is local to the function by default and automatically set.
@@ -167,6 +167,7 @@ abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObje
 
   def remove(removeUses: Boolean = false): Unit = basicBlock.removeInsn(this, removeUses)
 
+  /** Create a detached copy of this instruction in [[newBlock]]. */
   def copy(newBlock: BasicBlock): Insn
 
   def releaseRefs(): Unit = {
@@ -179,7 +180,7 @@ abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObje
 
 /* === BasicBlock & IrFun === */
 
-class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTracking[BasicBlockRef, BasicBlock] {
+class BasicBlock(_name: String, val fun: IrFun) extends IrObject with User[BasicBlockRef, BasicBlock] {
   val name: String = fun.bbNameGen(_name)
 
   var body: IndexedSeq[Insn] = IndexedSeq.empty
@@ -192,66 +193,71 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
 
   def isFunEntryBlock: Boolean = fun.entryBlockRef.contains(this)
 
+  /** Get list of predecessors of this basic block in the CFG. */
   def pred: Seq[BasicBlock] = fun.getBlockPred(this)
 
+  /** Get list of successors of this basic block in the CFG. */
   def succ: Seq[BasicBlock] = terminator.succBlocks
 
+  /** Get the predecessor of this basic block in the program order (linearized). */
   def linPred: Option[BasicBlock] = fun.getBlockLinPred(this)
 
+  /** Get the successor of this basic block in the program order (linearized). */
   def linSucc: Option[BasicBlock] = fun.getBlockLinSucc(this)
 
   def append[T <: Insn](insn: T): T = {
-    if (insn.basicBlock != this)
-      throw new IrException(s"Cannot append '$insn' owned by '${insn.basicBlock.name}.'")
-    if (terminatorOption.isDefined)
-      throw new IrException(s"Cannot append '$insn' to terminated block '$name' in '${fun.name}'.")
+    require(insn.basicBlock == this, s"cannot append $insn owned by ${insn.basicBlock} to $this")
+    assert(terminatorOption.isEmpty, s"cannot append $insn to terminated block $this")
+    assert(!body.contains(insn), s"cannot append duplicate $insn to $this (use IrManipulator for that)")
+
     body = body :+ insn
     insn
   }
 
+  def getInsnSucc(insn: Insn): Option[Insn] = {
+    require(insn.basicBlock == this, s"cannot query successor of $insn owned by ${insn.basicBlock} in $this")
+    if (body.last == insn) None
+    else {
+      val idx = body.indexOf(insn)
+      assert(idx != -1, s"cannot query successor of detached $insn")
+      Some(body(idx + 1))
+    }
+  }
+
+  def getInsnPred(insn: Insn): Option[Insn] = {
+    require(insn.basicBlock == this, s"cannot query predecessor of $insn owned by ${insn.basicBlock} in $this")
+    if (body.head == insn) None
+    else {
+      val idx = body.indexOf(insn)
+      assert(idx != -1, s"cannot query predecessor of detached $insn")
+      Some(body(idx - 1))
+    }
+  }
+
+  def removeInsn(insn: Insn, removeUses: Boolean = false): Unit = {
+    require(insn.basicBlock == this, s"cannot remove $insn owned by ${insn.basicBlock} from $this")
+    if (removeUses)
+      insn.removeUses()
+    assert(insn.uses.isEmpty, s"cannot remove still referenced $insn (referenced by ${insn.uses}) from $this")
+
+    insn.releaseRefs()
+    body = body.filterNot(_ == insn)
+  }
+
   override def validate(): Unit = {
     body.foreach(insn => {
-      assert(insn.basicBlock == this, s"$insn is owned by ${insn.basicBlock}")
+      assert(insn.basicBlock == this, s"$insn in $this is owned by ${insn.basicBlock}")
       insn.validate()
     })
-    assert(terminatorOption.isDefined, "unterminated basic block")
-    assert(terminatorOption.get == body.last, "terminator is not the last instruction in basic block")
-    assert(body.count(_.isInstanceOf[TerminatorInsn]) == 1, "multiple terminator instructions in a basic block")
+    assert(terminatorOption.isDefined, s"unterminated basic block $this")
+    assert(terminatorOption.get == body.last, s"terminator is not the last instruction in basic block $this")
+    assert(body.count(_.isInstanceOf[TerminatorInsn]) == 1, s"multiple terminator instructions in a basic block $this")
+    assert(body.toSet.size == body.size, s"basic block $this contains duplicate instructions")
   }
 
   def releaseRefs(): Unit = {
     fun.bbNameGen.releaseName(name)
     body.foreach(_.releaseRefs())
-  }
-
-  // Insn Ops
-
-  def findInsn(insn: Insn): Option[Int] = body.indexOf(insn) match {
-    case -1 => None
-    case idx => Some(idx)
-  }
-
-  def getInsnSucc(insn: Insn): Option[Insn] = findInsn(insn).flatMap({
-    case idx if idx == body.length - 1 => None
-    case idx => Some(body(idx + 1))
-  })
-
-  def getInsnPred(insn: Insn): Option[Insn] = findInsn(insn).flatMap({
-    case idx if idx == 0 => None
-    case idx => Some(body(idx - 1))
-  })
-
-  def removeInsn(insn: Insn, removeUses: Boolean = false): Unit = {
-    if (insn.basicBlock != this)
-      throw new IrException(s"Cannot remove insn '$insn' owned by '${insn.basicBlock.name}' from '$name'.")
-
-    if (removeUses)
-      insn.removeUses()
-    else if (insn.uses.nonEmpty)
-      throw new IrException(s"Cannot remove still referenced insn '$insn' (referenced by ${insn.uses}).")
-
-    insn.releaseRefs()
-    body = body.filterNot(_ == insn)
   }
 
   def remove(removeUses: Boolean = false): Unit = fun.removeBlock(this, removeUses)
@@ -261,7 +267,7 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with UseTrackin
 
 case class IrFunSignature(returnTy: IrTy, argTys: IndexedSeq[IrTy])
 
-class IrFun(val _name: String, val signature: IrFunSignature, val program: IrProgram) extends IrObject with UseTracking[IrFunRef, IrFun] {
+class IrFun(val _name: String, val signature: IrFunSignature, val program: IrProgram) extends IrObject with User[IrFunRef, IrFun] {
   def this(_name: String, returnTy: IrTy, argTys: IndexedSeq[IrTy], program: IrProgram) = this(_name, IrFunSignature(returnTy, argTys), program)
 
   val name: String = program.nameGen(_name)
@@ -274,8 +280,6 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
 
   def insns: Seq[Insn] = basicBlocks.flatMap(_.body)
 
-  def getBlockPred(basicBlock: BasicBlock): Seq[BasicBlock] = basicBlocks.filter(_.succ.contains(basicBlock)).toSeq
-
   val entryBlockRef: EntryBlockRef = new EntryBlockRef(this, None)
 
   def entryBlock: BasicBlock = entryBlockRef.get
@@ -284,8 +288,10 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
 
   def locals: Seq[AllocLInsn] = insns.collect({ case al: AllocLInsn => al })
 
+  /** [[NameGen]] instance for instruction names */
   val nameGen: NameGen = program.nameGen.newChild()
 
+  /** [[NameGen]] instance for basic block names */
   val bbNameGen: NameGen = new NameGen
 
   def releaseRefs(): Unit = {
@@ -294,59 +300,59 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
     basicBlocks.foreach(_.releaseRefs())
   }
 
-  def append(basicBlock: BasicBlock): BasicBlock = {
-    if (!basicBlocks.contains(basicBlock))
-      basicBlocks = basicBlocks :+ basicBlock
+  def append(block: BasicBlock): BasicBlock = {
+    require(block.fun == this, s"cannot append $block owned by ${block.fun} to $this")
+
+    if (!basicBlocks.contains(block))
+      basicBlocks = basicBlocks :+ block
     if (entryBlockRef.isEmpty)
-      entryBlockRef(basicBlock)
-    basicBlock
+      entryBlockRef(block)
+    block
   }
 
-  override def validate(): Unit = {
-    if (basicBlocks.toSet.size != basicBlocks.size)
-      throw new IrException(s"$this: Function contains duplicate basic blocks.")
-    basicBlocks.foreach(bb => {
-      assert(bb.fun == this, s"$bb is owned by ${bb.fun}")
-      bb.validate()
-    })
-    if (entryBlockRef.isEmpty)
-      throw new IrException(s"Function '$name' doesn't have entry block set.")
-    if (entryBlock.pred.nonEmpty)
-      throw new IrException(s"Entry block '${entryBlock.name}' of function '$name' can't have any predecessors.")
+  def getBlockPred(block: BasicBlock): Seq[BasicBlock] = basicBlocks.filter(_.succ.contains(block))
+
+  def getBlockLinSucc(basicBlock: BasicBlock): Option[BasicBlock] = {
+    require(basicBlock.fun == this, s"cannot query successor of $basicBlock owned by ${basicBlock.fun} in $this")
+    if (basicBlocks.last == basicBlock) None
+    else {
+      val idx = basicBlocks.indexOf(basicBlock)
+      assert(idx != -1, s"cannot query successor of detached $basicBlock")
+      Some(basicBlocks(idx + 1))
+    }
   }
 
-  override def toString: String = s"IrFun($name)"
-
-  // Block Ops
-
-  def findBlock(block: BasicBlock): Option[Int] = basicBlocks.indexOf(block) match {
-    case -1 => None
-    case idx => Some(idx)
+  def getBlockLinPred(basicBlock: BasicBlock): Option[BasicBlock] = {
+    require(basicBlock.fun == this, s"cannot query predecessor of $basicBlock owned by ${basicBlock.fun} in $this")
+    if (basicBlocks.head == basicBlock) None
+    else {
+      val idx = basicBlocks.indexOf(basicBlock)
+      assert(idx != -1, s"cannot query predecessor of detached $basicBlock")
+      Some(basicBlocks(idx - 1))
+    }
   }
 
   def removeBlock(basicBlock: BasicBlock, removeUses: Boolean = false): Unit = {
-    if (basicBlock.fun != this)
-      throw new IrException(s"Cannot remove block '${basicBlock.name}' owned by '${basicBlock.fun.name}' from '$name'.")
-
+    require(basicBlock.fun == this, s"cannot remove $basicBlock owned by ${basicBlock.fun} from $this")
     if (removeUses)
       basicBlock.removeUses()
-    else if (basicBlock.uses.nonEmpty)
-      throw new IrException(s"Cannot remove still referenced block '${basicBlock.name}'.")
+    assert(basicBlock.uses.isEmpty, s"cannot remove still referenced $basicBlock (referenced by ${basicBlock.uses}) from $this")
 
     basicBlock.releaseRefs()
     basicBlocks = basicBlocks.filterNot(_ == basicBlock)
   }
 
-  /** Get successor of the block in program order (not cfg). */
-  def getBlockLinSucc(block: BasicBlock): Option[BasicBlock] = findBlock(block).flatMap({
-    case idx if idx == basicBlocks.length - 1 => None
-    case idx => Some(basicBlocks(idx + 1))
-  })
+  override def validate(): Unit = {
+    assert(basicBlocks.toSet.size == basicBlocks.size, s"fun $this contains duplicate basic blocks")
+    basicBlocks.foreach(bb => {
+      assert(bb.fun == this, s"$bb is owned by ${bb.fun}")
+      bb.validate()
+    })
+    assert(entryBlockRef.isDefined, s"fun $name doesn't have entry block")
+    assert(entryBlock.pred.isEmpty, s"entry block $entryBlock of $this can't have any predecessors")
+  }
 
-  def getBlockLinPred(block: BasicBlock): Option[BasicBlock] = findBlock(block).flatMap({
-    case idx if idx == 0 => None
-    case idx => Some(basicBlocks(idx - 1))
-  })
+  override def toString: String = s"IrFun($name)"
 }
 
 class IrProgram extends IrObject {
@@ -370,29 +376,26 @@ class IrProgram extends IrObject {
     fun
   }
 
+  def removeFun(fun: IrFun, removeUses: Boolean = false): Unit = {
+    require(fun.program == this, s"cannot remove $fun owned by ${fun.program} from $this")
+    if (removeUses)
+      fun.removeUses()
+    assert(fun.uses.isEmpty, s"cannot remove still referenced $fun (referenced by ${fun.uses}) from $this")
+
+    fun.releaseRefs()
+    funs = funs.filterNot(_ == fun)
+  }
+
   def appendEntryFun(): IrFun = {
-    if (entryFunRef.isDefined)
-      throw new IrException("entryFun is already defined.")
-    val entryFun = append(new IrFun(IrProgram.entryFunName, IrTy.VoidTy, IndexedSeq.empty, this))
-    entryFunRef(entryFun)
-    entryFun
+    assert(entryFunRef.isEmpty, s"entryFun of $this is already defined ($entryFun)")
+    val _entryFun = append(new IrFun(IrProgram.entryFunName, IrTy.VoidTy, IndexedSeq.empty, this))
+    entryFunRef(_entryFun)
+    _entryFun
   }
 
   override def validate(): Unit = {
     funs.foreach(_.validate())
     assert(entryFunRef.isDefined, "entryFun is not defined")
-  }
-
-  def removeFun(fun: IrFun, force: Boolean = false): Unit = {
-    if (fun.program != this)
-      throw new IrException(s"Cannot remove fun '${fun.name}' owned by '${fun.program}' from '$this'.")
-
-    if (force)
-      fun.removeUses()
-    else if (fun.uses.nonEmpty)
-      throw new IrException(s"Cannot remove still referenced function '${fun.name}'.")
-
-    funs = funs.filterNot(_ == fun)
   }
 }
 
