@@ -2,10 +2,7 @@ package tinycc.frontend
 
 import org.scalatest.funsuite.AnyFunSuite
 import tinycc.common.ir.IrProgram
-import tinycc.common.transform.BasicBlockScheduling
 import tinycc.frontend.TinyCCompiler.TinyCCompilerException
-import tinycc.frontend.analysis.TypeAnalysis.TypeAnalysisException
-import tinycc.frontend.ast.AstPrinter
 import tinycc.frontend.parser.TinyCParser
 import tinycc.util.Testing.exampleSources
 
@@ -24,7 +21,6 @@ class FrontendTest extends AnyFunSuite {
     test(s"compile and validate $name") {
       val ast = TinyCParser.parseProgram(source)
       val irProgram = TinyCCompiler(ast).result()
-      new BasicBlockScheduling().transformProgram(irProgram)
       irProgram.validate()
     }
   })
