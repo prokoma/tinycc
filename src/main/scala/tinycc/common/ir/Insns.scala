@@ -52,7 +52,7 @@ object FImmInsn {
   def unapply(insn: FImmInsn): Option[Double] = Some(insn.value)
 }
 
-sealed abstract class BinaryInsn(op: BinaryOp, _left: Option[Insn], _right: Option[Insn], basicBlock: BasicBlock) extends Insn(op, basicBlock) {
+sealed abstract class BinaryInsn(op: IrOpcode.BinaryOp, _left: Option[Insn], _right: Option[Insn], basicBlock: BasicBlock) extends Insn(op, basicBlock) {
   val leftRef: OperandRef = new OperandRef(this, _left)
   val rightRef: OperandRef = new OperandRef(this, _right)
 

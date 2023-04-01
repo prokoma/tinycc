@@ -273,12 +273,6 @@ object IrOpcode {
     override def resultTy: IrTy = IrTy.DoubleTy
   }
 
-  //  case object UInt64ToDouble extends CastOp {
-  //    override def toString: String = "uint64todouble"
-  //
-  //    override def resultTy: IrTy = IrTy.DoubleTy
-  //  }
-
   case object BitcastDoubleToInt64 extends CastOp {
     override def toString: String = "bitcastdoubletoint64"
 
@@ -294,10 +288,4 @@ object IrOpcode {
 
     override def resultTy: IrTy = IrTy.Int64Ty
   }
-
-  //  case object DoubleToUInt64 extends CastOp {
-  //    override def toString: String = "doubletouint64"
-  //
-  //    override def resultTy: IrTy = IrTy.Int64Ty
-  //  }
 }

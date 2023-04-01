@@ -1,11 +1,14 @@
 package tinycc.backend.t86.regalloc
 
-import tinycc.backend.t86.T86Opcode.{FPOP, FPUSH, POP, PUSH}
 import tinycc.backend.t86._
 
 import scala.collection.mutable
 
 trait GenericNaiveRegisterAllocator[T <: Operand] extends T86GenericRegisterAllocator[T] {
+  def pushOpcode: T86Opcode.UnaryOp
+
+  def popOpcode: T86Opcode.UnaryOp
+
   def transformFun(fun: T86Fun): Unit = {
     // remap all non-machine registers into machine regs
     val regMap = mutable.Map.empty[T, T]
@@ -22,14 +25,8 @@ trait GenericNaiveRegisterAllocator[T <: Operand] extends T86GenericRegisterAllo
 
     // insert PUSH and POP insns to backup and restore them in the fun prologue and epilogue
     val usedRegs = regMap.values.toSeq // convert to seq, so order is deterministic
-    val backupCode = usedRegs.map({
-      case reg: Operand.Reg => T86Insn(PUSH, reg)
-      case freg: Operand.FReg => T86Insn(FPUSH, freg)
-    })
-    val restoreCode = usedRegs.reverse.map({
-      case reg: Operand.Reg => T86Insn(POP, reg)
-      case freg: Operand.FReg => T86Insn(FPOP, freg)
-    })
+    val backupCode = usedRegs.map(reg => T86Insn(pushOpcode, reg))
+    val restoreCode = usedRegs.reverse.map(reg => T86Insn(popOpcode, reg))
 
     fun.basicBlocks.foreach(bb => {
       bb.body = bb.body.flatMap({
@@ -42,16 +39,26 @@ trait GenericNaiveRegisterAllocator[T <: Operand] extends T86GenericRegisterAllo
   }
 }
 
+/** A dummy register allocator, which remaps all temporaries into the range <0,machineRegCount).
+ * Backups and restores all machine registers in function prologue and epilogue. */
 class NaiveRegisterAllocator(_machineRegCount: Int, _machineFRegCount: Int) extends T86RegisterAllocator {
 
   val regRegisterAllocator = new GenericNaiveRegisterAllocator[Operand.Reg] with T86RegRegisterAllocator {
     /** Machine registers are in the range (0, machineRegCount)- */
     override def machineRegCount: Int = _machineRegCount
+
+    override def pushOpcode: T86Opcode.UnaryOp = T86Opcode.PUSH
+
+    override def popOpcode: T86Opcode.UnaryOp = T86Opcode.POP
   }
 
   val fregRegisterAllocator = new GenericNaiveRegisterAllocator[Operand.FReg] with T86FRegRegisterAllocator {
     /** Machine registers are in the range (0, machineRegCount)- */
     override def machineRegCount: Int = _machineFRegCount
+
+    override def pushOpcode: T86Opcode.UnaryOp = T86Opcode.FPUSH
+
+    override def popOpcode: T86Opcode.UnaryOp = T86Opcode.FPOP
   }
 
   override def transformProgram(program: T86Program): Unit = {

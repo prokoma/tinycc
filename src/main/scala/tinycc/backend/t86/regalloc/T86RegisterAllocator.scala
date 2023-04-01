@@ -56,6 +56,8 @@ trait T86GenericRegisterAllocator[T <: Operand] {
 
   def remapRegistersInOperand(operand: Operand, regMap: RegMap): Operand
 
+  def freshReg(fun: T86Fun): T
+
   def getInsnDefUse(insn: T86Insn): DefUse = insn match {
     case NullaryT86Insn(RET) => DefUse(Set.empty, calleeSaveRegs ++ returnValueRegs)
     case NullaryT86Insn(op) => DefUse.empty
@@ -69,6 +71,11 @@ trait T86GenericRegisterAllocator[T <: Operand] {
     case BinaryT86Insn(MOV | LEA | EXT | NRW, operand0, operand1) => getOperandWriteDefUse(operand0) ++ getOperandReadDefUse(operand1)
     case BinaryT86Insn(ADD | SUB | MUL | DIV | MOD | IMUL | IDIV | AND | OR | XOR | LSH | RSH | FADD | FSUB | FMUL | FDIV | LOOP, operand0, operand1) =>
       getOperandReadWriteDefUse(operand0) ++ getOperandReadDefUse(operand1)
+  }
+
+  def getMoveDestSrc(insn: T86Insn): (T, T) = {
+    val BinaryT86Insn(_, dest: T@unchecked, src: T@unchecked) = insn
+    (dest, src)
   }
 
   def getBasicBlockDefUse(bb: T86BasicBlock): DefUse =
@@ -109,6 +116,8 @@ trait T86RegRegisterAllocator extends T86GenericRegisterAllocator[Operand.Reg] {
   override val calleeSaveRegs: Set[Operand.Reg] = machineRegs -- returnValueRegs
 
   override def isVirtualReg(reg: Operand.Reg): Boolean = reg.isInstanceOf[Operand.VirtReg]
+
+  override def freshReg(fun: T86Fun): Operand.Reg = fun.freshReg()
 
   /** Returns what the operand defines and uses when it is used as write target (no read). Defines and uses are subset of [[machineRegs]]. */
   override def getOperandWriteDefUse(op: Operand): DefUse = (op match {
@@ -198,6 +207,8 @@ trait T86FRegRegisterAllocator extends T86GenericRegisterAllocator[Operand.FReg]
   override val calleeSaveRegs: Set[Operand.FReg] = Set.empty
 
   override def isVirtualReg(reg: Operand.FReg): Boolean = reg.isInstanceOf[VirtFReg]
+
+  override def freshReg(fun: T86Fun): Operand.FReg = fun.freshFReg()
 
   /** Returns what the operand defines and uses when it is used as write target (no read). Defines and uses are subset of [[machineRegs]]. */
   override def getOperandWriteDefUse(op: Operand): DefUse = (op match {

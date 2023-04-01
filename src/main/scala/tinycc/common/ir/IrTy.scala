@@ -23,6 +23,7 @@ object IrTy {
     override def sizeWords: Int = 1
   }
 
+  /** PtrTy is an alias to IntTy */
   def PtrTy: IrTy = Int64Ty
 
   case class StructTy(fields: IndexedSeq[IrTy]) extends IrTy {
