@@ -82,6 +82,9 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
 
     var removedPhis = Set.empty[PhiInsn]
     def tryRemoveTrivialPhi(phi: PhiInsn): Insn = {
+      if(removedPhis.contains(phi))
+        return phi
+
       val uniqueOperands = phi.operands.filterNot(_ == phi).toSet
       if (uniqueOperands.isEmpty) {
         log(s"self-referencing phi $phi")
@@ -93,7 +96,13 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
         removedPhis += phi
         // recurse into users of the phi instruction
         // we have now one phi less, so this has to stop at some point
-        phiPhiUsers.foreach(tryRemoveTrivialPhi)
+        phiPhiUsers.foldLeft(uniqueOperands.head)((uniq, user) => {
+          val newUser = tryRemoveTrivialPhi(user)
+          // check if we removed uniqueOperands.head from the cfg,
+          // because we don't want to return detached instructions
+          if(user == uniq) newUser
+          else uniq
+        })
         uniqueOperands.head
       } else {
         // non-trivial phi
@@ -104,7 +113,7 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
     fun.basicBlocks.foreach(fillBlock)
     fun.basicBlocks.foreach(sealBlock)
     fun.insns.foreach({
-      case phi: PhiInsn if !removedPhis.contains(phi) => tryRemoveTrivialPhi(phi)
+      case phi: PhiInsn => tryRemoveTrivialPhi(phi)
       case _ =>
     })
 
