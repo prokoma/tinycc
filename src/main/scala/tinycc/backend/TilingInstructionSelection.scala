@@ -276,10 +276,6 @@ trait TilingInstructionSelection {
 
   def emitCastFromTo[F, T](value: F, from: AsmVar[F], to: AsmVar[T]): AsmEmitter[T]
 
-  /** Returns true, if the instruction can be covered by multiple tiles. */
-  def canCoverByMultipleTiles(insn: Insn): Boolean
-
-  /** Computes some covering of all instructions in the given [[fun]]. Every instruction can be at root of at most one tile.
-   * Every instruction should be covered by at most one tile, except when allowed by [[canCoverByMultipleTiles]]. */
+  /** Computes some covering of all instructions in the given [[fun]]. Every instruction can be at root of at most one tile. */
   def getTileMapForFun(fun: IrFun): Map[Insn, GenRule.Match[_]]
 }

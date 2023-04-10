@@ -235,9 +235,4 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
 
   override def name: String = "T86TilingInstructionSelection"
 
-  override def canCoverByMultipleTiles(insn: Insn): Boolean = insn.op match {
-    case AllocL | AllocG => true
-    case IImm | FImm | SizeOf | GetFunPtr | GetElementPtr => true
-    case _ => false
-  }
 }
