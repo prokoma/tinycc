@@ -120,12 +120,12 @@ object Operand {
 
   /** A physical general-purpose floating-point register */
   case class MachineFReg(index: Long) extends FReg {
-    override def toString: String = s"FR$index"
+    override def toString: String = s"F$index"
   }
 
   /** A virtual register (temporary) */
   case class VirtFReg(index: Long) extends FReg {
-    override def toString: String = s"VFR$index"
+    override def toString: String = s"VF$index"
   }
 }
 
