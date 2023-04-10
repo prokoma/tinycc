@@ -74,7 +74,7 @@ trait Parsers {
 
     def filter(f: T => Boolean): Parser[T] = (in: Input) => this (in) match {
       case accept@Accept(value, _, _) if f(value) => accept
-      case Accept(_, _, lastReject) => Reject(in)
+      case Accept(_, _, _) => Reject(in)
       case reject: Reject => reject
     }
 
@@ -161,7 +161,10 @@ trait Parsers {
 
   def rep[T](parser: => Parser[T]): Parser[List[T]] = rep1(parser) | success(Nil)
 
-  def rep1sep[T](parser: => Parser[T], sep: => Parser[Any]): Parser[List[T]] = parser ~ rep(sep ~> parser) ^^ { case head ~ tail => head :: tail }
+  def rep1sep[T](parser: => Parser[T], sep: => Parser[Any]): Parser[List[T]] = {
+    lazy val _parser = parser
+    _parser ~ rep(sep ~> _parser) ^^ { case head ~ tail => head :: tail }
+  }
 
   def repsep[T](parser: => Parser[T], sep: => Parser[Any]): Parser[List[T]] = rep1sep(parser, sep) | success(Nil)
 
