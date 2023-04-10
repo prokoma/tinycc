@@ -81,6 +81,8 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
   }
 
   protected def compileIrFun(fun: IrFun, programBuilder: T86ProgramBuilder): T86Fun = {
+    log(s"=== instruction selection for $fun ===")
+
     val tileMap = getTileMapForFun(fun)
 
     val argsMap = buildArgsMap(fun.argTys, 2)

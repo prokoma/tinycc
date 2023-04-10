@@ -7,9 +7,15 @@ import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
 
 trait GenRules extends T86TilingInstructionSelection {
-  case object RegVar extends T86Var[Operand.Reg]
+  case object RegVar extends T86Var[Operand.Reg] {
+    // penalize if we want to assign a double value into RegVar
+    override def getMatchCost(insn: Insn): Int = if(insn.resultTy == IrTy.DoubleTy) 1 else 0
+  }
 
-  case object FRegVar extends T86Var[Operand.FReg]
+  case object FRegVar extends T86Var[Operand.FReg] {
+    // penalize if we want to assign an integer value into FRegVar
+    override def getMatchCost(insn: Insn): Int = if(insn.resultTy == IrTy.Int64Ty) 1 else 0
+  }
 
   override val variables: Seq[Var[AsmEmitter[_]]] = Seq(RegVar, FRegVar)
 
@@ -97,10 +103,12 @@ trait GenRules extends T86TilingInstructionSelection {
       }
     )
 
-  lazy val call: AsmPat[Operand] = CallInsnPat(RegVar) ^^ { case (insn, args) =>
+  lazy val call: AsmPat[Operand] = CallInsnPat(RegVar | FRegVar) ^^ { case (insn, args) =>
     (ctx: Context) => {
-      args.reverse.foreach(arg => {
-        ctx.emit(PUSH, arg(ctx))
+      args.reverse.foreach(arg => arg(ctx) match {
+        case reg: Operand.Reg => ctx.emit(PUSH, reg)
+        case freg: Operand.FReg => ctx.emit(FPUSH, freg)
+        case _ => throw new UnsupportedOperationException // unreachable
       })
       ctx.emit(CallPrologueMarker)
       ctx.emit(CALL, ctx.getFunLabel(insn.targetFun).toOperand)
@@ -111,10 +119,12 @@ trait GenRules extends T86TilingInstructionSelection {
     }
   }
 
-  lazy val callPtr = CallPtrInsnPat(RegVar, RegVar) ^^ { case (insn, ptr, args) =>
+  lazy val callPtr = CallPtrInsnPat(RegVar, RegVar | FRegVar) ^^ { case (insn, ptr, args) =>
     (ctx: Context) => {
-      args.reverse.foreach(arg => {
-        ctx.emit(PUSH, arg(ctx))
+      args.reverse.foreach(arg => arg(ctx) match {
+        case reg: Operand.Reg => ctx.emit(PUSH, reg)
+        case freg: Operand.FReg => ctx.emit(FPUSH, freg)
+        case _ => throw new UnsupportedOperationException // unreachable
       })
       ctx.emit(CallPrologueMarker)
       ctx.emit(CALL, ptr(ctx))
@@ -301,9 +311,9 @@ trait GenRules extends T86TilingInstructionSelection {
       (ctx: Context) => ctx.copyToFreshFReg(ctx.resolvePhiFReg(FRegVar, insn))
     }),
 
-    GenRule(RegVar, Pat(Ret, RegVar) ^^ { case (insn, reg) =>
+    GenRule(RegVar, Pat(Ret, regOrImm | FRegVar) ^^ { case (insn, retVal) =>
       (ctx: Context) => {
-        ctx.emit(MOV, T86Utils.returnValueReg, reg(ctx))
+        ctx.emit(MOV, T86Utils.returnValueReg, retVal(ctx))
         ctx.emit(T86Comment(s"${insn.fun.name} epilogue start"))
         ctx.emit(T86SpecialLabel.FunEpilogueMarker)
         ctx.emit(RET)

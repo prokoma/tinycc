@@ -68,6 +68,7 @@ trait MaximalMunch extends TilingInstructionSelection with Logging {
 
         val matchedTile = selectTile(filteredRules, insn)
 
+//        log(s"covered $insn as ${matchedTile.variable}")
         tileMap(insn) = matchedTile
         allCoveredInsns ++= matchedTile.coveredInsns
         allRequiredInsns ++= matchedTile.requiredInsns.map(_.swap)

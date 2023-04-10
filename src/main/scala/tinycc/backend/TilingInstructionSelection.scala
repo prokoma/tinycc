@@ -15,6 +15,8 @@ trait TilingInstructionSelection {
   /** A nonterminal (LHS of RewriteRule). */
   trait Var[+T] {
     def resolveValue(insn: Insn): T
+
+    def getMatchCost(insn: Insn): Int = 0
   }
 
   type AsmVar[+T] = Var[AsmEmitter[T]]
@@ -103,7 +105,7 @@ trait TilingInstructionSelection {
     override def rootOps: Iterable[IrOpcode] = Iterable.empty
 
     override def apply(insn: Insn): Iterable[Match[T]] =
-      Iterable.single(Match(v.resolveValue(insn), 0, Nil, List((v, insn))))
+      Iterable.single(Match(v.resolveValue(insn), v.getMatchCost(insn), Nil, List((v, insn))))
 
     override def toString(): String = s"VarPat($v)"
   }
@@ -239,7 +241,7 @@ trait TilingInstructionSelection {
       try
         rhs(insn).map(GenRule.Match(this, _))
       catch {
-        case e: Throwable => throw new BackendException(s"Failed to match $this", e)
+        case e: Throwable => throw new RuntimeException(s"Failed to match $this", e)
       }
     }
 
