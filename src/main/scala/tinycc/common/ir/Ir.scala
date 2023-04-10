@@ -52,7 +52,7 @@ object Ref {
   def unapply[T](ref: Ref[T]): Option[(IrObject, Option[T])] = Some((ref.owner, ref()))
 }
 
-trait User[R <: Ref[T], T] {
+trait RefTarget[R <: Ref[T], T] {
   val uses: mutable.Set[R] = mutable.Set.empty[R]
 
   def replaceUses(rep: Option[T]): Unit = uses.foreach(_.apply(rep))
@@ -134,7 +134,7 @@ class EntryFunRef(val owner: IrProgram, _target: Option[IrFun]) extends IrFunRef
 
 /* === Insn === */
 
-abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObject with User[InsnRef, Insn] {
+abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObject with RefTarget[InsnRef, Insn] {
   def pred: Option[Insn] = basicBlock.getInsnPred(this)
 
   def succ: Option[Insn] = basicBlock.getInsnSucc(this)
@@ -143,7 +143,7 @@ abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObje
 
   def operandRefs: IndexedSeq[OperandRef] = IndexedSeq.empty
 
-  def operands: IndexedSeq[Insn] = operandRefs.flatMap(_())
+  def operands: IndexedSeq[Insn] = operandRefs.map(_.get)
 
   def resultTy: IrTy
 
@@ -157,15 +157,18 @@ abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObje
 
   def name(newName: String): this.type = {
     parentNameGen.releaseName(_name)
-    _name = fun.nameGen(newName);
+    _name = fun.nameGen(newName)
     this
   }
 
   override def validate(): Unit = {
     operandRefs.zipWithIndex.foreach({ case (ref, index) =>
       assert(ref.isDefined, s"operand #$index is not defined")
+      assert(ref.get.attached, s"${ref.get} (operand #$index of $this) is not attached")
     })
   }
+
+  def attached: Boolean = basicBlock.containsInsn(this)
 
   def remove(removeUses: Boolean = false): Unit = basicBlock.removeInsn(this, removeUses)
 
@@ -182,7 +185,7 @@ abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObje
 
 /* === BasicBlock & IrFun === */
 
-class BasicBlock(_name: String, val fun: IrFun) extends IrObject with User[BasicBlockRef, BasicBlock] {
+class BasicBlock(_name: String, val fun: IrFun) extends IrObject with RefTarget[BasicBlockRef, BasicBlock] {
   val name: String = fun.bbNameGen(_name)
 
   var body: IndexedSeq[Insn] = IndexedSeq.empty
@@ -236,6 +239,9 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with User[Basic
     }
   }
 
+  def containsInsn(insn: Insn): Boolean =
+    insn.basicBlock == this && body.contains(insn)
+
   def removeInsn(insn: Insn, removeUses: Boolean = false): Unit = {
     require(insn.basicBlock == this, s"cannot remove $insn owned by ${insn.basicBlock} from $this")
     if (removeUses)
@@ -269,7 +275,7 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with User[Basic
 
 case class IrFunSignature(returnTy: IrTy, argTys: IndexedSeq[IrTy])
 
-class IrFun(val _name: String, val signature: IrFunSignature, val program: IrProgram) extends IrObject with User[IrFunRef, IrFun] {
+class IrFun(val _name: String, val signature: IrFunSignature, val program: IrProgram) extends IrObject with RefTarget[IrFunRef, IrFun] {
   def this(_name: String, returnTy: IrTy, argTys: IndexedSeq[IrTy], program: IrProgram) = this(_name, IrFunSignature(returnTy, argTys), program)
 
   val name: String = program.nameGen(_name)

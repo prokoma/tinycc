@@ -35,7 +35,7 @@ object IrTy {
     override def sizeWords: Int = fields.map(_.sizeWords).sum
 
     def getFieldOffsetWords(fieldIndex: Int): Int = {
-      require(fieldIndex < fields.size)
+      require(fieldIndex >= 0 && fieldIndex < fields.size, s"out of bounds fieldIndex $fieldIndex in $this")
       fields.take(fieldIndex).map(_.sizeWords).sum
     }
   }

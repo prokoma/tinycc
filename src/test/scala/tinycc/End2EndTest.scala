@@ -20,7 +20,11 @@ class End2EndTest extends AnyFunSuite with TimeLimits with ParallelTestExecution
   private def compile(source: String, enableOptionalOptimizations: Boolean = false): String = {
     val ast = TinyCParser.parseProgram(source)
     val irProgram = TinyCCompiler(ast).result()
+    irProgram.validate()
+
     new Optimizer(enableOptionalOptimizations).transformProgram(irProgram)
+    irProgram.validate()
+
     new T86Backend(irProgram, T86Utils.defaultMachineRegCount, T86Utils.defaultMachineFRegCount).resultAsString()
   }
 

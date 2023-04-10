@@ -1,7 +1,7 @@
 package tinycc.common.ir
 
 import tinycc.common.ir.IrOpcode._
-import tinycc.common.ir.IrTy.{DoubleTy, Int64Ty, PtrTy, VoidTy}
+import tinycc.common.ir.IrTy.{DoubleTy, Int64Ty, PtrTy, StructTy, VoidTy}
 import tinycc.util.NameGen
 
 /** An instruction, which terminates a BasicBlock. */
@@ -169,6 +169,14 @@ class GetElementPtrInsn(_ptr: Option[Insn], _index: Option[Insn], val elemTy: Ir
     super.validate()
     assert(ptr.resultTy == PtrTy)
     assert(index.resultTy == Int64Ty)
+    assert(fieldIndex >= 0)
+    if(fieldIndex > 0) {
+      elemTy match {
+        case StructTy(fields) =>
+          assert(fieldIndex < fields.size, s"out of bounds fieldIndex $fieldIndex in $elemTy")
+        case _ => throw new AssertionError(s"fieldIndex = $fieldIndex, but elemTy is not a struct ($elemTy)")
+      }
+    }
   }
 
   override def copy(newBlock: BasicBlock): GetElementPtrInsn = new GetElementPtrInsn(ptrRef(), indexRef(), elemTy, fieldIndex, newBlock)
@@ -196,11 +204,21 @@ class GetFunPtrInsn(_targetFun: Option[IrFun], basicBlock: BasicBlock) extends I
 
   override def resultTy: IrTy = PtrTy
 
+  override def validate(): Unit = {
+    super.validate()
+    assert(targetFunRef.isDefined)
+  }
+
   override def copy(newBlock: BasicBlock): GetFunPtrInsn = new GetFunPtrInsn(targetFunRef(), newBlock)
 }
 
 class LoadArgInsn(val index: Int, basicBlock: BasicBlock) extends Insn(LoadArg, basicBlock) {
   override def resultTy: IrTy = basicBlock.fun.argTys(index)
+
+  override def validate(): Unit = {
+    super.validate()
+    assert(index >= 0 && index < basicBlock.fun.argTys.size, s"out of bounds argument index $index inside $fun")
+  }
 
   override def copy(newBlock: BasicBlock): LoadArgInsn = new LoadArgInsn(index, newBlock)
 }
