@@ -649,34 +649,17 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
     })
   }
 
-  def removeRedundantMoves(cfg: Cfg[T86BasicBlock]): Unit = {
-    val livenessResult = new LivenessAnalysis(cfg).result()
-
-    cfg.nodes.foreach(bb => {
-      val newBodyReversed = IndexedSeq.newBuilder[T86ListingElement]
-      var live = livenessResult.getLiveOut(bb)
-
-      bb.body.reverse.foreach({
-        case insn: T86Insn =>
-          val DefUse(defines, uses) = getInsnDefUse(insn)
-          // live now contains registers that can be read after this instruction
-
-          if (isRegRegMove(insn)) {
-            val (dest, src) = getMoveDestSrc(insn)
-            if (dest != src && live.contains(dest))
-              newBodyReversed += insn
-            else
-              log(s"removed redundant $insn")
-          } else {
-            newBodyReversed += insn
-          }
-
-          live = (live -- defines) ++ uses
-
-        case elem => newBodyReversed += elem
+  /** Removes redundant MOV Rx, Rx instructions */
+  def removeRedundantMoves(fun: T86Fun): Unit = {
+    fun.basicBlocks.foreach(bb => {
+      bb.body = bb.body.filter({
+        case insn: T86Insn if isRegRegMove(insn) =>
+          val (dest, src) = getMoveDestSrc(insn)
+          if (dest == src)
+            log(s"removed redundant $insn")
+          dest != src
+        case _ => true
       })
-
-      bb.body = newBodyReversed.result().reverse
     })
   }
 
@@ -717,7 +700,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
         remapRegistersInFun(fun, coloring.colorMap.withDefault(reg => reg))
     } while (didSpill)
 
-    removeRedundantMoves(cfg)
+    removeRedundantMoves(fun)
 
     log(new T86AsmPrinter().printToString(fun.flatten))
   }
