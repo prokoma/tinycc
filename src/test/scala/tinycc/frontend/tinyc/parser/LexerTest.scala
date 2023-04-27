@@ -1,4 +1,4 @@
-package tinycc.frontend.parser
+package tinycc.frontend.tinyc.parser
 
 import org.scalatest.funsuite.AnyFunSuite
 import tinycc.util.parsing.ParserException

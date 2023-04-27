@@ -1,13 +1,13 @@
-package tinycc.frontend
+package tinycc.frontend.tinyc
 
 import tinycc.ProgramException
 import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
-import tinycc.frontend.Types._
-import tinycc.frontend.analysis.IdentifierDecl.{FunArgDecl, FunDecl, VarDecl}
-import tinycc.frontend.analysis.{IdentifierDecl, SemanticAnalysis, TypeAnalysis}
-import tinycc.frontend.ast._
-import tinycc.frontend.parser.Symbols
+import tinycc.frontend.tinyc.Types._
+import tinycc.frontend.tinyc.analysis.IdentifierDecl.{FunArgDecl, FunDecl, VarDecl}
+import tinycc.frontend.tinyc.analysis.{IdentifierDecl, SemanticAnalysis, TypeAnalysis}
+import tinycc.frontend.tinyc.ast._
+import tinycc.frontend.tinyc.parser.Symbols
 import tinycc.util.Profiler.profile
 import tinycc.util.parsing.SourceLocation
 import tinycc.util.{ErrorLevel, Reporter}

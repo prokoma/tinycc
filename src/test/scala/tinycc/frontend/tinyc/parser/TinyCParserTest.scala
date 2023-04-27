@@ -1,7 +1,7 @@
-package tinycc.frontend.parser
+package tinycc.frontend.tinyc.parser
 
 import org.scalatest.funsuite.AnyFunSuite
-import tinycc.frontend.ast.AstPrinter
+import tinycc.frontend.tinyc.ast.AstPrinter
 import tinycc.util.Testing.exampleSources
 
 import java.nio.file.Files

@@ -5,9 +5,9 @@ import tinycc.backend.t86.{T86Backend, T86Utils}
 import tinycc.common.Optimizer
 import tinycc.common.ir.parser.IrParser
 import tinycc.common.ir.{IrPrinter, IrProgram}
-import tinycc.frontend.TinyCCompiler
-import tinycc.frontend.ast.{AstPrinter, AstPrinterC, AstProgram}
-import tinycc.frontend.parser.TinyCParser
+import tinycc.frontend.tinyc.TinyCCompiler
+import tinycc.frontend.tinyc.ast.{AstPrinter, AstPrinterC, AstProgram}
+import tinycc.frontend.tinyc.parser.TinyCParser
 import tinycc.util.Profiler.{instance, profile}
 import tinycc.util.{IndentWriter, Logging, Profiler, Reporter}
 

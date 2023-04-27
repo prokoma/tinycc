@@ -1,4 +1,4 @@
-package tinycc.frontend
+package tinycc.frontend.tinyc
 
 import scala.annotation.tailrec
 

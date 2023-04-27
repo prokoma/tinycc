@@ -1,4 +1,4 @@
-package tinycc.frontend.parser
+package tinycc.frontend.tinyc.parser
 
 object Symbols {
   val inc: Symbol = Symbol("++")

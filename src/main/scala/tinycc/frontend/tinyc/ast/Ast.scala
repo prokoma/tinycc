@@ -1,4 +1,4 @@
-package tinycc.frontend.ast
+package tinycc.frontend.tinyc.ast
 
 import tinycc.util.parsing.SourceLocation
 

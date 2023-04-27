@@ -1,4 +1,4 @@
-package tinycc.frontend.parser
+package tinycc.frontend.tinyc.parser
 
 import tinycc.util.parsing.combinator.{Lexical, Scanners}
 

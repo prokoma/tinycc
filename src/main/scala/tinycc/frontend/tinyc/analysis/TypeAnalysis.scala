@@ -1,10 +1,10 @@
-package tinycc.frontend.analysis
+package tinycc.frontend.tinyc.analysis
 
 import tinycc.ProgramException
-import tinycc.frontend.Types._
-import tinycc.frontend.ast._
-import tinycc.frontend.parser.Symbols
-import tinycc.frontend.{Declarations, TypeMap}
+import tinycc.frontend.tinyc.Types._
+import tinycc.frontend.tinyc.ast._
+import tinycc.frontend.tinyc.parser.Symbols
+import tinycc.frontend.tinyc.{Declarations, TypeMap}
 import tinycc.util.parsing.SourceLocation
 import tinycc.util.{ErrorLevel, Reporter}
 

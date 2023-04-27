@@ -3,8 +3,8 @@ package tinycc.common.ir.parser
 import org.scalatest.funsuite.AnyFunSuite
 import tinycc.common.ir.IrPrinter
 import tinycc.common.transform.BasicBlockScheduling
-import tinycc.frontend.TinyCCompiler
-import tinycc.frontend.parser.TinyCParser
+import tinycc.frontend.tinyc.TinyCCompiler
+import tinycc.frontend.tinyc.parser.TinyCParser
 import tinycc.util.Reporter
 import tinycc.util.Testing.exampleSources
 import tinycc.util.parsing.ParserException

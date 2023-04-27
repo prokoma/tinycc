@@ -1,11 +1,11 @@
-package tinycc
+package tinycc.frontend
 
-import tinycc.frontend.Types.Ty
-import tinycc.frontend.analysis.IdentifierDecl
-import tinycc.frontend.analysis.IdentifierDecl.{FunDecl, VarDecl}
-import tinycc.frontend.ast._
+import tinycc.frontend.tinyc.Types.Ty
+import tinycc.frontend.tinyc.analysis.IdentifierDecl
+import tinycc.frontend.tinyc.analysis.IdentifierDecl.{FunDecl, VarDecl}
+import tinycc.frontend.tinyc.ast._
 
-package object frontend {
+package object tinyc {
   type TypeMap = Map[AstNode, Ty]
   type Declarations = Map[AstIdentifierOrDecl, IdentifierDecl]
 

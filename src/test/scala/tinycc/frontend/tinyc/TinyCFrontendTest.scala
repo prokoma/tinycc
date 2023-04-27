@@ -1,14 +1,14 @@
-package tinycc.frontend
+package tinycc.frontend.tinyc
 
 import org.scalatest.funsuite.AnyFunSuite
 import tinycc.common.ir.IrProgram
-import tinycc.frontend.TinyCCompiler.TinyCCompilerException
-import tinycc.frontend.parser.TinyCParser
+import tinycc.frontend.tinyc.TinyCCompiler.TinyCCompilerException
+import tinycc.frontend.tinyc.parser.TinyCParser
 import tinycc.util.Testing.exampleSources
 
 import java.nio.file.Files
 
-class FrontendTest extends AnyFunSuite {
+class TinyCFrontendTest extends AnyFunSuite {
   exampleSources.foreach(file => {
     val name = file.getFileName.toString
     val source = Files.readString(file)

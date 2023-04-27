@@ -1,9 +1,9 @@
-package tinycc.frontend.analysis
+package tinycc.frontend.tinyc.analysis
 
 import org.scalatest.funsuite.AnyFunSuite
-import tinycc.frontend.TypeMap
-import tinycc.frontend.analysis.TypeAnalysis.TypeAnalysisException
-import tinycc.frontend.parser.TinyCParser
+import tinycc.frontend.tinyc.TypeMap
+import tinycc.frontend.tinyc.analysis.TypeAnalysis.TypeAnalysisException
+import tinycc.frontend.tinyc.parser.TinyCParser
 
 class TypeAnalysisTest extends AnyFunSuite {
   private def analyze(s: String): TypeMap = {

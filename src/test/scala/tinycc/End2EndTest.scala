@@ -6,8 +6,8 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
 import tinycc.backend.t86.{T86Backend, T86Utils}
 import tinycc.common.Optimizer
-import tinycc.frontend.TinyCCompiler
-import tinycc.frontend.parser.TinyCParser
+import tinycc.frontend.tinyc.TinyCCompiler
+import tinycc.frontend.tinyc.parser.TinyCParser
 import tinycc.util.Testing.{exampleSources, extractInData, extractOutData, t86CliBinary}
 
 import java.io.ByteArrayInputStream

@@ -1,6 +1,6 @@
-package tinycc.frontend.ast
+package tinycc.frontend.tinyc.ast
 
-import tinycc.frontend.parser.Symbols
+import tinycc.frontend.tinyc.parser.Symbols
 import tinycc.util.{IndentWriter, IterableForeachSep}
 
 class AstPrinterC extends AstPrinter {

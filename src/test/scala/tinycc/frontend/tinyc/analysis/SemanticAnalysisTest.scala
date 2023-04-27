@@ -1,8 +1,8 @@
-package tinycc.frontend.analysis
+package tinycc.frontend.tinyc.analysis
 
 import org.scalatest.funsuite.AnyFunSuite
-import tinycc.frontend.analysis.IdentifierDecl.VarDecl
-import tinycc.frontend.parser.TinyCParser
+import tinycc.frontend.tinyc.analysis.IdentifierDecl.VarDecl
+import tinycc.frontend.tinyc.parser.TinyCParser
 
 class SemanticAnalysisTest extends AnyFunSuite {
   test("basic") {
