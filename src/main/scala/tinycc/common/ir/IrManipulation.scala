@@ -25,13 +25,13 @@ object IrManipulation {
 
   def prependInsnTo[T <: Insn](insn: T, newBlock: BasicBlock): T = {
     val newInsn = moveInsnHelper(insn, newBlock)
-    newBlock.body = newInsn +: newBlock.body
+    newBlock.body = newInsn +: newBlock.body.filterNot(_ == newInsn)
     newInsn
   }
 
   def appendInsnTo[T <: Insn](insn: T, newBlock: BasicBlock): T = {
     val newInsn = moveInsnHelper(insn, newBlock)
-    newBlock.body = newBlock.body :+ newInsn
+    newBlock.body = newBlock.body.filterNot(_ == newInsn) :+ newInsn
     newInsn
   }
 
