@@ -1,6 +1,6 @@
 package tinycc.backend.t86.insel
 
-import tinycc.backend.{InstructionSelection, MaximalMunch}
+import tinycc.backend.insel.{InstructionSelection, MaximalMunch}
 import tinycc.backend.t86.T86Program
 import tinycc.common.ir._
 

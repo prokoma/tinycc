@@ -1,10 +1,10 @@
-package tinycc.backend
+package tinycc.backend.insel
 
+import tinycc.backend.BackendException
 import tinycc.common.ir.{Insn, IrFun, IrOpcode, IrTy}
 import tinycc.util.Logging
 
 import scala.collection.mutable
-import scala.util.control.Breaks.{break, breakable}
 
 trait MaximalMunch extends TilingInstructionSelection with Logging {
   private lazy val rulesByRootOp: Map[IrOpcode, Seq[GenRule[_]]] = {

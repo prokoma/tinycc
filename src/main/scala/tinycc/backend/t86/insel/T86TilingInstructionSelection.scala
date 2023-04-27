@@ -1,6 +1,6 @@
 package tinycc.backend.t86.insel
 
-import tinycc.backend.TilingInstructionSelection
+import tinycc.backend.insel.TilingInstructionSelection
 import tinycc.backend.t86.T86Opcode._
 import tinycc.backend.t86.T86Utils.buildArgsMap
 import tinycc.backend.t86._

@@ -1,4 +1,4 @@
-package tinycc.backend
+package tinycc.backend.insel
 
 import tinycc.common.ir._
 
