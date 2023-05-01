@@ -1,11 +1,13 @@
 #!/bin/bash
 set -euo pipefail
-trap 'echo "Script error: $(basename "$BASH_SOURCE"):$LINENO $BASH_COMMAND" >&2' ERR
+trap 'echo "script error: $(basename "$BASH_SOURCE"):$LINENO $BASH_COMMAND" >&2' ERR
+script_dir="$(dirname -- "$(readlink -f -- "$0")")"
 
-root_dir="$(dirname "$0")/.."
+root_dir="$script_dir/.."
 input_dir="$root_dir/examples"
 output_dir="$root_dir/test-out"
 
+resources_dir="$root_dir/src/test/resources"
 tinycc="$root_dir/tinycc"
 t86_cli="$root_dir/t86/build/t86-cli/t86-cli"
 
@@ -45,7 +47,7 @@ run_test () {
 
   (
     "$tinycc" transpile-to-c --prefix='#include "gcc_runtime.h"' -o "$cfile" "$file" &&
-    gcc -Wall --std=c99 -I "$root_dir" -fno-builtin -fsigned-char "$cfile" "$output_dir/gcc_runtime.o" -o "$cbin" &&
+    gcc -Wall --std=c99 -I "$resources_dir" -fno-builtin -fsigned-char "$cfile" "$output_dir/gcc_runtime.o" -o "$cbin" &&
     "$cbin" <"$in" >"$cout" &&
     fancy_diff "$ref" "$cout"
   ) || true
@@ -71,7 +73,7 @@ run_test () {
 
 mkdir -p "$output_dir"
 
-gcc -fsigned-char -c gcc_runtime.c -o "$output_dir/gcc_runtime.o"
+gcc -fsigned-char -c "$resources_dir/gcc_runtime.c" -o "$output_dir/gcc_runtime.o"
 
 if [ $# -gt 0 ]; then
   for file in "$@"; do
