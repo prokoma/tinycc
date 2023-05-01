@@ -172,8 +172,10 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
       }
     }
 
+    val externalGlobals = fun.program.globals.filter(_.fun != fun)
+
     log(s"resolving insns in $fun")
-    fun.insns.foreach(insn => tileMap.get(insn) match {
+    (fun.insns ++ externalGlobals).foreach(insn => tileMap.get(insn) match {
       case Some(GenRule.Match(rule, _)) => _resolveVar(rule.variable, insn)
       case _ =>
     })
@@ -188,7 +190,6 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
         prologueCtx.emit(T86Comment(s"${bb.fun.name} prologue end"))
 
         log(s"emitting code for globals")
-        val externalGlobals = fun.program.globals.filter(_.fun != fun)
         prologueCtx ++= externalGlobals.flatMap(tileCode.getOrElse(_, Seq.empty))
       }
       bodyBuilder ++= prologueCtx.result()
