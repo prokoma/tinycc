@@ -4,7 +4,7 @@ This is the source code repository for a modular tinyC compiler targeting the ti
 
 ## Building
 
-A prerequisite for running tests and compiled tiny86 program is a working tiny86 interpreter.
+A prerequisite for running tests and compiled tiny86 programs is a working tiny86 interpreter.
 
 ### Building Tiny86
 
@@ -75,4 +75,4 @@ The compiler supports all tinyC features from the [language reference](https://g
 
 In addition, we've added the `printnum(n)` builtin, which prints an integer terminated by newline.
 
-`examples/stdlib.c` contains some useful functions that you can copy into your programs.
+`examples/stdlib.c` contains some useful functions that you can copy into your programs (there is no preprocessor).
