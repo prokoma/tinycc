@@ -27,8 +27,10 @@ trait TilingInstructionSelection {
 
     def flatten: Iterable[Pat[A]] = Iterable.single(this)
 
+    /** Map values of each match using f */
     def ^^[B](f: A => B): Pat[B] = new MapPat(this, f)
 
+    /** Match either this or pat, return list of all matches from both */
     def |[B >: A](pat: Pat[B]): Pat[B] = new OrPat(this, pat)
 
     def filter(f: A => Boolean): Pat[A] = new FilterMatchPat(this, (m: Match[A]) => f(m.value))

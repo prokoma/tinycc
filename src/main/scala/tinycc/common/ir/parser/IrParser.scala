@@ -177,7 +177,7 @@ object IrParser extends Parsers {
     (ctx: Context) => ctx.emit(new AllocGInsn(varTy, initData.getOrElse(Seq.empty), ctx.bb))
   }
 
-  /** STORE := 'store' SCALAR_TYPE insnRef */
+  /** LOAD := 'load' SCALAR_TYPE insnRef */
   lazy val LOAD: Parser[Context => LoadInsn] = (Load ~> SCALAR_TYPE) ~ insnRef ^^ { case valueTy ~ ptrFuture =>
     (ctx: Context) => {
       val insn = ctx.emit(new LoadInsn(valueTy, None, ctx.bb))
@@ -186,7 +186,7 @@ object IrParser extends Parsers {
     }
   }
 
-  /** STORE := 'loadarg' integer */
+  /** LOADARG := 'loadarg' integer */
   lazy val LOADARG: Parser[Context => LoadArgInsn] = LoadArg ~> integer ^^ { index => (ctx: Context) => ctx.emit(new LoadArgInsn(index.toInt, ctx.bb)) }
 
   /** STORE := 'store' insnRef ',' insnRef */
