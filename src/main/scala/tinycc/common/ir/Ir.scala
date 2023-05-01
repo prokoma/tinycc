@@ -263,6 +263,8 @@ class BasicBlock(_name: String, val fun: IrFun) extends IrObject with RefTarget[
     assert(body.toSet.size == body.size, s"basic block $this contains duplicate instructions")
   }
 
+  def attached: Boolean = fun.containsBlock(this)
+
   def releaseRefs(): Unit = {
     fun.bbNameGen.releaseName(name)
     body.foreach(_.releaseRefs())
@@ -340,6 +342,9 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
     }
   }
 
+  def containsBlock(basicBlock: BasicBlock): Boolean =
+    basicBlock.fun == this && basicBlocks.contains(basicBlock)
+
   def removeBlock(basicBlock: BasicBlock, removeUses: Boolean = false): Unit = {
     require(basicBlock.fun == this, s"cannot remove $basicBlock owned by ${basicBlock.fun} from $this")
     if (removeUses)
@@ -357,8 +362,11 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
       bb.validate()
     })
     assert(entryBlockRef.isDefined, s"fun $name doesn't have entry block")
+    assert(entryBlock.attached, s"$entryBlock (entryFun of $this) is not attached")
     assert(entryBlock.pred.isEmpty, s"entry block $entryBlock of $this can't have any predecessors")
   }
+
+  def attached: Boolean = program.containsFun(this)
 
   override def toString: String = s"IrFun($name)"
 }
@@ -384,6 +392,9 @@ class IrProgram extends IrObject {
     fun
   }
 
+  def containsFun(fun: IrFun): Boolean =
+    fun.program == this && funs.contains(fun)
+
   def removeFun(fun: IrFun, removeUses: Boolean = false): Unit = {
     require(fun.program == this, s"cannot remove $fun owned by ${fun.program} from $this")
     if (removeUses)
@@ -402,8 +413,13 @@ class IrProgram extends IrObject {
   }
 
   override def validate(): Unit = {
-    funs.foreach(_.validate())
+    assert(funs.toSet.size == funs.size, s"fun $this contains duplicate basic blocks")
+    funs.foreach(fun => {
+      assert(fun.program == this, s"$fun is owned by ${fun.program}")
+      fun.validate()
+    })
     assert(entryFunRef.isDefined, s"entryFun of $this is not defined")
+    assert(entryFun.attached, s"$entryFun (entryFun of $this) is not attached")
   }
 }
 

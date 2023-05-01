@@ -23,6 +23,7 @@ sealed abstract class TerminatorInsn(override val op: IrTerminatorOp, basicBlock
     super.validate()
     succBlockRefs.zipWithIndex.foreach({ case (ref, index) =>
       assert(ref.isDefined, s"succesor block #$index is not defined")
+      assert(ref.get.attached, s"${ref.get} (successor #$index of $this) is not attached")
     })
     succBlocks.foreach(bb => {
       assert(bb.fun == fun, s"terminator references block $bb from other function")
