@@ -187,7 +187,6 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
       prologueCtx.emit(prologueCtx.getBasicBlockLabel(bb))
       if (bb.isFunEntryBlock) {
         prologueCtx.emit(T86SpecialLabel.FunPrologueMarker)
-        prologueCtx.emit(T86Comment(s"${bb.fun.name} prologue end"))
 
         log(s"emitting code for globals")
         prologueCtx ++= externalGlobals.flatMap(tileCode.getOrElse(_, Seq.empty))

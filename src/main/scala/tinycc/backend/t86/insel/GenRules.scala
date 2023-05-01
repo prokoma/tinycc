@@ -314,7 +314,6 @@ trait GenRules extends T86TilingInstructionSelection {
     GenRule(RegVar, Pat(Ret, regOrImm | FRegVar) ^^ { case (insn, retVal) =>
       (ctx: Context) => {
         ctx.emit(MOV, T86Utils.returnValueReg, retVal(ctx))
-        ctx.emit(T86Comment(s"${insn.fun.name} epilogue start"))
         ctx.emit(T86SpecialLabel.FunEpilogueMarker)
         ctx.emit(RET)
         ctx.freshReg()
@@ -322,7 +321,6 @@ trait GenRules extends T86TilingInstructionSelection {
     }),
     GenRule(RegVar, Pat(RetVoid) ^^ { insn =>
       (ctx: Context) =>
-        ctx.emit(T86Comment(s"${insn.fun.name} epilogue start"))
         ctx.emit(T86SpecialLabel.FunEpilogueMarker)
         ctx.emit(RET)
         ctx.freshReg()
