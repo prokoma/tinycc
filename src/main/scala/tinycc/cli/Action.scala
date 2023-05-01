@@ -198,8 +198,6 @@ object Action {
                      outFile: Option[Path] = None) extends Action with IrFileInput with StdoutOrFileOutput with Profiling with VerboseLogging {
 
     override def execute(): Unit = withVerboseLogging(withProfiling(withPrintStream(out => withIrProgram(irProgram => {
-      Console.err.println(new IrPrinter().printToString(irProgram))
-
       Profiler.profile("middleend", new Optimizer(optimize).transformProgram(irProgram))
 
       val asmString = Profiler.profile("backend", new T86Backend(irProgram, registerCnt, floatRegisterCnt).resultAsString())

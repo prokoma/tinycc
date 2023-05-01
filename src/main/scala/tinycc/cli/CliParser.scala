@@ -31,7 +31,7 @@ object CliParser extends CliParsers {
     val optVerbose = verbose ^^ (_ => (a: Format) => a.copy(verbose = true))
     val optOutFile = output ^^ { outFile => (a: Format) => a.copy(outFile = Some(outFile)) }
 
-    "format" ~> commit(rep(optVerbose | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(Format(inFile), opts) } described "format"
+    "format" ~> commit(rep(optVerbose | optOutFile) ~ noOptions(inFile)) ^^ { case opts ~ inFile => applyOpts(Format(inFile), opts) } described "format"
   }
 
   lazy val TRANSPILE_TO_C: Parser[TranspileToC] = {
@@ -39,7 +39,7 @@ object CliParser extends CliParsers {
     val optPrefix = prefix ^^ { prefix => (a: TranspileToC) => a.copy(prefix = a.prefix :+ prefix) }
     val optOutFile = output ^^ { outFile => (a: TranspileToC) => a.copy(outFile = Some(outFile)) }
 
-    "transpile-to-c" ~> commit(rep(optVerbose | optPrefix | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(TranspileToC(inFile), opts) } described "transpile-to-c"
+    "transpile-to-c" ~> commit(rep(optVerbose | optPrefix | optOutFile) ~ noOptions(inFile)) ^^ { case opts ~ inFile => applyOpts(TranspileToC(inFile), opts) } described "transpile-to-c"
   }
 
   lazy val COMPILE_TO_IR: Parser[CompileToIr] = {
@@ -48,7 +48,7 @@ object CliParser extends CliParsers {
     val optOptimize = optimize ^^ (_ => (a: CompileToIr) => a.copy(optimize = true))
     val optOutFile = output ^^ { outFile => (a: CompileToIr) => a.copy(outFile = Some(outFile)) }
 
-    "compile-to-ir" ~> commit(rep(optVerbose | optProfile | optOptimize | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(CompileToIr(inFile), opts) } described "compile-to-ir"
+    "compile-to-ir" ~> commit(rep(optVerbose | optProfile | optOptimize | optOutFile) ~ noOptions(inFile)) ^^ { case opts ~ inFile => applyOpts(CompileToIr(inFile), opts) } described "compile-to-ir"
   }
 
   lazy val OPTIMIZE: Parser[Optimize] = {
@@ -56,7 +56,7 @@ object CliParser extends CliParsers {
     val optProfile = profile ^^ (_ => (a: Optimize) => a.copy(profile = true))
     val optOutFile = output ^^ { outFile => (a: Optimize) => a.copy(outFile = Some(outFile)) }
 
-    "codegen" ~> commit(rep(optVerbose | optProfile | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(Optimize(inFile), opts) } described "optimize"
+    "optimize" ~> commit(rep(optVerbose | optProfile | optOutFile) ~ noOptions(inFile)) ^^ { case opts ~ inFile => applyOpts(Optimize(inFile), opts) } described "optimize"
   }
 
   lazy val CODEGEN: Parser[Codegen] = {
@@ -67,7 +67,7 @@ object CliParser extends CliParsers {
     val optFloatRegisterCnt = floatRegisterCnt ^^ { floatRegisterCnt => (a: Codegen) => a.copy(floatRegisterCnt = floatRegisterCnt) }
     val optOutFile = output ^^ { outFile => (a: Codegen) => a.copy(outFile = Some(outFile)) }
 
-    "codegen" ~> commit(rep(optVerbose | optProfile | optOptimize | optRegisterCnt | optFloatRegisterCnt | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(Codegen(inFile), opts) } described "codegen"
+    "codegen" ~> commit(rep(optVerbose | optProfile | optOptimize | optRegisterCnt | optFloatRegisterCnt | optOutFile) ~ noOptions(inFile)) ^^ { case opts ~ inFile => applyOpts(Codegen(inFile), opts) } described "codegen"
   }
 
   lazy val COMPILE: Parser[Compile] = {
@@ -78,11 +78,11 @@ object CliParser extends CliParsers {
     val optFloatRegisterCnt = floatRegisterCnt ^^ { floatRegisterCnt => (a: Compile) => a.copy(floatRegisterCnt = floatRegisterCnt) }
     val optOutFile = output ^^ { outFile => (a: Compile) => a.copy(outFile = Some(outFile)) }
 
-    "compile" ~> commit(rep(optVerbose | optProfile | optOptimize | optRegisterCnt | optFloatRegisterCnt | optOutFile) ~ inFile) ^^ { case opts ~ inFile => applyOpts(Compile(inFile), opts) } described "compile"
+    "compile" ~> commit(rep(optVerbose | optProfile | optOptimize | optRegisterCnt | optFloatRegisterCnt | optOutFile) ~ noOptions(inFile)) ^^ { case opts ~ inFile => applyOpts(Compile(inFile), opts) } described "compile"
   }
 
   lazy val HELP: Parser[Action] = {
-    "help" ^^ (_ => Help) described "help"
+    "help" ~ rep(elem) ^^ (_ => Help) described "help"
   }
 
   lazy val ACTION: Parser[Action] = (FORMAT | TRANSPILE_TO_C | COMPILE_TO_IR | OPTIMIZE | CODEGEN | COMPILE | HELP)

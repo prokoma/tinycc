@@ -23,6 +23,10 @@ trait CliParsers extends SeqParsers[String] {
     case _ => Reject(List(ExpTree(s"'--$name'"), ExpTree(s"'--$name=VALUE'")), in)
   }
 
+  lazy val notAnOpt: Parser[String] = elem.filter(!_.startsWith("-")) described "positional argument"
+
+  def noOptions[T](p: Parser[T]): Parser[T] = ("--" | guard(rep(notAnOpt) ~ EOI)) ~> p
+
   lazy val integer: Parser[Int] = unwrapOption(elem.map(arg => arg.toIntOption)) described "integer"
 
   lazy val positiveInteger: Parser[Int] = integer.filter(_ > 0) described "positive integer"

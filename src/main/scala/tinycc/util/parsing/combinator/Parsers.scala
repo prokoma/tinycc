@@ -138,6 +138,12 @@ trait Parsers {
     case _: Reject => Accept((), in)
   }
 
+  /** Try to match a parser without consuming any input (look-ahead). */
+  def guard[T](parser: Parser[T]): Parser[T] = (in: Input) => parser(in) match {
+    case Accept(value, _, lastReject) => Accept(value, in, lastReject)
+    case r: Reject => r
+  }
+
   /** Run the parser in sequence while it matches and return the results as a list. Reject if the parser doesn't match at least once. */
   def rep1[T](parser: => Parser[T]): Parser[List[T]] = {
     lazy val _parser = parser
