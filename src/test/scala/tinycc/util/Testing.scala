@@ -23,11 +23,13 @@ object Testing {
     source.linesIterator.foreach(line => {
       val includePrefix = s"// $char! "
       val literalPrefix = s"// $char "
-      if (line.startsWith(includePrefix)) {
+      val literalNl = s"// $char"
+      if (line.startsWith(includePrefix))
         sb ++= Files.readString(basePath.resolve(line.drop(includePrefix.length)))
-      } else if (line.startsWith(literalPrefix)) {
+      else if (line == literalNl)
+        sb ++= "\n"
+      else if (line.startsWith(literalPrefix))
         sb ++= line.drop(literalPrefix.length) + "\n"
-      }
     })
     sb.result()
   }
