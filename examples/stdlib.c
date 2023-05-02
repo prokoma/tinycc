@@ -103,6 +103,17 @@ int scan_int() {
     return sgn * res;
 }
 
+int RAND_MAX = 2147483647;
+int rand_state = 0;
+void srand(int seed) {
+    rand_state = seed;
+}
+int rand() {
+    // standard LCG constants used in many rand() implementations
+    rand_state = (rand_state * 1103515245 + 12345) & 2147483647;
+    return rand_state;
+}
+
 int main() {
     print_fixed(-10.5, 5);
     print('\n');
@@ -135,6 +146,17 @@ int main() {
     print_fixed(sqrt(10), 5);
     print('\n');
 // > 3.16227
+
+    srand(10);
+    print_int(rand());
+    print('\n');
+    print_int(rand());
+    print('\n');
+    print_int(rand());
+    print('\n');
+// > 297746555
+// > 1849040536
+// > 736986865
 
     return 0;
 }
