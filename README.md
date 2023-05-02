@@ -18,7 +18,7 @@ This project uses `sbt`. We provide `scripts/setup_env.sh`, which installs [asdf
 
 To build the project, run `sbt assembly` in the root directory of the repository. Unit and integration tests can be run with `sbt test`.
 
-We've tested the instructions above on Ubuntu 22.04 with `build-essential` and `cmake` packages.
+We have tested the instructions above on Ubuntu 22.04 with `build-essential` and `cmake` packages.
 
 ## Usage
 
@@ -63,6 +63,40 @@ Instead of directly compiling to assembly, we can run the frontend, middleend an
 
 The IR grammar is described in the PDF version of the thesis.
 
+## Additional Options
+
+Most subcommands accept `--verbose` and `--profile` options. The former enables additional logging to the standard error output, the latter displays statistics about time spent in individual components of the compiler.
+
+The number of available integer and float registers is 4, resp. 5 and it is configurable with the `--register-cnt=M` and `--float-register-cnt=M` options passed to `compile` or `codegen` actions. 
+
+Don't forget to configure tiny86 with the corresponding register count via `-registerCnt=N` and `-floatRegisterCnt=M` passed to `t86-cli` (default is 10 and 5). The size of RAM can be configured with `-ram=S` (default is 1024 words). We have also added `-stats` option to `t86-cli`, which prints number of elapsed ticks and executed instructions by the VM.
+
+```bash
+# compile with 2 integer and 2 float registers
+./tinycc compile --register-cnt=2 --float-register-cnt=2 -O -o hello.t86 hello.c
+
+# run with 2 integer, 2 float registers and 128 words of RAM
+./t86/build/t86-cli/t86-cli run -registerCnt=2 -floatRegisterCnt=2 -ram=128 -stats hello.t86
+```
+
+## Transpiling TinyC to C
+
+For debugging purposes, the compiler contains a builtin tinyC to C transpiler, which can be used to execute tinyC programs directly on the host machine. A small runtime defining the builtin functions is included in `src/test/resources/gcc_runtime.{c,h}`. This is used by the `run_tests.sh` script to verify correctness of the reference output.
+
+```bash
+# compile the runtime
+gcc --std=c99 -fsigned-char -c src/test/resources/gcc_runtime.c -o gcc_runtime.o
+
+# transpile the tinyC program to C
+./tinycc transpile-to-c --prefix='#include "gcc_runtime.h"' -o hello.transpiled.c hello.c
+
+# compile the generated C program and link it with the runtime
+gcc --std=c99 -I src/test/resources -fno-builtin -fsigned-char hello.transpiled.c gcc_runtime.o -o hello
+
+# run the binary on the host system
+./hello
+```
+
 ## TinyC Features
 
 The compiler supports all tinyC features from the [language reference](https://gitlab.fit.cvut.cz/NI-GEN/ni-gen-23/-/blob/main/LANGUAGE.md):
@@ -70,9 +104,8 @@ The compiler supports all tinyC features from the [language reference](https://g
 - `void`, `int`, `double`, pointers (including pointers to functions), static 1D arrays and structs
 - basic arithmetic operators
 - function calls, including recursion
-- reading and writing a single character from stdin/stdout via `scan()` and `print(c)` builtins
-	+ `scan()` returns -1 on EOF
+- reading and writing a single character from stdin/stdout via `scan()` and `print(c)` builtins (`scan()` returns -1 on EOF)
 
-In addition, we've added the `printnum(n)` builtin, which prints an integer terminated by newline.
+In addition, the compiler supports the `printnum(n)` builtin, which prints an integer terminated by newline.
 
-`examples/stdlib.c` contains some useful functions that you can copy into your programs (there is no preprocessor).
+The file `examples/stdlib.c` contains some useful functions that you can copy into your programs (there is no preprocessor).
