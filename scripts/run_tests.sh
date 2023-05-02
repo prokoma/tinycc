@@ -19,7 +19,7 @@ fancy_diff () {
 
 extract_template () {
   ( cd "$(dirname "$2")" && awk '
-match($0, /^\/\/ '$1' (.+)/, m) { print m[1] }
+match($0, /^\/\/ '$1'( (.+))?/, m) { print m[2] }
 match($0, /^\/\/ '$1'! (.+)/, m) {
   while((getline < m[1]) == 1) {
     print
