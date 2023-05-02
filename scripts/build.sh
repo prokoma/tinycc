@@ -6,4 +6,5 @@ root_dir="$(dirname "$0")/.."
 
 which asdf &>/dev/null || . "$HOME/.asdf/asdf.sh"
 
+cd "$root_dir"
 sbt assembly
