@@ -1,9 +1,8 @@
 #!/bin/bash
 set -euo pipefail
-#trap 'echo "Script error: $(basename "$BASH_SOURCE"):$LINENO $BASH_COMMAND" >&2' ERR
+trap 'echo "script error: $(basename "$BASH_SOURCE"):$LINENO $BASH_COMMAND" >&2' ERR
+script_dir="$(dirname -- "$(readlink -f -- "$0")")"
 
-root_dir="$(dirname "$0")"
+which asdf &>/dev/null || . "$HOME/.asdf/asdf.sh" || echo "asdf is not installed, using local java binary" >&2
 
-which asdf &>/dev/null || . "$HOME/.asdf/asdf.sh"
-
-java -jar "$root_dir/target/scala-2.13/tinycc.jar" "$@"
+java -jar "$script_dir/target/scala-2.13/tinycc.jar" "$@" || exit $?
