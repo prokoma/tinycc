@@ -18,7 +18,7 @@ This project uses `sbt`. We provide `scripts/setup_env.sh`, which installs [asdf
 
 To build the project, run `scripts/build.sh` or `sbt assembly` in the root directory of the repository. Unit and integration tests can be run with `sbt test`.
 
-We have tested the instructions above on Ubuntu 22.04 with `build-essential` and `cmake` packages.
+We have tested the instructions above on Ubuntu 22.04 with `build-essential`, `cmake`, `git` and `curl` packages.
 
 ## Usage
 
