@@ -46,16 +46,12 @@ trait GenericNaiveRegisterAllocator[T <: Operand] extends T86GenericRegisterAllo
   def transformFun(fun: T86Fun): Unit = {
     // remap all non-machine registers into machine regs
     val regMap = mutable.Map.empty[T, T]
-    val availableRegs = mutable.Queue.from(machineRegs)
+    val availableRegs = mutable.Queue.from(machineRegs -- returnValueRegs)
 
-    fun.flatten.foreach({
-      case insn: T86Insn =>
-        getInsnDefUse(insn).regs.foreach({ case reg => regMap.getOrElseUpdate(reg, availableRegs.dequeue()) })
-
-      case _ =>
+    remapRegistersInFun(fun, {
+      case reg@(_: Operand.VirtReg | _: Operand.VirtFReg) => regMap.getOrElseUpdate(reg, availableRegs.dequeue())
+      case reg => reg // default mapping for machine registers
     })
-
-    remapRegistersInFun(fun, regMap.toMap.withDefault(reg => reg)) // default mapping for machine registers
 
     // insert PUSH and POP insns to backup and restore them in the fun prologue and epilogue
     val usedRegs = regMap.values.toSeq // convert to seq, so order is deterministic

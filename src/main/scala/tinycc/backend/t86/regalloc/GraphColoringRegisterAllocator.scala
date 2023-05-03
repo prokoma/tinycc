@@ -5,6 +5,7 @@ import tinycc.backend.t86._
 import tinycc.common._
 import tinycc.common.analysis.LoopAnalysis
 import tinycc.common.analysis.dataflow.{DataflowAnalysis, FixpointComputation, Lattice}
+import tinycc.common.ir.IrTy
 import tinycc.util.{DSU, Logging}
 
 import scala.annotation.tailrec
@@ -14,6 +15,8 @@ import scala.collection.mutable
 class GraphColoringRegisterAllocator(_machineRegCount: Int, _machineFRegCount: Int) extends T86RegisterAllocator {
   require(_machineRegCount >= 2, "minimum supported number of integer registers is 2")
   require(_machineFRegCount >= 2, "minimum supported number of float registers is 2")
+
+  private def isRetVoid(fun: T86Fun): Boolean = fun.irFun.exists(_.returnTy == IrTy.VoidTy)
 
   private val regRegisterAllocator = new GenericGraphColoringRegisterAllocator[Operand.Reg] with T86RegRegisterAllocator {
     override def machineRegCount: Int = _machineRegCount
@@ -26,7 +29,7 @@ class GraphColoringRegisterAllocator(_machineRegCount: Int, _machineFRegCount: I
         val newBody = IndexedSeq.newBuilder[T86ListingElement]
         bb.body.foreach({
           case insn: T86Insn =>
-            val DefUse(defines, uses) = getInsnDefUse(insn)
+            val DefUse(defines, uses) = getInsnDefUse(insn, isRetVoid(fun))
             var regMap = Map.empty[Operand.Reg, Operand.Reg]
 
             // load used spilled registers from memory
@@ -64,7 +67,7 @@ class GraphColoringRegisterAllocator(_machineRegCount: Int, _machineFRegCount: I
         val newBody = IndexedSeq.newBuilder[T86ListingElement]
         bb.body.foreach({
           case insn: T86Insn =>
-            val DefUse(defines, uses) = getInsnDefUse(insn)
+            val DefUse(defines, uses) = getInsnDefUse(insn, isRetVoid(fun))
             var regMap = Map.empty[Operand.FReg, Operand.FReg]
 
             // load used spilled registers from memory
@@ -111,7 +114,7 @@ class GraphColoringRegisterAllocator(_machineRegCount: Int, _machineFRegCount: I
 trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegisterAllocator[T] with Logging {
 
   // backwards must dataflow analysis
-  class LivenessAnalysis(cfg: Cfg[T86BasicBlock])
+  class LivenessAnalysis(cfg: Cfg[T86BasicBlock], isRetVoid: Boolean)
     extends DataflowAnalysis.Builder[T86BasicBlock](cfg, forward = false)
       with FixpointComputation.Naive {
 
@@ -123,7 +126,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
     override def cfgNodes: Seq[T86BasicBlock] = cfg.nodes
 
-    private val bbDefUse: Map[Node, DefUse] = cfg.nodes.map(bb => bb -> getBasicBlockDefUse(bb)).toMap
+    private val bbDefUse: Map[Node, DefUse] = cfg.nodes.map(bb => bb -> getBasicBlockDefUse(bb, isRetVoid)).toMap
 
     /** Returns live-in variables for this basic block. */
     override def transfer(bb: T86BasicBlock, liveOutVars: Set[T]): Set[T] = {
@@ -162,10 +165,10 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
   }
 
   object InterferenceGraph {
-    def apply(cfg: Cfg[T86BasicBlock], blocksInLoop: Set[T86BasicBlock]): InterferenceGraph =
-      apply(cfg, new LivenessAnalysis(cfg).result(), blocksInLoop)
+    def apply(cfg: Cfg[T86BasicBlock], isRetVoid: Boolean, blocksInLoop: Set[T86BasicBlock]): InterferenceGraph =
+      apply(cfg, isRetVoid, new LivenessAnalysis(cfg, isRetVoid).result(), blocksInLoop)
 
-    def apply(cfg: Cfg[T86BasicBlock], livenessResult: LivenessAnalysis.Result, blocksInLoop: Set[T86BasicBlock]): InterferenceGraph = {
+    def apply(cfg: Cfg[T86BasicBlock], isRetVoid: Boolean, livenessResult: LivenessAnalysis.Result, blocksInLoop: Set[T86BasicBlock]): InterferenceGraph = {
       val _relatedMoveList = mutable.Map.empty[T, Set[T86InsnRef]].withDefaultValue(Set.empty)
       var _moveInsns = Set.empty[T86InsnRef]
       val _adjList = mutable.Map.empty[T, Set[T]].withDefaultValue(Set.empty)
@@ -188,7 +191,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
         val inLoop = blocksInLoop.contains(bb)
 
         for ((insn, insnRef) <- bb.insnsWithRefs.reverse) {
-          val DefUse(defines, uses) = getInsnDefUse(insn)
+          val DefUse(defines, uses) = getInsnDefUse(insn, isRetVoid)
           _nodes ++= defines ++ uses
 
           // if the same register is defined and also used, count it as 2 distinct registers
@@ -674,6 +677,8 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
    */
   def rewriteFunWithSpilledNodes(fun: T86Fun, spilledNodes: Set[T]): Set[T]
 
+  private def isRetVoid(fun: T86Fun): Boolean = fun.irFun.exists(_.returnTy == IrTy.VoidTy)
+
   def transformFun(fun: T86Fun): Unit = {
     // insert code to backup and restore all callee save registers
     remapCalleeSaveRegs(fun)
@@ -687,7 +692,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
     do {
       didSpill = false
 
-      val interferenceGraph = InterferenceGraph(cfg, blocksInLoop)
+      val interferenceGraph = InterferenceGraph(cfg, isRetVoid(fun), blocksInLoop)
       log("interfering nodes: \n" + interferenceGraph.adjList.map({ case (u, set) => s"$u -> $set" }).mkString("\n"))
 
       val coloring = InterferenceGraphColoring(interferenceGraph, node => {

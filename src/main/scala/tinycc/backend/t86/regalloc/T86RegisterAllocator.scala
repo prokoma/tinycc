@@ -9,8 +9,6 @@ import scala.language.implicitConversions
 
 /** Provides information of available registers and their usage by tiny86 instructions. */
 trait T86GenericRegisterAllocator[T <: Operand] {
-  type RegMap = Map[T, T]
-
   case class DefUse(defines: Set[T], uses: Set[T]) {
     def regs: Set[T] = defines ++ uses
 
@@ -55,12 +53,12 @@ trait T86GenericRegisterAllocator[T <: Operand] {
 
   def getOperandReadWriteDefUse(op: Operand): DefUse = getOperandReadDefUse(op) ++ getOperandWriteDefUse(op)
 
-  def remapRegistersInOperand(operand: Operand, regMap: RegMap): Operand
+  def remapRegistersInOperand(operand: Operand, regMap: T => T): Operand
 
   def freshReg(fun: T86Fun): T
 
-  def getInsnDefUse(insn: T86Insn): DefUse = insn match {
-    case NullaryT86Insn(RET) => DefUse(Set.empty, calleeSaveRegs ++ returnValueRegs)
+  def getInsnDefUse(insn: T86Insn, isRetVoid: Boolean): DefUse = insn match {
+    case NullaryT86Insn(RET) => DefUse(Set.empty, if(isRetVoid) calleeSaveRegs else calleeSaveRegs ++ returnValueRegs)
     case NullaryT86Insn(op) => DefUse.empty
 
     case UnaryT86Insn(CALL, operand0) => getOperandReadDefUse(operand0) ++ DefUse(callerSaveRegs ++ returnValueRegs, Set.empty)
@@ -79,19 +77,19 @@ trait T86GenericRegisterAllocator[T <: Operand] {
     (dest, src)
   }
 
-  def getBasicBlockDefUse(bb: T86BasicBlock): DefUse =
+  def getBasicBlockDefUse(bb: T86BasicBlock, isRetVoid: Boolean): DefUse =
     bb.insns.reverse.foldLeft(DefUse.empty)((prev, insn) => {
-      val cur = getInsnDefUse(insn)
+      val cur = getInsnDefUse(insn, isRetVoid)
       DefUse(prev.defines ++ cur.defines, (prev.uses -- cur.defines) ++ cur.uses)
     })
 
-  def remapRegistersInInsn(insn: T86Insn, regMap: RegMap): T86Insn = insn match {
+  def remapRegistersInInsn(insn: T86Insn, regMap: T => T): T86Insn = insn match {
     case insn: NullaryT86Insn => insn
     case UnaryT86Insn(op, operand0) => UnaryT86Insn(op, remapRegistersInOperand(operand0, regMap))
     case BinaryT86Insn(op, operand0, operand1) => BinaryT86Insn(op, remapRegistersInOperand(operand0, regMap), remapRegistersInOperand(operand1, regMap))
   }
 
-  def remapRegistersInFun(fun: T86Fun, regMap: RegMap): Unit = {
+  def remapRegistersInFun(fun: T86Fun, regMap: T => T): Unit = {
     fun.basicBlocks.foreach(bb => {
       bb.body = bb.body.map({
         case insn: T86Insn => remapRegistersInInsn(insn, regMap)
@@ -167,7 +165,7 @@ trait T86RegRegisterAllocator extends T86GenericRegisterAllocator[Operand.Reg] {
     case _ => false
   }
 
-  override def remapRegistersInOperand(op: Operand, regMap: RegMap): Operand = op match {
+  override def remapRegistersInOperand(op: Operand, regMap: Operand.Reg => Operand.Reg): Operand = op match {
     case _: Operand.Imm | _: Operand.Label | _: Operand.MemImm | _: Operand.FImm => op
     case reg: Operand.Reg => regMap(reg)
 
@@ -258,7 +256,7 @@ trait T86FRegRegisterAllocator extends T86GenericRegisterAllocator[Operand.FReg]
     case _ => false
   }
 
-  override def remapRegistersInOperand(op: Operand, regMap: RegMap): Operand = op match {
+  override def remapRegistersInOperand(op: Operand, regMap: Operand.FReg => Operand.FReg): Operand = op match {
     case freg: Operand.FReg => regMap(freg)
     case _ => op
   }
