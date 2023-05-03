@@ -101,7 +101,7 @@ gcc --std=c99 -I src/test/resources -fno-builtin -fsigned-char hello.transpiled.
 
 The compiler supports all tinyC features from the [language reference](https://gitlab.fit.cvut.cz/NI-GEN/ni-gen-23/-/blob/main/LANGUAGE.md):
 
-- `void`, `int`, `double`, pointers (including pointers to functions), static 1D arrays and structs
+- `void`, `char`, `int`, `double`, pointers (including pointers to functions), static 1D arrays and structs
 - basic arithmetic operators
 - function calls, including recursion
 - reading and writing a single character from stdin/stdout via `scan()` and `print(c)` builtins (`scan()` returns -1 on EOF)
