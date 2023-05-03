@@ -16,7 +16,7 @@ Tiny86 is a standard CMake project and can be compiled by running the `t86/scrip
 
 This project uses `sbt`. We provide `scripts/setup_env.sh`, which installs [asdf](https://asdf-vm.com/) to the home directory and uses it to grab all the required Java, Scala and sbt versions. If you already have asdf installed, you can do the same using `asdf install`.
 
-To build the project, run `sbt assembly` in the root directory of the repository. Unit and integration tests can be run with `sbt test`.
+To build the project, run `scripts/build.sh` or `sbt assembly` in the root directory of the repository. Unit and integration tests can be run with `sbt test`.
 
 We have tested the instructions above on Ubuntu 22.04 with `build-essential` and `cmake` packages.
 
