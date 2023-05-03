@@ -265,10 +265,7 @@ trait GenRules extends T86TilingInstructionSelection {
     }),
 
     GenRule(RegVar, call ^^ { retValue => (ctx: Context) => ctx.copyToFreshReg(retValue(ctx)) }),
-    GenRule(FRegVar, call ^^ { retValue => (ctx: Context) => ctx.copyToFreshFReg(retValue(ctx)) }),
-
     GenRule(RegVar, callPtr ^^ { retValue => (ctx: Context) => ctx.copyToFreshReg(retValue(ctx)) }),
-    GenRule(FRegVar, callPtr ^^ { retValue => (ctx: Context) => ctx.copyToFreshFReg(retValue(ctx)) }),
 
     GenRule(RegVar, Pat(PutChar, RegVar) ^^ { case (insn, reg) =>
       (ctx: Context) => {
