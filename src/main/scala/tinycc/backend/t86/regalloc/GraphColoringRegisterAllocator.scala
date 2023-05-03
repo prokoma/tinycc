@@ -10,7 +10,10 @@ import tinycc.util.{DSU, Logging}
 import scala.annotation.tailrec
 import scala.collection.mutable
 
+/** A main driver class for the graph coloring register allocator. */
 class GraphColoringRegisterAllocator(_machineRegCount: Int, _machineFRegCount: Int) extends T86RegisterAllocator {
+  require(_machineRegCount >= 2, "minimum supported number of integer registers is 2")
+  require(_machineFRegCount >= 2, "minimum supported number of float registers is 2")
 
   private val regRegisterAllocator = new GenericGraphColoringRegisterAllocator[Operand.Reg] with T86RegRegisterAllocator {
     override def machineRegCount: Int = _machineRegCount
@@ -104,6 +107,7 @@ class GraphColoringRegisterAllocator(_machineRegCount: Int, _machineFRegCount: I
   }
 }
 
+/** An implementation of Appel's graph coloring register allocator with iterated conservative move coalescing. */
 trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegisterAllocator[T] with Logging {
 
   // backwards must dataflow analysis
@@ -626,6 +630,8 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
   override def name: String = "GenericGraphColoringRegisterAllocator"
 
+  /** Breaks the live range of callee-save registers by copying them to and from spillable temporaries in prologue
+   * and epilogue. */
   def remapCalleeSaveRegs(fun: T86Fun): Unit = {
     val _calleeSaveRegs = calleeSaveRegs.toSeq
     val _regMap = mutable.Map.empty[T, T]

@@ -3,6 +3,7 @@ package tinycc.common.analysis.dataflow
 import tinycc.common.Cfg
 import tinycc.common.analysis.dataflow.Lattice.MapLattice
 
+/** A monotone framework dataflow analysis. */
 trait DataflowAnalysis {
   type NodeState
   type Node
@@ -12,12 +13,17 @@ trait DataflowAnalysis {
 
   def cfgStateLattice: MapLattice[Node, NodeState]
 
+  /** The node transfer function, which receives joined state of the successors or predecessors (depending on
+   * the analysis direction) */
   def transfer(node: Node, joinedState: NodeState): NodeState
 
+  /** The direction of the analysis. */
   def forward: Boolean
 
+  /** Returns a joined state of the successors or predecessors of the node (depending on the analysis direction). */
   def join(node: Node, cfgState: CfgState): NodeState
 
+  /** Computes the fixed point for the CFG. */
   def fixpoint(): CfgState
 }
 

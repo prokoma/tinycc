@@ -7,6 +7,7 @@ import tinycc.common.ProgramTransform
 
 import scala.language.implicitConversions
 
+/** Provides information of available registers and their usage by tiny86 instructions. */
 trait T86GenericRegisterAllocator[T <: Operand] {
   type RegMap = Map[T, T]
 

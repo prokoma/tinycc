@@ -4,6 +4,7 @@ import tinycc.common.ir._
 
 import scala.language.implicitConversions
 
+/** A main trait used by all tiling instruction selectors which defines the IR pattern matching system. */
 trait TilingInstructionSelection {
 
   import Pat.Match
@@ -37,15 +38,21 @@ trait TilingInstructionSelection {
 
     def filterMatch(f: Match[A] => Boolean): Pat[A] = new FilterMatchPat(this, f)
 
+    /** Increase cost of this pattern. */
     def cost(by: Int): Pat[A] = new IncCostPat(this, by)
   }
 
   object Pat {
-    case class Match[+A](value: A, cost: Int, coveredInsns: List[Insn], requiredInsns: List[(Var[_], Insn)]) {
-      def copyWithCoveredInsn(v: Insn): Match[A] = this.copy(coveredInsns = v :: coveredInsns)
-
-      def copyWithRequiredInsn(v: (Var[_], Insn)): Match[A] = this.copy(requiredInsns = v :: requiredInsns)
-    }
+    /** A pattern match.
+     *
+     * @param value The value returned by the pattern. This is usually an [[Insn]] or an [[AsmEmitter]].
+     * @param cost Used to penalize patterns that for example do additional register moves, but cover the same amount of instructions
+     *             as others. Lower cost should mean faster execution.
+     * @param coveredInsns list of instructions covered by this pattern excluding matches of Vars (leaves)
+     * @param requiredInsns list of matched variables (leaves) that will be accessed during code emission for this tile
+     *
+     * */
+    case class Match[+A](value: A, cost: Int, coveredInsns: List[Insn], requiredInsns: List[(Var[_], Insn)])
 
     def apply(op: IrOpcode): NullaryInsnPat[Insn] = new NullaryInsnPat[Insn](op)
 
@@ -163,7 +170,7 @@ trait TilingInstructionSelection {
     override def toString(): String = s"($pat $$+$by)"
   }
 
-  /** Alternate. If [[pat]] matches, returns its result. Otherwise tries to match [[pat2]] . */
+  /** Fully backtracking alternate, returns results of matching both [[pat]] and [[pat2]]. */
   class OrPat[T](pat: Pat[T], pat2: Pat[T]) extends Pat[T] {
     override def rootOps: Iterable[IrOpcode] = pat.rootOps ++ pat2.rootOps
 
@@ -184,7 +191,7 @@ trait TilingInstructionSelection {
     } yield Match(headValue +: tailValue, headCost + tailCost, headCoveredInsns ++ tailCoveredInsns, headRequiredInsns ++ tailRequiredInsns)
   }
 
-  /** Matches CallInsn if [[argPat]] matches all of its arguments. */
+  /** Matches [[CallInsn]] if [[argPat]] matches all of its operands. */
   case class CallInsnPat[A](argPat: Pat[A]) extends Pat[(CallInsn, IndexedSeq[A])] {
     override def rootOps: Iterable[IrOpcode] = Iterable.single(IrOpcode.Call)
 
@@ -200,6 +207,7 @@ trait TilingInstructionSelection {
     override def toString(): String = s"CallInsnPat($argPat)"
   }
 
+  /** Matches [[CallPtrInsn]] if [[ptrPat]] matches the function address and [[argPat]] matches all of its operands. */
   case class CallPtrInsnPat[A, B](ptrPat: Pat[A], argPat: Pat[B]) extends Pat[(CallPtrInsn, A, IndexedSeq[B])] {
     override def rootOps: Iterable[IrOpcode] = Iterable.single(IrOpcode.CallPtr)
 
@@ -216,6 +224,7 @@ trait TilingInstructionSelection {
     override def toString(): String = s"CallPtrInsnPat($argPat)"
   }
 
+  /** Matches [[PhiInsn]] if [[argPat]] matches all of its operands. */
   case class PhiInsnPat[A](argPat: Pat[A]) extends Pat[(PhiInsn, IndexedSeq[A])] {
     override def rootOps: Iterable[IrOpcode] = Iterable.single(IrOpcode.Phi)
 
@@ -233,6 +242,7 @@ trait TilingInstructionSelection {
 
   type AsmPat[T] = Pat[AsmEmitter[T]]
 
+  /** A class representing a code generation rewrite rule in form of variable -> rhs. */
   case class GenRule[T](variable: AsmVar[T], rhs: AsmPat[T]) extends (Insn => Iterable[GenRule.Match[T]]) {
     def flatten: Iterable[GenRule[T]] =
       for {
@@ -274,10 +284,13 @@ trait TilingInstructionSelection {
   /** A set of rewrite rules */
   def rules: Seq[GenRule[_]]
 
+  /** Returns true if a value of nonterminal [[from]] can be converted to value of nonterminal [[to]]. */
   def canCastFromTo(from: AsmVar[_], to: AsmVar[_]): Boolean
 
+  /** Returns the code to convert [[value]], which is a value of nonterminal [[from]] to a value of nonterminal [[to]]. */
   def emitCastFromTo[F, T](value: F, from: AsmVar[F], to: AsmVar[T]): AsmEmitter[T]
 
-  /** Computes some covering of all instructions in the given [[fun]]. Every instruction can be at root of at most one tile. */
+  /** Computes some covering of all instructions in the given [[fun]]. Every instruction can be at root of at most one tile.
+   *  This can be implemented for example using dynamic programming or maximal munch. */
   def getTileMapForFun(fun: IrFun): Map[Insn, GenRule.Match[_]]
 }

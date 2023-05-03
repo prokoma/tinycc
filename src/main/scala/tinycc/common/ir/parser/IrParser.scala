@@ -8,6 +8,7 @@ import tinycc.util.parsing.combinator._
 import scala.collection.mutable
 import scala.language.implicitConversions
 
+/** A parser or our IR implemented using parser combinators. The combinators don't build the IR program directly, instead, they wrap the side effects with functions. */
 object IrParser extends Parsers {
 
   import IrOpcode._
@@ -33,6 +34,7 @@ object IrParser extends Parsers {
   lazy val integer: Parser[Long] = elem("integer literal", { case IntLiteral(value) => value })
   lazy val double: Parser[Double] = elem("double literal", { case DoubleLiteral(value) => value })
 
+  /** An extension to allow the parsers to listen for definitions of IR objects. This is needed because we can reference IR objects forwards, backwards and even across functions. */
   trait RefPatcher {
     private val _insnRefs: mutable.Map[(IrFun, Symbol), List[Option[Insn] => Unit]] = mutable.Map.empty.withDefaultValue(Nil)
     private val _basicBlockRefs: mutable.Map[(IrFun, Symbol), List[Option[BasicBlock] => Unit]] = mutable.Map.empty.withDefaultValue(Nil)
@@ -368,7 +370,7 @@ object IrParser extends Parsers {
       override def program: IrProgram = _program
     }
     gen(ctx)
-    ctx.patchProgram(_program)
+    ctx.patchProgram(_program) // resolve references
     _program.entryFunRef(_program.funs.find(fun => fun.name == IrProgram.entryFunName))
     _program
   }

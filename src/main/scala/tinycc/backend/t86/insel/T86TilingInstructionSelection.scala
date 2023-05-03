@@ -10,6 +10,8 @@ import tinycc.util.{Logging, NameGen}
 
 import scala.collection.mutable
 
+/** A base class that defines the assembly builder used by [[GenRules]] and emits the assembly code for the matched tiles.
+ *  During code emission it also does phi-node elimination. */
 abstract class T86TilingInstructionSelection(program: IrProgram) extends T86InstructionSelection(program) with TilingInstructionSelection {
 
   trait Context {
@@ -83,6 +85,7 @@ abstract class T86TilingInstructionSelection(program: IrProgram) extends T86Inst
   protected def compileIrFun(fun: IrFun, programBuilder: T86ProgramBuilder): T86Fun = {
     log(s"=== instruction selection for $fun ===")
 
+    // call the tiling algorithm (e.g. maximal munch)
     val tileMap = getTileMapForFun(fun)
 
     val argsMap = buildArgsMap(fun.argTys, 2)

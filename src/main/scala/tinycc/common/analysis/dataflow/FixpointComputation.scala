@@ -3,6 +3,7 @@ package tinycc.common.analysis.dataflow
 import scala.collection.mutable
 
 object FixpointComputation {
+  /** Defines the transfer function for the whole CFG and uses it to naively find the fixed point. */
   trait Naive extends DataflowAnalysis {
     def transferCfgState(state: CfgState): CfgState =
       state.transform((node, _) => transfer(node, join(node, state)))
@@ -18,6 +19,7 @@ object FixpointComputation {
     }
   }
 
+  /** Uses a worklist to only call node transfer functions on nodes that may return a new result. */
   trait Worklist extends DataflowAnalysis {
     protected def getNodeDependents(node: Node): Iterable[Node]
 

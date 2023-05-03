@@ -239,7 +239,7 @@ object Action {
       Using(new IndentWriter(new PrintWriter(Console.err), " " * 3))(out => {
         out.write(bold("NAME"))
         out.withIndent({
-          out.write(bold("tinycc") + "- Modular TinyC compiler written in Scala")
+          out.write(bold("tinycc") + " - Modular TinyC compiler written in Scala")
           out.nl()
         })
         out.nl()

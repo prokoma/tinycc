@@ -2,6 +2,7 @@ package tinycc.backend.t86
 
 sealed trait T86Opcode extends Product with Serializable
 
+/** Contains definitions of all opcodes supported by tiny86. */
 object T86Opcode {
 
   sealed trait NullaryOp extends T86Opcode

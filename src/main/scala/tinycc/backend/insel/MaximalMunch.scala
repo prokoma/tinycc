@@ -6,7 +6,9 @@ import tinycc.util.Logging
 
 import scala.collection.mutable
 
+/** A greedy tiling instruction selector algorithm. Impleemnts the [[getTileMapForFun]] method on [[TilingInstructionSelection]] via a top-down pass over the dataflow graph. */
 trait MaximalMunch extends TilingInstructionSelection with Logging {
+  /** The ruleset itself is fairly large, so we split it by the matched instruction opcode. */
   private lazy val rulesByRootOp: Map[IrOpcode, Seq[GenRule[_]]] = {
     val res = mutable.Map.empty[IrOpcode, Seq[GenRule[_]]].withDefaultValue(Seq.empty)
     for (r <- rules; rootOp <- r.rhs.rootOps)

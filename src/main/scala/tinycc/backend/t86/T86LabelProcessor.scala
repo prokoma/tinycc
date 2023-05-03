@@ -32,7 +32,8 @@ class T86LabelProcessor(listing: T86Listing) {
 
     val newProgram = Seq.newBuilder[T86ListingElement]
     listing.foreach({
-      case insn: NullaryT86Insn => newProgram += insn
+      case insn: NullaryT86Insn =>
+        newProgram += insn
 
       case UnaryT86Insn(op, operand0) =>
         val (newOperand0, comments0) = resolveLabelsInOperand(operand0)

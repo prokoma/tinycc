@@ -2,6 +2,7 @@ package tinycc.backend.t86
 
 import tinycc.common.ir.{BasicBlock, IrFun, IrProgram}
 
+/** Our representation of operands supported by tiny86 instructions and virtual operands ([[Operand.Label]], [[Operand.VirtReg]] and [[Operand.VirtFReg]]). */
 sealed trait Operand extends Product with Serializable
 
 object Operand {
@@ -135,6 +136,7 @@ case class T86Comment(value: String, indent: Boolean = true) extends T86ListingE
 
 case class T86SectionLabel(symbol: Symbol) extends T86ListingElement
 
+/** Used to mark points in the assembly code for further code insertion. */
 sealed trait T86SpecialLabel extends T86ListingElement
 
 object T86SpecialLabel {
@@ -254,6 +256,7 @@ class T86BasicBlock(var body: IndexedSeq[T86ListingElement] = IndexedSeq.empty, 
   def flatten: T86Listing = body
 }
 
+/** Used to reference a concrete instruction in a basic block. We need this because instructions are implemented as case class and thus compared by value. */
 case class T86InsnRef(bb: T86BasicBlock, index: Int) {
   def apply(): T86Insn = bb.body(index).asInstanceOf[T86Insn]
 

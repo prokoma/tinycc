@@ -6,15 +6,18 @@ import tinycc.backend.t86._
 import tinycc.common.ir.IrOpcode._
 import tinycc.common.ir._
 
+/** Main class containing definitions of tiles for generating tiny86 code. */
 trait GenRules extends T86TilingInstructionSelection {
+  /** A nonterminal representing an integer register. */
   case object RegVar extends T86Var[Operand.Reg] {
     // penalize if we want to assign a double value into RegVar
-    override def getMatchCost(insn: Insn): Int = if(insn.resultTy == IrTy.DoubleTy) 1 else 0
+    override def getMatchCost(insn: Insn): Int = if (insn.resultTy == IrTy.DoubleTy) 1 else 0
   }
 
+  /** A nonterminal representing a float register. */
   case object FRegVar extends T86Var[Operand.FReg] {
     // penalize if we want to assign an integer value into FRegVar
-    override def getMatchCost(insn: Insn): Int = if(insn.resultTy == IrTy.Int64Ty) 1 else 0
+    override def getMatchCost(insn: Insn): Int = if (insn.resultTy == IrTy.Int64Ty) 1 else 0
   }
 
   override val variables: Seq[Var[AsmEmitter[_]]] = Seq(RegVar, FRegVar)
@@ -172,8 +175,9 @@ trait GenRules extends T86TilingInstructionSelection {
   lazy val sgnNeg = (
     Pat(ISub, constImm(0), regOrImm) ^^ { case (_, _, regOrImm) => regOrImm }
       | commutativeBinaryInsn(SMul, constImm(-1), regOrImm) ^^ { case (_, _, regOrImm) => regOrImm }
-  )
+    )
 
+  /** The main list of rules, which use the patterns defined above. */
   override lazy val rules: Seq[GenRule[_]] = Seq(
 
     GenRule(RegVar, Pat(IAdd, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.ADD) cost 1), // prefer INC and DEC over ADD and SUB
@@ -185,7 +189,7 @@ trait GenRules extends T86TilingInstructionSelection {
     GenRule(RegVar, Pat(IShr, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.RSH)),
     GenRule(RegVar, Pat(UMul, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.MUL)),
     GenRule(RegVar, Pat(UDiv, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.DIV)),
-    GenRule(RegVar, Pat(SMul, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.IMUL) cost 1),
+    GenRule(RegVar, Pat(SMul, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.IMUL) cost 1), // prefer NEG over IMUL
     GenRule(RegVar, Pat(SDiv, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.IDIV)),
 
     GenRule(RegVar, inc ^^ emitUnary(INC)),
@@ -349,6 +353,7 @@ trait GenRules extends T86TilingInstructionSelection {
 
   ).flatMap(expandRule)
 
+  /** Expands all rules so they can be either matched as both RegVar and FRegVar (with penalization). This is necessary, because for example for LoadArg we can */
   protected def expandRule(rule: GenRule[_]): Iterable[GenRule[_]] = {
     def fregToReg(freg: AsmPat[Operand.FReg]): AsmPat[Operand.Reg] =
       freg ^^ { freg => (ctx: Context) => ctx.copyToFreshReg(freg(ctx)) } cost 1
