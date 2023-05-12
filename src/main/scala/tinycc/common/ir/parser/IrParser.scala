@@ -275,7 +275,7 @@ object IrParser extends Parsers {
   /** GETCHAR := 'getchar' */
   lazy val GETCHAR: Parser[Context => GetCharInsn] = GetChar ^^ { _ => (ctx: Context) => ctx.emit(new GetCharInsn(ctx.bb)) }
 
-  /** PHI := 'phi' '[' insnRef ',' basicBlockRef ']' { ',' '[' insnRef ',' basicBlockRef ']' } */
+  /** PHI := 'phiInsn' '[' insnRef ',' basicBlockRef ']' { ',' '[' insnRef ',' basicBlockRef ']' } */
   lazy val PHI: Parser[Context => PhiInsn] = (Phi ~> rep1sep((squareOpen ~> insnRef) ~ (comma ~> basicBlockRef) <~ squareClose, comma)) ^^ { case args =>
     (ctx: Context) => {
       val insn = ctx.emit(new PhiInsn(args.map(_ => (None, None)).toIndexedSeq, ctx.bb))

@@ -45,9 +45,9 @@ object IrManipulation {
       case None => appendInsnTo(insn, newBlock)
     }
 
-  def replaceInsnWith(insn: Insn, replacement: Insn, replaceUses: Boolean = true): Insn = {
+  def replaceInsnWith[T <: Insn](insn: Insn, replacement: T, replaceUses: Boolean = true): T = {
     if(insn == replacement)
-      return insn
+      return insn.asInstanceOf[T]
 
     require(replaceUses || insn.uses.isEmpty, s"insn $insn is still referenced and replaceUses = false")
 

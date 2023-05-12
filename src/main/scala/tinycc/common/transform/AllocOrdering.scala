@@ -2,6 +2,7 @@ package tinycc.common.transform
 
 import tinycc.common.ProgramTransform
 import tinycc.common.ir._
+import tinycc.util.Profiler.profile
 
 /**
  * A pass used to aid instruction selection implementations working in linear program order. Ensures that it visits all variables before accessing them.
@@ -14,7 +15,7 @@ import tinycc.common.ir._
 class AllocOrdering extends ProgramTransform[IrProgram] {
   import IrManipulation._
 
-  override def transformProgram(program: IrProgram): Unit = {
+  override def transformProgram(program: IrProgram): Unit = profile("allocOrdering", {
     val entryFun = program.entryFun
     if (entryFun != program.funs.head)
       program.funs = entryFun +: program.funs.filterNot(_ == entryFun) // 1.
@@ -26,7 +27,7 @@ class AllocOrdering extends ProgramTransform[IrProgram] {
     })
 
     program.funs.foreach(transformFun)
-  }
+  })
 
   def transformFun(fun: IrFun): Unit = {
     val entryBlock = fun.entryBlock

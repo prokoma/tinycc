@@ -1,16 +1,19 @@
 package tinycc.common.transform
 
+import tinycc.common.PhiHelper.tryRemoveTrivialPhi
 import tinycc.common.ProgramTransform
 import tinycc.common.ir.IrManipulation.{prependInsnTo, replaceInsnWith}
 import tinycc.common.ir._
+import tinycc.util.Profiler.profile
 
 import scala.collection.mutable
 
 /** Replaces locals with Phi nodes.
  * An implementation of https://pp.info.uni-karlsruhe.de/uploads/publikationen/braun13cc.pdf */
 class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram] {
-  override def transformProgram(program: IrProgram): Unit =
+  override def transformProgram(program: IrProgram): Unit = profile("memToReg", {
     program.funs.foreach(transformFun)
+  })
 
   private def optimizeLocal(fun: IrFun, local: AllocLInsn): Unit = {
     val currentDef = mutable.Map.empty[BasicBlock, Insn]
@@ -78,36 +81,6 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
     def sealBlock(block: BasicBlock): Unit = {
       incompletePhis.get(block).foreach(addPhiOperands)
       sealedBlocks += block
-    }
-
-    var removedPhis = Set.empty[PhiInsn]
-    def tryRemoveTrivialPhi(phi: PhiInsn): Insn = {
-      if(removedPhis.contains(phi))
-        return phi
-
-      val uniqueOperands = phi.operands.filterNot(_ == phi).toSet
-      if (uniqueOperands.isEmpty) {
-        log(s"self-referencing phi $phi")
-        phi
-      } else if (uniqueOperands.size == 1) {
-        val phiPhiUsers = phi.uses.collect({ case OperandRef(owner: PhiInsn, _) if owner != phi => owner })
-        phi.replaceUses(uniqueOperands.head)
-        phi.remove()
-        removedPhis += phi
-        // recurse into users of the phi instruction
-        // we have now one phi less, so this has to stop at some point
-        phiPhiUsers.foldLeft(uniqueOperands.head)((uniq, user) => {
-          val newUser = tryRemoveTrivialPhi(user)
-          // check if we removed uniqueOperands.head from the cfg,
-          // because we don't want to return detached instructions
-          if(user == uniq) newUser
-          else uniq
-        })
-        uniqueOperands.head
-      } else {
-        // non-trivial phi
-        phi
-      }
     }
 
     fun.basicBlocks.foreach(fillBlock)

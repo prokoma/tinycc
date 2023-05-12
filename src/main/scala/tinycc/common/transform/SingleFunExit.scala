@@ -4,9 +4,14 @@ import tinycc.common.ProgramTransform
 import tinycc.common.ir.IrManipulation.replaceInsnWith
 import tinycc.common.ir.IrTy.VoidTy
 import tinycc.common.ir._
+import tinycc.util.Profiler.profile
 
 /** If there are multiple blocks terminated by RetInsn or RetVoidInsn, create a new function exit block. */
 class SingleFunExit extends ProgramTransform[IrProgram] {
+  override def transformProgram(program: IrProgram): Unit = profile("singleFunExit", {
+    program.funs.foreach(transformFun)
+  })
+
   def transformFun(fun: IrFun): Unit = {
     if (fun.returnTy == VoidTy) {
       val retVoidInsns = fun.insns.collect({ case insn: RetVoidInsn => insn })
@@ -27,7 +32,4 @@ class SingleFunExit extends ProgramTransform[IrProgram] {
       }
     }
   }
-
-  override def transformProgram(program: IrProgram): Unit =
-    program.funs.foreach(transformFun)
 }

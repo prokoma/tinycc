@@ -52,6 +52,10 @@ object Ref {
   def unapply[T](ref: Ref[T]): Option[(IrObject, Option[T])] = Some((ref.owner, ref()))
 }
 
+object RefTo {
+  def unapply[T](ref: Ref[T]): Option[T] = ref()
+}
+
 trait RefTarget[R <: Ref[T], T] {
   val uses: mutable.Set[R] = mutable.Set.empty[R]
 
@@ -320,7 +324,7 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
     block
   }
 
-  def getBlockPred(block: BasicBlock): Seq[BasicBlock] = basicBlocks.filter(_.succ.contains(block))
+  def getBlockPred(block: BasicBlock): Seq[BasicBlock] = basicBlocks.filter(_.succ.contains(block)).distinct
 
   def getBlockLinSucc(basicBlock: BasicBlock): Option[BasicBlock] = {
     require(basicBlock.fun == this, s"cannot query successor of $basicBlock owned by ${basicBlock.fun} in $this")

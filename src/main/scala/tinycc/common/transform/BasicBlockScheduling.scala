@@ -1,7 +1,9 @@
 package tinycc.common.transform
 
+import tinycc.common.PhiHelper.removeBlockPhiUses
 import tinycc.common.ProgramTransform
 import tinycc.common.ir.{BasicBlock, IrException, IrFun, IrProgram}
+import tinycc.util.Profiler.profile
 
 import scala.collection.mutable
 
@@ -12,8 +14,9 @@ import scala.collection.mutable
  * - the blocks are sorted so there is a high chance that one of the successors of each block immediately follows it
  */
 class BasicBlockScheduling extends ProgramTransform[IrProgram] {
-  override def transformProgram(program: IrProgram): Unit =
+  override def transformProgram(program: IrProgram): Unit = profile("basicBlockScheduling", {
     program.funs.foreach(transformFun)
+  })
 
   def transformFun(fun: IrFun): Unit = {
     val sortedBasicBlocks = IndexedSeq.newBuilder[BasicBlock]
@@ -31,6 +34,7 @@ class BasicBlockScheduling extends ProgramTransform[IrProgram] {
     dfs(fun.entryBlock)
     for (bb <- fun.basicBlocks if !visitedBlocks.contains(bb)) {
       log(s"removed unreachable $bb")
+      removeBlockPhiUses(bb)
       bb.releaseRefs()
     }
     fun.basicBlocks = sortedBasicBlocks.result()

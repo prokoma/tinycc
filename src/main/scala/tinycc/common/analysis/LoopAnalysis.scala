@@ -1,11 +1,11 @@
 package tinycc.common.analysis
 
-import tinycc.common.Cfg
+import tinycc.common.Graph
 
 import scala.collection.mutable
 
-/** Analyses which CFG nodes are part of a loop. */
-class LoopAnalysis[T](cfg: Cfg[T]) {
+/** Analyses which nodes are part of a loop. */
+class LoopAnalysis[T](graph: Graph[T]) {
   private def topsort(): Seq[T] = {
     var stack = List.empty[T]
     var visited = Set.empty[T]
@@ -13,10 +13,10 @@ class LoopAnalysis[T](cfg: Cfg[T]) {
       if(visited.contains(u))
         return
       visited += u
-      cfg.getSucc(u).foreach(dfs)
+      graph.getSucc(u).foreach(dfs)
       stack ::= u
     }
-    cfg.nodes.foreach(dfs)
+    graph.nodes.foreach(dfs)
     stack
   }
 
@@ -29,11 +29,11 @@ class LoopAnalysis[T](cfg: Cfg[T]) {
         return
       nodeComponents(u) = comp
       componentSizes(comp) += 1
-      cfg.getPred(u).foreach(v => assign(v, comp))
+      graph.getPred(u).foreach(v => assign(v, comp))
     }
     topsort().foreach(u => assign(u, u))
 
     // node is in loop if it is not alone in its strongly connected component or its is self loop
-    cfg.nodes.filter(u => componentSizes(nodeComponents(u)) > 1 || cfg.getSucc(u).contains(u)).toSet
+    graph.nodes.filter(u => componentSizes(nodeComponents(u)) > 1 || graph.getSucc(u).contains(u)).toSet
   }
 }

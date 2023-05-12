@@ -5,15 +5,15 @@ import scala.collection.mutable
 object FixpointComputation {
   /** Defines the transfer function for the whole CFG and uses it to naively find the fixed point. */
   trait Naive extends DataflowAnalysis {
-    def transferCfgState(state: CfgState): CfgState =
-      state.transform((node, _) => transfer(node, join(node, state)))
+    def transferProgState(state: ProgState): ProgState =
+      state.transform((node, _) => transfer(node, state))
 
-    override def fixpoint(): CfgState = {
-      var cur = cfgStateLattice.bot
+    override def fixpoint(): ProgState = {
+      var cur = progStateLattice.bot
       var prev = cur
       do {
         prev = cur
-        cur = transferCfgState(prev)
+        cur = transferProgState(prev)
       } while (cur != prev)
       cur
     }
@@ -23,21 +23,21 @@ object FixpointComputation {
   trait Worklist extends DataflowAnalysis {
     protected def getNodeDependents(node: Node): Iterable[Node]
 
-    protected def cfgNodes: Seq[Node]
+    protected def progNodes: Seq[Node]
 
-    override def fixpoint(): CfgState = {
-      val workList = mutable.Queue.from(if (forward) cfgNodes else cfgNodes.reverseIterator)
-      var cfgState = cfgStateLattice.bot
+    override def fixpoint(): ProgState = {
+      val workList = mutable.Queue.from(if (forward) progNodes else progNodes.reverseIterator)
+      var progState = progStateLattice.bot
 
       while (workList.nonEmpty) {
         val node = workList.dequeue()
-        val newNodeState = transfer(node, join(node, cfgState))
-        if (cfgState(node) != newNodeState) {
-          cfgState += (node -> newNodeState)
+        val newNodeState = transfer(node, progState)
+        if (progState(node) != newNodeState) {
+          progState += (node -> newNodeState)
           workList.enqueueAll(getNodeDependents(node))
         }
       }
-      cfgState
+      progState
     }
   }
 }

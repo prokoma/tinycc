@@ -226,7 +226,7 @@ object IrOpcode {
   }
 
   case object Phi extends IrOpcode {
-    override def toString: String = "phi"
+    override def toString: String = "phiInsn"
   }
 
   sealed trait IrTerminatorOp extends IrOpcode

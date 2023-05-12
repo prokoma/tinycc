@@ -19,7 +19,7 @@ object Lattice {
 
   type MapLattice[K, V] = Lattice[Map[K, V]]
 
-  def lazyPowersetLattice[T](domain: => Set[T]): Lattice[Set[T]] = new Lattice[Set[T]] {
+  def lazyPowersetLattice[T](domain: => Set[T]): PowersetLattice[T] = new PowersetLattice[T] {
     override lazy val top: Elem = domain
 
     override def bot: Elem = Set.empty
@@ -29,7 +29,7 @@ object Lattice {
     override def glb(x: Elem, y: Elem): Elem = x.intersect(y)
   }
 
-  def lazyMapLattice[K, V](_domain: => Iterable[K], sub: Lattice[V]): Lattice[Map[K, V]] = new Lattice[Map[K, V]] {
+  def lazyMapLattice[K, V](_domain: => Iterable[K], sub: Lattice[V]): MapLattice[K, V] = new MapLattice[K, V] {
     private lazy val domain = _domain
 
     override lazy val top: Elem = domain.map(key => key -> sub.top).toMap

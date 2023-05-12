@@ -11,7 +11,7 @@ import tinycc.util.{Logging, NameGen}
 import scala.collection.mutable
 
 /** A base class that defines the assembly builder used by [[GenRules]] and emits the assembly code for the matched tiles.
- *  During code emission it also does phi-node elimination. */
+ *  During code emission it also does phiInsn-node elimination. */
 abstract class T86TilingInstructionSelection(program: IrProgram) extends T86InstructionSelection(program) with TilingInstructionSelection {
 
   trait Context {

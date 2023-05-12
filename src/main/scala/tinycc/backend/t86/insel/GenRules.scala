@@ -55,15 +55,21 @@ trait GenRules extends T86TilingInstructionSelection {
   lazy val regOrFregOrFimm: AsmPat[Operand] = RegVar | fregOrFimm
 
   lazy val memReg: AsmPat[Operand.MemReg] = RegVar ^^ { reg => (ctx: Context) => reg(ctx).mem }
-  lazy val memAllocL: AsmPat[Operand.MemRegImm] = Pat(AllocL) ^^ { case insn: AllocLInsn => (ctx: Context) => ctx.resolveAllocL(insn) }
-  lazy val memAllocG: AsmPat[Operand.MemImm] = Pat(AllocG) ^^ { case insn: AllocGInsn => (ctx: Context) => ctx.resolveAllocG(insn) }
+  lazy val memAllocL: AsmPat[Operand.MemRegImm] = Pat(AllocL) ^^ { case insn: AllocLInsn => (ctx: Context) =>
+    ctx
+      .resolveAllocL(insn)
+  }
+  lazy val memAllocG: AsmPat[Operand.MemImm] = Pat(AllocG) ^^ { case insn: AllocGInsn => (ctx: Context) =>
+    ctx
+      .resolveAllocG(insn)
+  }
 
   /** Memory operand, which can be used as source or desetination of MOV to regular register. */
   lazy val memAddr: AsmPat[Operand] = memReg | memAllocL | memAllocG | getElementPtr
   lazy val memRegOrMemImm: AsmPat[Operand] = memReg | memAllocG
 
   lazy val icmpInsn: AsmPat[CondJmpOp] = (
-    Pat(CmpIEq, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JZ) |
+    Pat(CmpIEq, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JE) |
       Pat(CmpINe, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JNE) |
       Pat(CmpULt, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JB) |
       Pat(CmpULe, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JBE) |
@@ -75,10 +81,30 @@ trait GenRules extends T86TilingInstructionSelection {
       Pat(CmpSGe, RegVar, regOrImm) ^^ emitCmpAndReturnJmpOp(T86Opcode.JGE) |
 
       // cmpieq (sub %1, %2), (iimm 0)
-      Pat(CmpIEq, Pat(ISub, RegVar, regOrImm), constImm(0)) ^^ { case (_, (_, left, right), _) =>
+      commutativeBinaryInsn(CmpIEq, Pat(ISub, RegVar, regOrImm), constImm(0)) ^^ { case (_, (_,
+      left: AsmEmitter[Operand]@unchecked, right: AsmEmitter[Operand]@unchecked), _) =>
         (ctx: Context) => {
           ctx.emit(CMP, left(ctx), right(ctx))
+          T86Opcode.JE
+        }
+      } |
+      commutativeBinaryInsn(CmpIEq, binArithInsnZF, constImm(0)) ^^ { case (_, left: AsmEmitter[_], _) =>
+        (ctx: Context) => {
+          left(ctx)
           T86Opcode.JZ
+        }
+      } |
+      commutativeBinaryInsn(CmpINe, Pat(ISub, RegVar, regOrImm), constImm(0)) ^^ { case (_,
+      (_, left: AsmEmitter[Operand]@unchecked, right: AsmEmitter[Operand]@unchecked), _) =>
+        (ctx: Context) => {
+          ctx.emit(CMP, left(ctx), right(ctx))
+          T86Opcode.JNE
+        }
+      } |
+      commutativeBinaryInsn(CmpINe, binArithInsnZF, constImm(0)) ^^ { case (_, left: AsmEmitter[_], _) =>
+        (ctx: Context) => {
+          left(ctx)
+          T86Opcode.JNZ
         }
       }
     )
@@ -177,24 +203,28 @@ trait GenRules extends T86TilingInstructionSelection {
       | commutativeBinaryInsn(SMul, constImm(-1), regOrImm) ^^ { case (_, _, regOrImm) => regOrImm }
     )
 
+  lazy val binArithInsnZF = (
+    (Pat(IAdd, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.ADD) cost 1) // prefer INC and DEC over ADD and SUB
+      | (Pat(ISub, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.SUB) cost 1)
+      | Pat(IAnd, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.AND)
+      | Pat(IOr, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.OR)
+      | Pat(IXor, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.XOR)
+      | Pat(IShl, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.LSH)
+      | Pat(IShr, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.RSH)
+      | Pat(UMul, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.MUL)
+      | Pat(UDiv, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.DIV)
+      | (Pat(SMul, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.IMUL) cost 1) // prefer NEG over IMUL
+      | Pat(SDiv, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.IDIV)
+
+      | inc ^^ emitUnary(INC)
+      | dec ^^ emitUnary(DEC)
+      | sgnNeg ^^ emitUnary(NEG)
+    )
+
   /** The main list of rules, which use the patterns defined above. */
   override lazy val rules: Seq[GenRule[_]] = Seq(
 
-    GenRule(RegVar, Pat(IAdd, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.ADD) cost 1), // prefer INC and DEC over ADD and SUB
-    GenRule(RegVar, Pat(ISub, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.SUB) cost 1),
-    GenRule(RegVar, Pat(IAnd, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.AND)),
-    GenRule(RegVar, Pat(IOr, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.OR)),
-    GenRule(RegVar, Pat(IXor, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.XOR)),
-    GenRule(RegVar, Pat(IShl, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.LSH)),
-    GenRule(RegVar, Pat(IShr, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.RSH)),
-    GenRule(RegVar, Pat(UMul, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.MUL)),
-    GenRule(RegVar, Pat(UDiv, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.DIV)),
-    GenRule(RegVar, Pat(SMul, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.IMUL) cost 1), // prefer NEG over IMUL
-    GenRule(RegVar, Pat(SDiv, regOrImm, regOrImm) ^^ emitBinArithInsn(T86Opcode.IDIV)),
-
-    GenRule(RegVar, inc ^^ emitUnary(INC)),
-    GenRule(RegVar, dec ^^ emitUnary(DEC)),
-    GenRule(RegVar, sgnNeg ^^ emitUnary(NEG)),
+    GenRule(RegVar, binArithInsnZF),
 
     GenRule(FRegVar, Pat(FAdd, regOrFregOrFimm, fregOrFimm) ^^ emitFloatBinArithInsn(T86Opcode.FADD)),
     GenRule(FRegVar, Pat(FSub, regOrFregOrFimm, fregOrFimm) ^^ emitFloatBinArithInsn(T86Opcode.FSUB)),
@@ -208,7 +238,8 @@ trait GenRules extends T86TilingInstructionSelection {
         val res = ctx.copyToFreshReg(Operand.Imm(0))
         val jmpOp = cmpInsn(ctx)
         ctx.emit(jmpOp.neg, lab.toOperand)
-        // we can't use MOV here, because for simplicity this is in a single basic block and we need res to be live for the entire duration
+        // we can't use MOV here, because for simplicity this is in a single basic block and we need res to be live
+        // for the entire duration
         // if we used MOV, res would be dead after setting it to 0
         ctx.emit(ADD, res, Operand.Imm(1))
         ctx.emit(lab)
@@ -220,6 +251,14 @@ trait GenRules extends T86TilingInstructionSelection {
     GenRule(RegVar, Pat(CondBr, cmpInsn) ^^ { case (condBrInsn: CondBrInsn, cmpInsn) =>
       (ctx: Context) => {
         emitCondJmp(cmpInsn(ctx), condBrInsn, ctx)
+        ctx.freshReg()
+      }
+    }),
+
+    GenRule(RegVar, Pat(CondBr, binArithInsnZF) ^^ { case (insn: CondBrInsn, aluInsn) =>
+      (ctx: Context) => {
+        aluInsn(ctx)
+        emitCondJmp(JNZ, insn, ctx)
         ctx.freshReg()
       }
     }),
@@ -305,7 +344,7 @@ trait GenRules extends T86TilingInstructionSelection {
     GenRule(RegVar, Pat(BitcastInt64ToDouble, RegVar) ^^ { case (_, reg) => reg }),
 
     GenRule(RegVar, PhiInsnPat(RegVar) ^^ { case (insn, _) =>
-      // copy on each use, because the phi could reference instruction in the current basic block
+      // copy on each use, because the phiInsn could reference instruction in the current basic block
       (ctx: Context) => ctx.copyToFreshReg(ctx.resolvePhiReg(RegVar, insn))
     }),
     GenRule(FRegVar, PhiInsnPat(FRegVar) ^^ { case (insn, _) =>
@@ -350,7 +389,8 @@ trait GenRules extends T86TilingInstructionSelection {
 
   ).flatMap(expandRule)
 
-  /** Expands all rules so they can be either matched as both RegVar and FRegVar (with penalization). This is necessary, because for example for LoadArg we can */
+  /** Expands all rules so they can be either matched as both RegVar and FRegVar (with penalization). This is
+   * necessary, because for example for LoadArg we can */
   protected def expandRule(rule: GenRule[_]): Iterable[GenRule[_]] = {
     def fregToReg(freg: AsmPat[Operand.FReg]): AsmPat[Operand.Reg] =
       freg ^^ { freg => (ctx: Context) => ctx.copyToFreshReg(freg(ctx)) } cost 1
@@ -372,7 +412,8 @@ trait GenRules extends T86TilingInstructionSelection {
   }
 
   /** Copies destination operand into fresh register and emits BinaryOp instruction. */
-  protected def emitBinArithInsn(op: T86Opcode.BinaryOp): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.Reg] = {
+  protected def emitBinArithInsn(op: T86Opcode.BinaryOp): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) =>
+    AsmEmitter[Operand.Reg] = {
     case (_, left, right) =>
       (ctx: Context) => {
         val res = ctx.copyToFreshReg(left(ctx))
@@ -382,7 +423,8 @@ trait GenRules extends T86TilingInstructionSelection {
   }
 
   /** Copies destination operand into fresh float register and emits BinaryOp instruction. */
-  protected def emitFloatBinArithInsn(op: T86Opcode.BinaryOp): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) => AsmEmitter[Operand.FReg] = {
+  protected def emitFloatBinArithInsn(op: T86Opcode.BinaryOp): ((Insn, AsmEmitter[Operand], AsmEmitter[Operand])) =>
+    AsmEmitter[Operand.FReg] = {
     case (_, left, right) =>
       (ctx: Context) => {
         val res = ctx.copyToFreshFReg(left(ctx))
@@ -391,7 +433,8 @@ trait GenRules extends T86TilingInstructionSelection {
       }
   }
 
-  protected def emitCmpAndReturnJmpOp(jmpOp: T86Opcode.CondJmpOp): ((Insn, AsmEmitter[Operand.Reg], AsmEmitter[Operand])) => AsmEmitter[T86Opcode.CondJmpOp] = {
+  protected def emitCmpAndReturnJmpOp(jmpOp: T86Opcode.CondJmpOp): ((Insn, AsmEmitter[Operand.Reg],
+    AsmEmitter[Operand])) => AsmEmitter[T86Opcode.CondJmpOp] = {
     case (_, left, right) =>
       (ctx: Context) => {
         ctx.emit(CMP, left(ctx), right(ctx))
@@ -399,7 +442,8 @@ trait GenRules extends T86TilingInstructionSelection {
       }
   }
 
-  protected def emitFCmpAndReturnJmpOp(jmpOp: T86Opcode.CondJmpOp): ((Insn, AsmEmitter[Operand.FReg], AsmEmitter[Operand])) => AsmEmitter[T86Opcode.CondJmpOp] = {
+  protected def emitFCmpAndReturnJmpOp(jmpOp: T86Opcode.CondJmpOp): ((Insn, AsmEmitter[Operand.FReg],
+    AsmEmitter[Operand])) => AsmEmitter[T86Opcode.CondJmpOp] = {
     case (_, left, right) =>
       (ctx: Context) => {
         ctx.emit(FCMP, left(ctx), right(ctx))
@@ -409,7 +453,8 @@ trait GenRules extends T86TilingInstructionSelection {
 
   protected def emitCondJmp(jmpOp: T86Opcode.CondJmpOp, insn: CondBrInsn, ctx: Context): Unit = {
     if (insn.basicBlock.linSucc.contains(insn.trueBlock)) { // trueBlock is next in order
-      ctx.emit(jmpOp.neg, ctx.getBasicBlockLabel(insn.falseBlock).toOperand) // if false, jump, otherwise fall through to trueBlock
+      ctx.emit(jmpOp.neg, ctx.getBasicBlockLabel(insn.falseBlock).toOperand) // if false, jump, otherwise fall
+      // through to trueBlock
     } else if (insn.basicBlock.linSucc.contains(insn.falseBlock)) { // falseBlock is next in order
       ctx.emit(jmpOp, ctx.getBasicBlockLabel(insn.trueBlock).toOperand)
     } else {

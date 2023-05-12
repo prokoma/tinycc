@@ -53,7 +53,7 @@ object FImmInsn {
   def unapply(insn: FImmInsn): Option[Double] = Some(insn.value)
 }
 
-sealed abstract class BinaryInsn(op: IrOpcode.BinaryOp, _left: Option[Insn], _right: Option[Insn], basicBlock: BasicBlock) extends Insn(op, basicBlock) {
+sealed abstract class BinaryInsn(override val op: IrOpcode.BinaryOp, _left: Option[Insn], _right: Option[Insn], basicBlock: BasicBlock) extends Insn(op, basicBlock) {
   val leftRef: OperandRef = new OperandRef(this, _left)
   val rightRef: OperandRef = new OperandRef(this, _right)
 
@@ -62,6 +62,11 @@ sealed abstract class BinaryInsn(op: IrOpcode.BinaryOp, _left: Option[Insn], _ri
   def right: Insn = rightRef.get
 
   override def operandRefs: IndexedSeq[OperandRef] = IndexedSeq(leftRef, rightRef)
+}
+
+object BinaryInsn {
+  def unapply(insn: BinaryInsn): Option[(IrOpcode.BinaryOp, Insn, Insn)] = Some((insn.op, insn.left, insn.right))
+
 }
 
 class BinaryArithInsn(override val op: IrOpcode.BinaryArithOp, _left: Option[Insn], _right: Option[Insn], basicBlock: BasicBlock) extends BinaryInsn(op, _left, _right, basicBlock) {
@@ -340,14 +345,23 @@ class PhiInsn(_args: IndexedSeq[(Option[Insn], Option[BasicBlock])], basicBlock:
 
   def args: IndexedSeq[(Insn, BasicBlock)] = argRefs.map({ case (insn, bb) => (insn.get, bb.get) })
 
+  def argMap: Map[BasicBlock, Insn] = args.map({ case (insn, bb) => (bb -> insn) }).toMap
+
   override def operandRefs: IndexedSeq[OperandRef] = argRefs.map(_._1)
 
   override def resultTy: IrTy = args.head._1.resultTy
 
+  override def releaseRefs(): Unit = {
+    super.releaseRefs()
+    argRefs.foreach(_._2.release())
+  }
+
   override def validate(): Unit = {
     super.validate()
-    assert(args.nonEmpty)
-    assert(args.map(_._2).toSet == basicBlock.pred.toSet, s"phi node must reference all predecessors of the basic block it is in")
+    assert(args.nonEmpty, s"empty $this")
+    val bbPred = basicBlock.pred
+    assert(argRefs.size == bbPred.size, s"expected ${bbPred.size} arguments of $this")
+    assert(args.map(_._2).toSet == bbPred.toSet, s"$this must reference all predecessors of the basic block it is in")
   }
 
   override def copy(newBlock: BasicBlock): Insn = new PhiInsn(argRefs.map({ case (insnRef, bbRef) => (insnRef(), bbRef()) }), newBlock)

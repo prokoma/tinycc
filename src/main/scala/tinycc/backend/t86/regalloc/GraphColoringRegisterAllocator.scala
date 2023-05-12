@@ -124,7 +124,7 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
     override def nodeStateLattice: Lattice[NodeState] = Lattice.lazyPowersetLattice(throw new UnsupportedOperationException())
 
-    override def cfgNodes: Seq[T86BasicBlock] = cfg.nodes
+    override def progNodes: Seq[T86BasicBlock] = cfg.nodes
 
     private val bbDefUse: Map[Node, DefUse] = cfg.nodes.map(bb => bb -> getBasicBlockDefUse(bb, isRetVoid)).toMap
 

@@ -158,7 +158,7 @@ class IrPrinter extends IndentPrinter[IrObject] {
           printSuccBlocks(insn, out)
         }
 
-      // %0 = phi [ %1, label %firstPred ], [ %2, label %secondPred ]
+      // %0 = phiInsn [ %1, label %firstPred ], [ %2, label %secondPred ]
       case insn: PhiInsn =>
         if(insn.argRefs.nonEmpty) {
           out.write(" ")
