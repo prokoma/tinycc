@@ -129,9 +129,9 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
     private val bbDefUse: Map[Node, DefUse] = cfg.nodes.map(bb => bb -> getBasicBlockDefUse(bb, isRetVoid)).toMap
 
     /** Returns live-in variables for this basic block. */
-    override def transfer(bb: T86BasicBlock, liveOutVars: Set[T]): Set[T] = {
+    override def transfer(bb: T86BasicBlock, cfgState: ProgState): Set[T] = {
       val DefUse(defines, uses) = bbDefUse(bb)
-      (liveOutVars -- defines) ++ uses
+      (join(bb, cfgState) -- defines) ++ uses
     }
 
     def result(): Result = Result(fixpoint(), join)

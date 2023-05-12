@@ -192,7 +192,7 @@ trait TilingInstructionSelection {
   }
 
   /** Matches [[CallInsn]] if [[argPat]] matches all of its operands. */
-  class CallInsnPat[A](argPat: Pat[A]) extends Pat[(CallInsn, IndexedSeq[A])] {
+  case class CallInsnPat[A](argPat: Pat[A]) extends Pat[(CallInsn, IndexedSeq[A])] {
     override def rootOps: Iterable[IrOpcode] = Iterable.single(IrOpcode.Call)
 
     override def apply(insn: Insn): Iterable[Match[(CallInsn, IndexedSeq[A])]] = {
@@ -208,7 +208,7 @@ trait TilingInstructionSelection {
   }
 
   /** Matches [[CallPtrInsn]] if [[ptrPat]] matches the function address and [[argPat]] matches all of its operands. */
-  class CallPtrInsnPat[A, B](ptrPat: Pat[A], argPat: Pat[B]) extends Pat[(CallPtrInsn, A, IndexedSeq[B])] {
+  case class CallPtrInsnPat[A, B](ptrPat: Pat[A], argPat: Pat[B]) extends Pat[(CallPtrInsn, A, IndexedSeq[B])] {
     override def rootOps: Iterable[IrOpcode] = Iterable.single(IrOpcode.CallPtr)
 
     override def apply(insn: Insn): Iterable[Match[(CallPtrInsn, A, IndexedSeq[B])]] = {
@@ -225,7 +225,7 @@ trait TilingInstructionSelection {
   }
 
   /** Matches [[PhiInsn]] if [[argPat]] matches all of its operands. */
-  class PhiInsnPat[A](argPat: Pat[A]) extends Pat[(PhiInsn, IndexedSeq[A])] {
+  case class PhiInsnPat[A](argPat: Pat[A]) extends Pat[(PhiInsn, IndexedSeq[A])] {
     override def rootOps: Iterable[IrOpcode] = Iterable.single(IrOpcode.Phi)
 
     override def apply(insn: Insn): Iterable[Match[(PhiInsn, IndexedSeq[A])]] = {

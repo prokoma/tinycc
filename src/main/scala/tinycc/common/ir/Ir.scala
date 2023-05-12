@@ -172,6 +172,8 @@ abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObje
     })
   }
 
+  def hasSideEffects: Boolean = false
+
   def attached: Boolean = basicBlock.containsInsn(this)
 
   def remove(removeUses: Boolean = false): Unit = basicBlock.removeInsn(this, removeUses)

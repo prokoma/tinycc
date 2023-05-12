@@ -14,16 +14,18 @@ class ConstantPropagation extends ProgramTransform[IrProgram] {
     val constValues = new ConstantPropagationAnalysis(InsnDfg(program)).result()
 
     program.insns.foreach({
-      case insn: CondBrInsn => constValues(insn.arg) match {
+      case insn: CondBrInsn => constValues.getOrElse(insn.arg, Top) match {
         case NonZero =>
-          log(s"replaced always non-zero condition ${insn.arg} of $insn")
+          log(s"replaced always non-zero condition ${insn.arg} of $insn in ${insn.basicBlock}")
           insn.argRef(insertInsnBefore(new IImmInsn(1, insn.basicBlock), insn))
         case _ =>
       }
 
+      case _: IImmInsn =>
+
       case insn => constValues(insn) match {
         case Const(v) =>
-          log(s"replaced $insn with constant $v")
+          log(s"replaced $insn in ${insn.basicBlock} with constant $v")
           replaceInsnWith(insn, new IImmInsn(v, insn.basicBlock))
 
         case _ =>

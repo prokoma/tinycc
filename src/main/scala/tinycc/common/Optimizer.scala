@@ -1,7 +1,7 @@
 package tinycc.common
 
 import tinycc.common.ir.{IrPrinter, IrProgram}
-import tinycc.common.transform.{AllocOrdering, BasicBlockInlining, BasicBlockScheduling, MemToReg, SingleFunExit, StrengthReduction}
+import tinycc.common.transform.{AllocOrdering, BasicBlockInlining, BasicBlockScheduling, ConstantPropagation, DeadInsnElimination, LocalValueNumbering, MemToReg, SingleFunExit, StrengthReduction}
 import tinycc.util.Profiler.profile
 
 class Optimizer(enableOptionalOptimizations: Boolean = false) extends ProgramTransform[IrProgram] {
@@ -12,6 +12,8 @@ class Optimizer(enableOptionalOptimizations: Boolean = false) extends ProgramTra
   val strengthReduction = new StrengthReduction
   val basicBlockInlining = new BasicBlockInlining
   val constantPropagation = new ConstantPropagation
+  val deadInsnElimination = new DeadInsnElimination
+  val localValueNumbering = new LocalValueNumbering
 
   val printer = new IrPrinter()
 
@@ -23,13 +25,19 @@ class Optimizer(enableOptionalOptimizations: Boolean = false) extends ProgramTra
     if (enableOptionalOptimizations) {
       runPass(program, singleFunExit)
       runPass(program, strengthReduction)
-//      runPass(program, basicBlockInlining)
+      runPass(program, basicBlockInlining)
+      runPass(program, basicBlockInlining)
+      runPass(program, basicBlockInlining)
       runPass(program, basicBlockScheduling)
       runPass(program, memToReg)
+      runPass(program, localValueNumbering)
       runPass(program, constantPropagation)
       runPass(program, strengthReduction)
       runPass(program, constantPropagation)
-//      runPass(program, basicBlockInlining)
+      runPass(program, deadInsnElimination)
+      runPass(program, basicBlockInlining)
+      runPass(program, basicBlockInlining)
+      runPass(program, basicBlockInlining)
       runPass(program, basicBlockScheduling)
     }
 

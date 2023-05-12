@@ -14,7 +14,7 @@ class ConstantPropagationAnalysis(dfg: Graph[Insn]) extends DataflowAnalysis.Bui
   override def nodeStateLattice: Lattice[NodeVal] = constLattice
 
   override def transfer(node: Insn, progState: ProgState): NodeVal = (node.op, node.operands.map(progState.apply)) match {
-    case (IImm, Seq.empty) => Const(node.asInstanceOf[IImmInsn].value)
+    case (IImm, Seq()) => Const(node.asInstanceOf[IImmInsn].value)
 
     case (IAdd, Seq(Const(x), Const(y))) => Const(x + y)
     case (ISub, Seq(Const(x), Const(y))) => Const(x - y)
@@ -75,7 +75,7 @@ object ConstantPropagationAnalysis {
       case (x, Bot) => x
       case (Const(0), Const(_) | NonZero) => Top
       case (Const(_) | NonZero, Const(0)) => Top
-      case (Const(_), Const(_)) => NonZero
+      case (Const(_) | NonZero, Const(_) | NonZero) => NonZero
     }
 
     override def glb(x: NodeVal, y: NodeVal): NodeVal = (x, y) match {
@@ -85,7 +85,7 @@ object ConstantPropagationAnalysis {
       case (x, Top) => x
       case (Const(0), Const(_) | NonZero) => Bot
       case (Const(_) | NonZero, Const(0)) => Bot
-      case (Const(_), Const(_)) => Bot
+      case (Const(_) | NonZero, Const(_) | NonZero) => Bot
     }
   }
 }
