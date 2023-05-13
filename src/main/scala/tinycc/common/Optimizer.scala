@@ -26,7 +26,7 @@ class Optimizer(enableOptionalOptimizations: Boolean = false) extends ProgramTra
     runPass(program, allocOrdering)
     if (enableOptionalOptimizations) {
       runPass(program, singleFunExit)
-//      runPass(program, funInlining)
+      runPass(program, funInlining)
       runPass(program, allocOrdering)
       runPass(program, strengthReduction)
       runPass(program, basicBlockInlining)

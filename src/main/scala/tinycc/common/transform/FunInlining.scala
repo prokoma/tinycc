@@ -9,12 +9,13 @@ import scala.collection.mutable
 
 class FunInlining extends ProgramTransform[IrProgram] {
   override def transformProgram(program: IrProgram): Unit = profile("funInlining", {
-    program.basicBlocks.foreach(transformBlock)
+    val modifiedFuns = mutable.Set.empty[IrFun]
+    program.basicBlocks.foreach(bb => transformBlock(bb, modifiedFuns))
   })
 
-  private def transformBlock(block: BasicBlock): Unit = {
-    val callsToInline = getCallsToInline(block)
-    if(callsToInline.isEmpty)
+  private def transformBlock(block: BasicBlock, modifiedFuns: mutable.Set[IrFun]): Unit = {
+    val callsToInline = getCallsToInline(block, modifiedFuns)
+    if (callsToInline.isEmpty)
       return
 
     // detach all instructions in the basic block and start rewriting
@@ -43,6 +44,8 @@ class FunInlining extends ProgramTransform[IrProgram] {
         // move insn to the new block
         appendInsnTo(insn, builder.bb)
     })
+
+    modifiedFuns += block.fun
   }
 
   private def compileInlinedCallInsn(builder: IrFunBuilder, callInsn: CallInsn, contBlock: BasicBlock): BasicBlock = {
@@ -50,8 +53,10 @@ class FunInlining extends ProgramTransform[IrProgram] {
     val insnRewriteMap = mutable.Map.empty[Insn, Insn]
 
     val targetFun = callInsn.targetFun
-    assert(targetFun.exitPoints.size == 1, s"cannot inline $targetFun with multiple exit points (${targetFun
-      .exitPoints})")
+    assert(targetFun.exitPoints.size == 1, s"cannot inline $targetFun with multiple exit points (${
+      targetFun
+        .exitPoints
+    })")
 
     // COPY basic blocks and functions from the inlined function
     targetFun.basicBlocks.foreach(bb => {
@@ -97,18 +102,19 @@ class FunInlining extends ProgramTransform[IrProgram] {
     blockRewriteMap(targetFun.entryBlock)
   }
 
-  private def getCallsToInline(block: BasicBlock): Set[CallInsn] = {
+  private def getCallsToInline(block: BasicBlock, modifiedFuns: collection.Set[IrFun]): Set[CallInsn] = {
     val calls = block.body.collect({ case insn: CallInsn => insn })
     val byTargetFun = calls.groupBy(_.targetFun)
 
-    def isLeafFun(fun: IrFun): Boolean = fun.insns.forall({
+    def isLeafFun(fun: IrFun): Boolean = !modifiedFuns.contains(fun) && fun.insns.forall({
       case _: CallInsn | _: CallPtrInsn => false
       case _ => true
     })
 
     calls.filter(call => {
       val targetFun = call.targetFun
-      (isLeafFun(targetFun) || targetFun.uses.size == 1) && (byTargetFun(targetFun).size == 1 || byTargetFun(targetFun).size * targetFun.insns.size < 42)
+      ((isLeafFun(targetFun) || targetFun.uses.size == 1)
+        && (byTargetFun(targetFun).size == 1 || byTargetFun(targetFun).size * targetFun.insns.size < 42))
     }).toSet
   }
 }
