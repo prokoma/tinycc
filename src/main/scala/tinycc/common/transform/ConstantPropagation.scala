@@ -3,7 +3,8 @@ package tinycc.common.transform
 import tinycc.common.ProgramTransform
 import tinycc.common.analysis.dataflow.ConstantPropagationAnalysis
 import tinycc.common.ir.IrManipulation.{insertInsnBefore, replaceInsnWith}
-import tinycc.common.ir.{CondBrInsn, IImmInsn, InsnDfg, IrProgram}
+import tinycc.common.ir.graph.InsnDfg
+import tinycc.common.ir.{CondBrInsn, IImmInsn, IrProgram, graph}
 import tinycc.util.Profiler.profile
 
 class ConstantPropagation extends ProgramTransform[IrProgram] {
@@ -11,7 +12,7 @@ class ConstantPropagation extends ProgramTransform[IrProgram] {
   import ConstantPropagationAnalysis._
 
   override def transformProgram(program: IrProgram): Unit = profile("constPropagation", {
-    val constValues = new ConstantPropagationAnalysis(InsnDfg(program)).result()
+    val constValues = new ConstantPropagationAnalysis(graph.InsnDfg(program)).result()
 
     program.insns.foreach({
       case insn: CondBrInsn => constValues.getOrElse(insn.arg, Top) match {

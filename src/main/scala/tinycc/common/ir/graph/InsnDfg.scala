@@ -1,6 +1,7 @@
-package tinycc.common.ir
+package tinycc.common.ir.graph
 
 import tinycc.common.Graph
+import tinycc.common.ir.{Insn, IrProgram, OperandRef}
 
 object InsnDfg {
   def apply(insns: Seq[Insn]): Graph[Insn] = new Graph[Insn] {
@@ -11,5 +12,5 @@ object InsnDfg {
     override def getPred(node: Insn): Seq[Insn] = node.operands
   }
 
-  def apply(program: IrProgram): Graph[Insn] = InsnDfg(program.insns.toSeq)
+  def apply(program: IrProgram): Graph[Insn] = InsnDfg(program.insns)
 }

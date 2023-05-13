@@ -109,8 +109,16 @@ class OperandBlockRef(val owner: Insn, _target: Option[BasicBlock]) extends Basi
   override def toString: String = s"OperandBlockRef(owner=$owner, target=${apply().getOrElse("<null>")})"
 }
 
+object OperandBlockRef {
+  def unapply(ref: OperandBlockRef): Option[(Insn, Option[BasicBlock])] = Some((ref.owner, ref()))
+}
+
 class EntryBlockRef(val owner: IrFun, _target: Option[BasicBlock]) extends BasicBlockRef(_target) {
   override def toString: String = s"EntryBlockRef(owner=$owner, target=${apply().getOrElse("<null>")})"
+}
+
+object EntryBlockRef {
+  def unapply(ref: EntryBlockRef): Option[(IrFun, Option[BasicBlock])] = Some((ref.owner, ref()))
 }
 
 /** A smart reference to IrFun. */
@@ -300,6 +308,8 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
 
   def entryBlock: BasicBlock = entryBlockRef.get
 
+  def entryPoint: Insn = entryBlock.body.head
+
   def exitPoints: Seq[IrFunExitPoint] = basicBlocks.flatMap(_.terminatorOption).collect({ case ep: IrFunExitPoint => ep }).toSeq
 
   def locals: Seq[AllocLInsn] = insns.collect({ case al: AllocLInsn => al })
@@ -382,9 +392,9 @@ class IrProgram extends IrObject {
 
   val nameGen: NameGen = new NameGen
 
-  def basicBlocks: Iterable[BasicBlock] = funs.flatMap(_.basicBlocks)
+  def basicBlocks: Seq[BasicBlock] = funs.flatMap(_.basicBlocks)
 
-  def insns: Iterable[Insn] = funs.flatMap(_.insns)
+  def insns: Seq[Insn] = funs.flatMap(_.insns)
 
   val entryFunRef: EntryFunRef = new EntryFunRef(this, None)
 

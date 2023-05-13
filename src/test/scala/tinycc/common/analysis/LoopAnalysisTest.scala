@@ -7,15 +7,15 @@ import scala.collection.mutable
 
 class LoopAnalysisTest extends AnyFunSuite {
 
-  class MockCfg(_entry: Int, _exit: Seq[Int], _adjList: Map[Int, Seq[Int]]) extends Cfg[Int] {
+  class MockCfg(_entryNodes: Int, _exitNodes: Seq[Int], _adjList: Map[Int, Seq[Int]]) extends Cfg[Int] {
     private val _invAdjList = mutable.Map.empty[Int, List[Int]].withDefaultValue(List.empty)
     for ((u, adj) <- _adjList; v <- adj) _invAdjList(v) ::= u
 
     override val nodes: Seq[Int] = _adjList.keys.toSeq
 
-    override def entry: Int = _entry
+    override def entryNodes: Seq[Int] = Seq(_entryNodes)
 
-    override def exit: Seq[Int] = _exit
+    override def exitNodes: Seq[Int] = _exitNodes
 
     override def getSucc(node: Int): Seq[Int] = _adjList(node)
 

@@ -12,9 +12,9 @@ object T86BasicBlockCfg {
     new Cfg[T86BasicBlock] {
       override def nodes: Seq[T86BasicBlock] = fun.basicBlocks
 
-      override def entry: T86BasicBlock = basicBlockMap(irFun.entryBlock)
+      override def entryNodes: Seq[T86BasicBlock] = Seq(basicBlockMap(irFun.entryBlock))
 
-      override def exit: Seq[T86BasicBlock] = irFun.exitPoints.map(insn => basicBlockMap(insn.basicBlock))
+      override def exitNodes: Seq[T86BasicBlock] = irFun.exitPoints.map(insn => basicBlockMap(insn.basicBlock))
 
       override def getSucc(block: T86BasicBlock): Seq[T86BasicBlock] = block.irBasicBlock.get.succ.map(basicBlockMap)
 

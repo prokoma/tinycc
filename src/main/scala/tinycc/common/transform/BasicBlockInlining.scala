@@ -2,13 +2,14 @@ package tinycc.common.transform
 
 import tinycc.common.PhiHelper.removeBlockPhiUsesIn
 import tinycc.common.ProgramTransform
-import tinycc.common.ir.IrManipulation.replaceInsnWith
+import tinycc.common.ir.IrManipulation.{insertInsnBefore, replaceInsnWith}
 import tinycc.common.ir._
 import tinycc.util.Profiler.profile
 
 class BasicBlockInlining extends ProgramTransform[IrProgram] {
   override def transformProgram(program: IrProgram): Unit = profile("basicBlockInlining", {
     program.basicBlocks.foreach(simplifyBranchTargets)
+    program.basicBlocks.foreach(inlineBranchTarget)
   })
 
   protected def simplifyBranchTargets(block: BasicBlock): Unit = {
@@ -55,5 +56,27 @@ class BasicBlockInlining extends ProgramTransform[IrProgram] {
         }
       case _ =>
     })
+  }
+
+  protected def inlineBranchTarget(block: BasicBlock): Unit = {
+    if(!block.attached)
+      return
+
+    block.terminator match {
+      case terminator: BrInsn if terminator.succBlock.pred.size == 1 =>
+        val succBlock = terminator.succBlock
+
+        log(s"inlined $succBlock in place of $terminator in $block")
+        succBlock.uses.foreach({
+          case ref@OperandBlockRef(_: PhiInsn, _) =>ref(block)
+          case OperandBlockRef(insn, _) if insn == terminator =>
+          case _ => throw new AssertionError(s"cannot inline referenced $succBlock (${succBlock.uses})")
+        })
+        succBlock.body.foreach(insn => insertInsnBefore(insn, terminator))
+        terminator.remove()
+        succBlock.remove()
+
+      case _ =>
+    }
   }
 }

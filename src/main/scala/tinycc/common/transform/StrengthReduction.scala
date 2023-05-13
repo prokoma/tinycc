@@ -119,34 +119,42 @@ class StrengthReduction extends ProgramTransform[IrProgram] {
     }
   }
 
-  private def optimizeCondBr(insn: CondBrInsn): Unit = insn.arg match {
-    case BinaryInsn(CmpINe, x, IImmInsn(0)) =>
-      log(s"replaced $insn x != 0 => x")
-      insn.argRef(x)
-
-    case BinaryInsn(CmpINe, IImmInsn(0), x) =>
-      log(s"replaced $insn 0 != x => x")
-      insn.argRef(x)
-
-    case BinaryInsn(CmpIEq, x, IImmInsn(0)) =>
-      log(s"replaced $insn x == 0 => !x")
-      replaceInsnWith(insn, new CondBrInsn(x, insn.falseBlock, insn.trueBlock, insn.basicBlock))
-
-    case BinaryInsn(CmpIEq, IImmInsn(0), x) =>
-      log(s"replaced $insn 0 == x => !x")
-      replaceInsnWith(insn, new CondBrInsn(x, insn.falseBlock, insn.trueBlock, insn.basicBlock))
-
-    case IImmInsn(0) =>
-      log(s"replaced $insn always 0")
-      removeBlockPhiUsesIn(insn.basicBlock, insn.trueBlock)
-      replaceInsnWith(insn, new BrInsn(insn.falseBlock, insn.basicBlock))
-
-    case IImmInsn(_) =>
-      log(s"replaced $insn always !0")
-      removeBlockPhiUsesIn(insn.basicBlock, insn.trueBlock)
+  private def optimizeCondBr(insn: CondBrInsn): Unit = {
+    if (insn.trueBlock == insn.falseBlock) {
+      log(s"replaced $insn trueBlock == falseBlock")
       replaceInsnWith(insn, new BrInsn(insn.trueBlock, insn.basicBlock))
+      return
+    }
 
-    case _ =>
+    insn.arg match {
+      case BinaryInsn(CmpINe, x, IImmInsn(0)) =>
+        log(s"replaced $insn x != 0 => x")
+        insn.argRef(x)
+
+      case BinaryInsn(CmpINe, IImmInsn(0), x) =>
+        log(s"replaced $insn 0 != x => x")
+        insn.argRef(x)
+
+      case BinaryInsn(CmpIEq, x, IImmInsn(0)) =>
+        log(s"replaced $insn x == 0 => !x")
+        replaceInsnWith(insn, new CondBrInsn(x, insn.falseBlock, insn.trueBlock, insn.basicBlock))
+
+      case BinaryInsn(CmpIEq, IImmInsn(0), x) =>
+        log(s"replaced $insn 0 == x => !x")
+        replaceInsnWith(insn, new CondBrInsn(x, insn.falseBlock, insn.trueBlock, insn.basicBlock))
+
+      case IImmInsn(0) =>
+        log(s"replaced $insn always 0")
+        removeBlockPhiUsesIn(insn.basicBlock, insn.trueBlock)
+        replaceInsnWith(insn, new BrInsn(insn.falseBlock, insn.basicBlock))
+
+      case IImmInsn(_) =>
+        log(s"replaced $insn always !0")
+        removeBlockPhiUsesIn(insn.basicBlock, insn.trueBlock)
+        replaceInsnWith(insn, new BrInsn(insn.trueBlock, insn.basicBlock))
+
+      case _ =>
+    }
   }
 
   private def isPowerOfTwo(l: Long): Boolean =
