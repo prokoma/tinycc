@@ -2,7 +2,7 @@ package tinycc.frontend.tinyc.ast
 
 import tinycc.util.parsing.SourceLocation
 
-sealed trait AstNode {
+sealed abstract class AstNode {
   def loc: SourceLocation
 
   def children: Seq[AstNode] = Seq.empty
@@ -11,7 +11,7 @@ sealed trait AstNode {
 }
 
 object AstNode {
-  val printer = new AstPrinter
+  private val printer = new AstPrinter
 }
 
 sealed trait AstType extends AstNode
