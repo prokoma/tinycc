@@ -67,7 +67,7 @@ trait RefTarget[R <: Ref[T], T] {
 }
 
 /** A smart reference to IR instruction. */
-abstract class InsnRef(private var target: Option[Insn]) extends Ref[Insn] {
+sealed abstract class InsnRef(private var target: Option[Insn]) extends Ref[Insn] {
   def this(target: Insn) = this(Some(target))
 
   target.foreach(_.uses.add(this))
@@ -91,7 +91,7 @@ object OperandRef {
 }
 
 /** A smart reference to BasicBlock. */
-abstract class BasicBlockRef(private var target: Option[BasicBlock]) extends Ref[BasicBlock] {
+sealed abstract class BasicBlockRef(private var target: Option[BasicBlock]) extends Ref[BasicBlock] {
   def this(target: BasicBlock) = this(Some(target))
 
   target.foreach(_.uses.add(this))
@@ -122,7 +122,7 @@ object EntryBlockRef {
 }
 
 /** A smart reference to IrFun. */
-abstract class IrFunRef(private var target: Option[IrFun]) extends Ref[IrFun] {
+sealed abstract class IrFunRef(private var target: Option[IrFun]) extends Ref[IrFun] {
   def this(target: IrFun) = this(Some(target))
 
   target.foreach(_.uses.add(this))
@@ -176,7 +176,10 @@ abstract class Insn(val op: IrOpcode, val basicBlock: BasicBlock) extends IrObje
   override def validate(): Unit = {
     operandRefs.zipWithIndex.foreach({ case (ref, index) =>
       assert(ref.isDefined, s"operand #$index is not defined")
-      assert(ref.get.attached, s"${ref.get} (operand #$index of $this) is not attached")
+    })
+    operands.zipWithIndex.foreach({ case (insn, index) =>
+      assert(insn.attached, s"$insn (operand #$index of $this) is not attached")
+      assert(insn.isInstanceOf[AllocGInsn] || insn.fun == this.fun, s"$this in ${this.fun} references $insn from ${insn.fun}")
     })
   }
 
@@ -320,12 +323,6 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
   /** [[NameGen]] instance for basic block names */
   val bbNameGen: NameGen = new NameGen
 
-  def releaseRefs(): Unit = {
-    program.nameGen.releaseName(name)
-    entryBlockRef.release()
-    basicBlocks.foreach(_.releaseRefs())
-  }
-
   def append(block: BasicBlock): BasicBlock = {
     require(block.fun == this, s"cannot append $block owned by ${block.fun} to $this")
 
@@ -383,6 +380,14 @@ class IrFun(val _name: String, val signature: IrFunSignature, val program: IrPro
   }
 
   def attached: Boolean = program.containsFun(this)
+
+  def releaseRefs(): Unit = {
+    program.nameGen.releaseName(name)
+    entryBlockRef.release()
+    basicBlocks.foreach(_.releaseRefs())
+  }
+
+  def remove(removeUses: Boolean = false): Unit = program.removeFun(this, removeUses)
 
   override def toString: String = s"IrFun($name)"
 }

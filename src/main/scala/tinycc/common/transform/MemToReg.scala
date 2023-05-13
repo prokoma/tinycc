@@ -2,7 +2,7 @@ package tinycc.common.transform
 
 import tinycc.common.PhiHelper.tryRemoveTrivialPhi
 import tinycc.common.ProgramTransform
-import tinycc.common.ir.IrManipulation.{prependInsnTo, replaceInsnWith}
+import tinycc.common.ir.IrManipulation.prependInsnTo
 import tinycc.common.ir._
 import tinycc.util.Profiler.profile
 
@@ -15,20 +15,29 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
     program.funs.foreach(transformFun)
   })
 
+  private def transformFun(fun: IrFun): Unit = {
+    fun.locals.foreach(local => {
+      // only optimize locals that are used as address in Load and Store instructions, because we can be sure that
+      // they are not aliased
+      val isSafeToOptimize = local.uses.forall({
+        case OperandRef(_: LoadInsn, _) => true
+        case ref@OperandRef(owner: StoreInsn, _) if ref == owner.ptrRef => true
+        case _ => false
+      })
+
+      if (isSafeToOptimize)
+        optimizeLocal(fun, local)
+    })
+  }
+
   private def optimizeLocal(fun: IrFun, local: AllocLInsn): Unit = {
     val currentDef = mutable.Map.empty[BasicBlock, Insn]
     var sealedBlocks = Set.empty[BasicBlock]
     val incompletePhis = mutable.Map.empty[BasicBlock, PhiInsn]
 
-    def writeVariable(block: BasicBlock, value: Insn): Unit = {
-//      log(s"writeVariable $block $value")
-      currentDef(block) = value
-    }
+    def writeVariable(block: BasicBlock, value: Insn): Unit = currentDef(block) = value
 
-    def readVariable(block: BasicBlock): Insn = {
-//      log(s"readVariable $block")
-      currentDef.getOrElse(block, readVariableRecursive(block))
-    }
+    def readVariable(block: BasicBlock): Insn = currentDef.getOrElse(block, readVariableRecursive(block))
 
     def readVariableRecursive(block: BasicBlock): Insn = {
       assert(block.pred.nonEmpty, s"uninitialized load in $block")
@@ -57,8 +66,6 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
     }
 
     def fillBlock(block: BasicBlock): Unit = {
-//      log(s"enter $block")
-
       block.body.foreach({
         case insn: LoadInsn if insn.ptr == local =>
           val value = readVariable(block)
@@ -74,8 +81,6 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
 
         case _ =>
       })
-
-//      log(s"exit $block")
     }
 
     def sealBlock(block: BasicBlock): Unit = {
@@ -92,16 +97,5 @@ class MemToReg(removeLocals: Boolean = true) extends ProgramTransform[IrProgram]
 
     if (removeLocals)
       local.remove()
-  }
-
-  def transformFun(fun: IrFun): Unit = {
-    // only optimize locals that are used as address in Load and Store instructions, because we can be sure that they are not aliased
-    val localsToOptimize = fun.locals.filter(_.uses.forall({
-      case OperandRef(_: LoadInsn, _) => true
-      case ref@OperandRef(owner: StoreInsn, _) if ref == owner.ptrRef => true
-      case _ => false
-    }))
-
-    localsToOptimize.foreach(optimizeLocal(fun, _))
   }
 }

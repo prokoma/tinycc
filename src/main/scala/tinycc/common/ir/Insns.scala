@@ -223,11 +223,11 @@ class GetFunPtrInsn(_targetFun: Option[IrFun], basicBlock: BasicBlock) extends I
 }
 
 class LoadArgInsn(val index: Int, basicBlock: BasicBlock) extends Insn(LoadArg, basicBlock) {
-  override def resultTy: IrTy = basicBlock.fun.argTys(index)
+  override def resultTy: IrTy = fun.argTys(index)
 
   override def validate(): Unit = {
     super.validate()
-    assert(index >= 0 && index < basicBlock.fun.argTys.size, s"out of bounds argument index $index inside $fun")
+    assert(index >= 0 && index < fun.argTys.size, s"out of bounds argument index $index inside $fun")
   }
 
   override def copy(newBlock: BasicBlock): LoadArgInsn = new LoadArgInsn(index, newBlock)

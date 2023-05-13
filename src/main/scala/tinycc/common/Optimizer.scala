@@ -1,7 +1,7 @@
 package tinycc.common
 
 import tinycc.common.ir.{IrPrinter, IrProgram}
-import tinycc.common.transform.{AllocOrdering, BasicBlockInlining, BasicBlockScheduling, ConstantPropagation, DeadInsnElimination, LocalValueNumbering, MemToReg, SingleFunExit, StrengthReduction}
+import tinycc.common.transform.{AllocOrdering, BasicBlockInlining, BasicBlockScheduling, ConstantPropagation, DeadFunElimination, DeadInsnElimination, FunInlining, LocalValueNumbering, MemToReg, SingleFunExit, StrengthReduction}
 import tinycc.util.Profiler.profile
 
 class Optimizer(enableOptionalOptimizations: Boolean = false) extends ProgramTransform[IrProgram] {
@@ -14,6 +14,8 @@ class Optimizer(enableOptionalOptimizations: Boolean = false) extends ProgramTra
   val constantPropagation = new ConstantPropagation
   val deadInsnElimination = new DeadInsnElimination
   val localValueNumbering = new LocalValueNumbering
+  val funInlining = new FunInlining
+  val deadFunElimination = new DeadFunElimination
 
   val printer = new IrPrinter()
 
@@ -24,11 +26,14 @@ class Optimizer(enableOptionalOptimizations: Boolean = false) extends ProgramTra
     runPass(program, allocOrdering)
     if (enableOptionalOptimizations) {
       runPass(program, singleFunExit)
+//      runPass(program, funInlining)
+      runPass(program, allocOrdering)
       runPass(program, strengthReduction)
       runPass(program, basicBlockInlining)
       runPass(program, basicBlockInlining)
       runPass(program, basicBlockInlining)
       runPass(program, basicBlockScheduling)
+      runPass(program, memToReg)
       runPass(program, memToReg)
       runPass(program, localValueNumbering)
       runPass(program, constantPropagation)
@@ -39,6 +44,7 @@ class Optimizer(enableOptionalOptimizations: Boolean = false) extends ProgramTra
       runPass(program, basicBlockInlining)
       runPass(program, basicBlockInlining)
       runPass(program, basicBlockScheduling)
+      runPass(program, deadFunElimination)
     }
 
     log("after\n" + printer.printToString(program))

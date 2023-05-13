@@ -114,6 +114,7 @@ class StrengthReduction extends ProgramTransform[IrProgram] {
 
     case _ => insn match {
       case insn: CondBrInsn => optimizeCondBr(insn)
+      case insn: CallPtrInsn => optimizeCallPtr(insn)
 
       case _ =>
     }
@@ -155,6 +156,14 @@ class StrengthReduction extends ProgramTransform[IrProgram] {
 
       case _ =>
     }
+  }
+
+  private def optimizeCallPtr(insn: CallPtrInsn): Unit = insn.funPtr match {
+    case gfp: GetFunPtrInsn =>
+      log(s"replaced $insn with direct call to ${gfp.targetFun}")
+      replaceInsnWith(insn, new CallInsn(gfp.targetFun, insn.args, insn.basicBlock))
+
+    case _ =>
   }
 
   private def isPowerOfTwo(l: Long): Boolean =
