@@ -113,7 +113,8 @@ class FunInlining extends ProgramTransform[IrProgram] {
 
     calls.filter(call => {
       val targetFun = call.targetFun
-      ((isLeafFun(targetFun) || targetFun.uses.size == 1)
+      (targetFun != call.fun
+        && (isLeafFun(targetFun) || targetFun.uses.size == 1)
         && (byTargetFun(targetFun).size == 1 || byTargetFun(targetFun).size * targetFun.insns.size < 42))
     }).toSet
   }
