@@ -598,7 +598,8 @@ trait GenericGraphColoringRegisterAllocator[T <: Operand] extends T86GenericRegi
 
         } else if (nodeLists.isNonEmpty(Spill)) {
           val node = nodeLists(Spill).minBy(_spillCosts)
-          log(s"candidate for spill: $node")
+          log(s"candidate for spill: $node (cost ${_spillCosts(node)})")
+          assert(!_spillCosts(node).isPosInfinity)
           nodeLists.moveToList(node, Simplify)
           freezeMoves(node)
 
